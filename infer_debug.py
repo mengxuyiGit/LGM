@@ -22,7 +22,7 @@ from mvdream.pipeline_mvdream import MVDreamPipeline
 
 from ipdb import set_trace as st
 from PIL import Image
-# import matplotlib.pyplot as plt
+from core.provider_objaverse_inference import ObjaverseDataset as Dataset
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
@@ -91,36 +91,73 @@ def process(opt: Options, path):
     # rgba to rgb white bg
     if image.shape[-1] == 4:
         image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
-
-    mv_image = pipe('', image, guidance_scale=5.0, num_inference_steps=30, elevation=0)
-    mv_image = np.stack([mv_image[1], mv_image[2], mv_image[3], mv_image[0]], axis=0) # [4, 256, 256, 3], float32
     
-    save_mv_image = True
-    if save_mv_image:
-        images_array_scaled = (mv_image * 255).astype('uint8')
+    mode = 'use_dataloader'
+    # mode = 'original'
+    if mode in ['original', 'use_rendered']:
+        if mode == 'original':
+            mv_image = pipe('', image, guidance_scale=5.0, num_inference_steps=30, elevation=0)
+            mv_image = np.stack([mv_image[1], mv_image[2], mv_image[3], mv_image[0]], axis=0) # [4, 256, 256, 3], float32
 
-        # Loop through each image in the scaled array
-        for i in range(images_array_scaled.shape[0]):
-            # Extract the ith image from the scaled array
-            current_image = images_array_scaled[i]
+        elif mode == 'use_rendered':
+            render_path = '/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/data-1000/0c77dfdf9430465f9767a58d56e8fca1'
+            imgs = [np.array(Image.open(f'{render_path}/{i:03d}.png')) / 255.0 for i in range(1,5)]
+            # imgs = [np.array(Image.open(f'/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/data-1000/0a97a6e5c2894bfba2d347d333756b0e/{i:03d}.png')) / 255.0 for i in range(1,5)]
+            imgs = [img[..., :3] * img[..., 3:4] + (1 - img[..., 3:4]) for img in imgs]
+            mv_image = np.stack(imgs, axis=0)
+            name = render_path.split('/')[-1]
+            print(name)
+            # st()
+    
+        save_mv_image = True
+        if save_mv_image and mode != 'use_dataloader':
+            images_array_scaled = (mv_image * 255).astype('uint8')
 
-            # Convert the NumPy array to an image
-            image = Image.fromarray(current_image)
+            # Loop through each image in the scaled array
+            for i in range(images_array_scaled.shape[0]):
+                # Extract the ith image from the scaled array
+                current_image = images_array_scaled[i]
 
-            # Save the image with a unique filename (e.g., image_0.png, image_1.png, ...)
-            _im_name = os.path.join(opt.workspace, f'{name}_mvimage_{i}.png')
-            image.save(_im_name)
-        # st()
+                # Convert the NumPy array to an image
+                image = Image.fromarray(current_image)
+
+                # Save the image with a unique filename (e.g., image_0.png, image_1.png, ...)
+                _im_name = os.path.join(opt.workspace, f'{name}_mvimage_{i}.png')
+                image.save(_im_name)  
+
+        # generate gaussians
+        input_image = torch.from_numpy(mv_image).permute(0, 3, 1, 2).float().to(device) # [4, 3, 256, 256]
+        input_image = F.interpolate(input_image, size=(opt.input_size, opt.input_size), mode='bilinear', align_corners=False)
+        input_image = TF.normalize(input_image, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+
+        input_image = torch.cat([input_image, rays_embeddings], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
+
+    elif mode == 'use_dataloader':
+        # render_path = '/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/data-1000/0c77dfdf9430465f9767a58d56e8fca1' # huahua
+        render_path = '/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd'
         
-        
-        
+        test_dataset = Dataset(opt, name=render_path, training=False)
+        test_dataloader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=opt.batch_size,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True,
+            drop_last=False,
+        )
 
-    # generate gaussians
-    input_image = torch.from_numpy(mv_image).permute(0, 3, 1, 2).float().to(device) # [4, 3, 256, 256]
-    input_image = F.interpolate(input_image, size=(opt.input_size, opt.input_size), mode='bilinear', align_corners=False)
-    input_image = TF.normalize(input_image, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
-
-    input_image = torch.cat([input_image, rays_embeddings], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
+        with torch.no_grad():
+            for i, data in enumerate(test_dataloader):
+                print(i)
+                for item in data:
+                    data[item] = data[item].to(device)
+            
+        input_image = data['input']
+        # name = 'jiatao'
+        name = 'jiatao_'+render_path.split('/')[-1]
+        
+    else:
+        assert ValueError
 
     with torch.no_grad():
         with torch.autocast(device_type='cuda', dtype=torch.float16):
@@ -177,5 +214,10 @@ if os.path.isdir(opt.test_path):
     file_paths = glob.glob(os.path.join(opt.test_path, "*"))
 else:
     file_paths = [opt.test_path]
+print(file_paths)
+
 for path in file_paths:
+    if os.path.isdir(path):
+        continue
     process(opt, path)
+    # st()
