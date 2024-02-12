@@ -1,7 +1,8 @@
 # debug training: fix pretrained 
-accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big --workspace workspace_debug_pretrained \
+accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big \
+    --workspace workspace_debug_pretrained_tf \
     --resume pretrained/model_fp16.safetensors --num_epochs 1000 --fix_pretrained \
-    --lr 0.0002
+    --lr 0.0002 
 
 # debug training
 # accelerate launch --config_file acc_configs/gpu1.yaml main.py big --workspace workspace_ft --resume pretrained/model_fp16.safetensors --num_epochs 1000
