@@ -8,6 +8,8 @@ from functools import partial
 
 from core.attention import MemEffAttention
 
+from ipdb import set_trace as st
+
 class MVAttention(nn.Module):
     def __init__(
         self, 
@@ -315,5 +317,6 @@ class UNet(nn.Module):
         x = self.norm_out(x)
         x = F.silu(x)
         x = self.conv_out(x) # [B, Cout, H', W']
+
 
         return x
