@@ -12,6 +12,9 @@ from safetensors.torch import load_file
 import kiui
 
 from ipdb import set_trace as st
+import os
+import json
+import re
 
 def main():    
     opt = tyro.cli(AllConfigs)
@@ -105,6 +108,39 @@ def main():
         model, optimizer, train_dataloader, test_dataloader, scheduler
     )
 
+    # log with tb
+    stats_jsonl = None
+    stats_tfevents = None
+    stats_metrics = dict()
+    stats_dict = dict()
+    rank = 0 # FIXME: get cuda device number when training using multiple GPUs
+    cur_nimg = -1
+    start_time = time.time()
+    if rank == 0:
+        ## ------------ dynamically change the workspace dir ------------
+        prev_run_dirs = []
+        outdir = opt.workspace
+        if os.path.isdir(outdir):
+            prev_run_dirs = [x for x in os.listdir(outdir) if os.path.isdir(os.path.join(outdir, x))]
+        prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
+        prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
+        cur_run_id = max(prev_run_ids, default=-1) + 1
+        desc = f"{opt.desc}-lr{opt.lr}"
+        run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
+        assert not os.path.exists(run_dir)
+    
+        opt.workspace = run_dir
+        # ------------ [end] ---------
+        
+        os.makedirs(opt.workspace, exist_ok=True)
+        stats_jsonl = open(os.path.join(opt.workspace, 'stats.jsonl'), 'wt')
+        try:
+            import torch.utils.tensorboard as tensorboard
+            stats_tfevents = tensorboard.SummaryWriter(opt.workspace)
+        except ImportError as err:
+            print('Skipping tfevents export:', err)
+
+
     # loop
     for epoch in range(opt.num_epochs):
         # train
@@ -112,6 +148,7 @@ def main():
         total_loss = 0
         total_psnr = 0
         for i, data in enumerate(train_dataloader):
+            cur_nimg += 1
             with accelerator.accumulate(model):
 
                 optimizer.zero_grad()
@@ -149,6 +186,30 @@ def main():
 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
+              
+                
+                ## log with tb
+                timestamp = time.time()
+                stats_metrics.update({
+                    'loss':total_loss,
+                    'psnr':total_psnr
+                })
+                stats_dict.update({
+                    'loss':total_loss.item(),
+                    'psnr':total_psnr.item()
+                })
+                
+                if stats_jsonl is not None:
+                    fields = dict(stats_dict, timestamp=timestamp)
+                    stats_jsonl.write(json.dumps(fields) + '\n')
+                    stats_jsonl.flush()
+                if stats_tfevents is not None:
+                    global_step = int(cur_nimg / 10)
+                    walltime = timestamp - start_time
+                    for name, value in stats_metrics.items():
+                        stats_tfevents.add_scalar(f'Metrics/{name}', value, global_step=global_step, walltime=walltime)
+                    stats_tfevents.flush()
+                    print("tf log sucessful!")
 
             # if accelerator.is_main_process:
             #     # logging
@@ -186,7 +247,7 @@ def main():
         accelerator.wait_for_everyone()
         accelerator.save_model(model, opt.workspace)
 
-        if epoch % 200 == 0:
+        if epoch % opt.eval_iter == 0:
             # eval
             with torch.no_grad():
                 model.eval()
