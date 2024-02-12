@@ -50,6 +50,10 @@ class LGM(nn.Module):
             self.lpips_loss = LPIPS(net='vgg')
             self.lpips_loss.requires_grad_(False)
         
+        # Create an nn.Parameter for the output
+        # self.output_parameter = nn.Parameter(torch.randn((your_output_shape_here), requires_grad=True))
+        self.splatter_out = nn.Parameter(torch.randn((1, 4, 14, self.opt.splat_size, self.opt.splat_size), requires_grad=True))
+        self.splatter_out_is_random=True
 
 
     def state_dict(self, **kwargs):
@@ -93,12 +97,35 @@ class LGM(nn.Module):
         # return: Gaussians: [B, dim_t]
 
         B, V, C, H, W = images.shape
-        images = images.view(B*V, C, H, W)
+        
+        ### discarded all the before modules, direcly load from the nnParameters
+        ### ----- previous -------
+        # images = images.view(B*V, C, H, W)
 
-        x = self.unet(images) # [B*4, 14, h, w]
-        x = self.conv(x) # [B*4, 14, h, w]
+        # x = self.unet(images) # [B*4, 14, h, w]
+        # x = self.conv(x) # [B*4, 14, h, w]
+        
+        # x = x.reshape(B, 4, 14, self.opt.splat_size, self.opt.splat_size)
+        
+        ### ----- new -------
+        if self.splatter_out_is_random:
+            ## ----- previous -------
+            images = images.view(B*V, C, H, W)
 
-        x = x.reshape(B, 4, 14, self.opt.splat_size, self.opt.splat_size)
+            x = self.unet(images) # [B*4, 14, h, w]
+            x = self.conv(x) # [B*4, 14, h, w]
+            
+            x = x.reshape(B, 4, 14, self.opt.splat_size, self.opt.splat_size)
+            ## assign the pretrained output to spaltter out
+            self.splatter_out = nn.Parameter(x)
+            
+            ## toggle the flag
+            self.splatter_out_is_random = False
+            print("Only do this once: change random init to pretrained output")
+
+        assert B==1 #TODO: can we handle multiple optimization in one loop?
+        x = self.splatter_out
+        ### ----- new end -------
         
         ## visualize multi-view gaussian features for plotting figure
         # tmp_alpha = self.opacity_act(x[0, :, 3:4])
@@ -150,8 +177,10 @@ class LGM(nn.Module):
 
         gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
         gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
-
+        ## V=8
+        
         gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+        
 
         loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
         loss = loss + loss_mse

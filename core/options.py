@@ -70,6 +70,10 @@ class Options:
     force_cuda_rast: bool = False
     # render fancy video with gaussian scaling effect
     fancy_video: bool = False
+
+    
+    ### optimize splatter
+    fix_pretrained: bool = False
     
 
 # all the default settings

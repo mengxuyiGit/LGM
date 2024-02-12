@@ -4,11 +4,14 @@ import random
 
 import torch
 from core.options import AllConfigs
-from core.models import LGM
+# from core.models import LGM
+from core.models_fix_pretrained import LGM
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from safetensors.torch import load_file
 
 import kiui
+
+from ipdb import set_trace as st
 
 def main():    
     opt = tyro.cli(AllConfigs)
@@ -23,6 +26,15 @@ def main():
 
     # model
     model = LGM(opt)
+    if opt.fix_pretrained:
+        model.eval()
+        # Freeze all parameters
+        if opt.fix_pretrained:
+            for name, param in model.named_parameters():
+                if name=='splatter_out':
+                    print(f"{name} still requires grad")
+                else:
+                    param.requires_grad = False
 
     # resume
     if opt.resume is not None:
@@ -69,8 +81,17 @@ def main():
         drop_last=False,
     )
 
-    # optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+    # # optimizer
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+    # ---- new: optimizer ------
+    if opt.fix_pretrained:
+        # params_to_opt = filter(lambda p: p.requires_grad, model.parameters())
+        # print(f"params_to_opt: {len(list(params_to_opt))}")
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+        print(f"opt.lr = {opt.lr}")
+    
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
 
     # scheduler (per-iteration)
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
@@ -100,14 +121,31 @@ def main():
                 out = model(data, step_ratio)
                 loss = out['loss']
                 psnr = out['psnr']
-                accelerator.backward(loss)
+                
+              
+                # accelerator.backward(loss)
+                # Backward pass
+                if opt.fix_pretrained:
+                    for param in model.parameters():
+                        if param.requires_grad:
+                            accelerator.backward(loss)
+                else:
+                    accelerator.backward(loss)
 
                 # gradient clipping
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
+                    accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip) 
 
                 optimizer.step()
                 scheduler.step()
+                
+                # Print the parameter list and their gradients
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        print(f"Parameter: {name}, Gradient: {param.grad.max(), param.grad.mean()}")
+                    else:
+                        # print(f"Parameter: {name}, Gradient: None")
+                        pass
 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
