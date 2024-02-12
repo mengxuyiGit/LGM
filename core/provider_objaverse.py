@@ -13,8 +13,6 @@ import kiui
 from core.options import Options
 from core.utils import get_rays, grid_distortion, orbit_camera_jitter
 
-from ipdb import set_trace as st
-
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
@@ -24,7 +22,7 @@ class ObjaverseDataset(Dataset):
     def _warn(self):
         raise NotImplementedError('this dataset is just an example and cannot be used directly, you should modify it to your own setting! (search keyword TODO)')
 
-    def __init__(self, opt: Options, name=None, training=True):
+    def __init__(self, opt: Options, training=True):
         
         self.opt = opt
         self.training = training
@@ -32,11 +30,8 @@ class ObjaverseDataset(Dataset):
         # # TODO: remove this barrier
         # self._warn()
 
-        if name is None:
-            name = "/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd"
-        
         # TODO: load the list of objects for training
-        self.items = [name]
+        self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd"]
         # with open('TODO: file containing the list', 'r') as f:
         #     for line in f.readlines():
         #         self.items.append(line.strip())
@@ -48,8 +43,6 @@ class ObjaverseDataset(Dataset):
         #     self.items = self.items[-self.opt.batch_size:]
         
         # default camera intrinsics
-        # TODO: change projection matrix
-        # st()
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
         self.proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
         self.proj_matrix[0, 0] = 1 / self.tan_half_fov
@@ -82,15 +75,11 @@ class ObjaverseDataset(Dataset):
         #     # fixed views
         #     vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
         vids = np.arange(1, 10)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
-        # vids = np.random.permutation(7)[:self.opt.num_input_views].tolist()
-        print(vids)
-        print(self.opt.num_input_views)
         
         for vid in vids:
 
             image_path = os.path.join(uid, f'{vid:03d}.png')
             camera_path = os.path.join(uid, f'{vid:03d}.npy')
-            print('image_path, camera_path:',image_path, camera_path)
 
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
             image = torch.from_numpy(image)
