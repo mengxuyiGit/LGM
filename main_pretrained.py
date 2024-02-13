@@ -68,8 +68,9 @@ def main():
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=opt.batch_size,
-        shuffle=True,
-        num_workers=opt.num_workers,
+        shuffle=False,
+        # num_workers=opt.num_workers,
+        num_workers=0,
         pin_memory=True,
         drop_last=False,
     )
@@ -126,6 +127,8 @@ def main():
         prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
         cur_run_id = max(prev_run_ids, default=-1) + 1
         desc = f"inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
+        if opt.desc is not None:
+            desc = f"{opt.desc}-{desc}"
         run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
         print(f"[Save dir] {run_dir}")
         assert not os.path.exists(run_dir)
@@ -160,7 +163,7 @@ def main():
                 # print(f"-------1. before out=model():---------")
                 # last_time = time.time()
                 
-                out = model(data, step_ratio)
+                out = model(data, step_ratio, opt=opt, epoch=epoch, i=i)
                 loss = out['loss']
                 psnr = out['psnr']
                 
@@ -222,6 +225,7 @@ def main():
                         stats_tfevents.add_scalar(f'Metrics/{name}', value, global_step=global_step, walltime=walltime)
                     stats_tfevents.flush()
                     # print("tf log sucessful!")
+                
 
             # if accelerator.is_main_process:
             #     # logging
@@ -276,9 +280,10 @@ def main():
                 model.eval()
                 total_psnr = 0
                 for i, data in enumerate(test_dataloader):
-                    out = model(data)
+                    # st()
+                    print(f"test data vids:{[t.item() for t in data['vids']]}")
+                    out = model(data, opt=opt)
                    
-        
                     psnr = out['psnr']
                     total_psnr += psnr.detach()
                     
@@ -291,6 +296,7 @@ def main():
                         pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
                         kiui.write_image(f'{opt.workspace}/eval_pred_images_{epoch}_{i}.jpg', pred_images)
+                        # st()
 
                         # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                         # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)

@@ -75,6 +75,7 @@ class Options:
     ### optimize splatter
     fix_pretrained: bool = False
     eval_iter: int = 10
+    desc: Optional[str] = None
     
 
 # all the default settings

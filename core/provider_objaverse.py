@@ -54,6 +54,9 @@ class ObjaverseDataset(Dataset):
         self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
         self.proj_matrix[2, 3] = 1
 
+        self.global_cnt = 3
+        print(f"init self.global_cnt = 0, self.training={self.training}")
+
 
     def __len__(self):
         return len(self.items)
@@ -92,14 +95,23 @@ class ObjaverseDataset(Dataset):
             # print(f"largest_filename:{largest_filename} -> value:{numerical_value}")
         
         # vids = np.random.permutation(numerical_value+1)[:self.opt.num_views].tolist()
-        vids = np.arange(0, numerical_value+1)[:self.opt.num_views].tolist()
+        # vids = np.arange(0, numerical_value+1)[:self.opt.num_views].tolist()
         # print(f"vids: {vids}")
+        # vids = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+        # vids = [50, 50, 50, 50, 50, 50, 50, 50, 50, 50]
+        # vids = [self.global_cnt] * self.opt.num_views
+        # self.global_cnt += 1
+        
+        ## fix input views
+        vids = [0, 3, 10, 15, 37, 38][:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
+        final_vids = []
         
         for vid in vids:
+            final_vids.append(vid)
             
-
             image_path = os.path.join(uid, f'{vid:03d}.png')
             camera_path = os.path.join(uid, f'{vid:03d}.npy')
+            # print(f"image path: {image_path}; cam path:{camera_path}")
 
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
             image = torch.from_numpy(image)
@@ -197,5 +209,7 @@ class ObjaverseDataset(Dataset):
         results['cam_view'] = cam_view
         results['cam_view_proj'] = cam_view_proj
         results['cam_pos'] = cam_pos
+
+        results['vids'] = final_vids
 
         return results

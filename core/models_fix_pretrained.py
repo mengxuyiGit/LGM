@@ -116,7 +116,7 @@ class LGM(nn.Module):
             x = self.unet(images) # [B*4, 14, h, w]
             x = self.conv(x) # [B*4, 14, h, w]
             
-            x = x.reshape(B, 4, 14, self.opt.splat_size, self.opt.splat_size)
+            x = x.reshape(B, 6, 14, self.opt.splat_size, self.opt.splat_size)
             ## assign the pretrained output to spaltter out
             self.splatter_out = nn.Parameter(x)
             
@@ -163,7 +163,7 @@ class LGM(nn.Module):
         
         
     
-    def forward(self, data, step_ratio=1):
+    def forward(self, data, step_ratio=1., opt=None, epoch=-1, i=-1):
         # data: output of the dataloader
         # return: loss
 
@@ -213,6 +213,19 @@ class LGM(nn.Module):
 
         loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
         loss = loss + loss_mse
+
+        if epoch > 0:
+            print('train vids',[t.item() for t in data['vids']])
+
+            ### ----------- debug-------------
+            gt_images_save = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+            gt_images_save = gt_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images_save.shape[1] * gt_images_save.shape[3], 3) # [B*output_size, V*output_size, 3]
+            kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images_save)
+
+            pred_images_save = results['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+            pred_images_save = pred_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images_save.shape[1] * pred_images_save.shape[3], 3)
+            kiui.write_image(f'{opt.workspace}/train_pred_images_{epoch}_{i}.jpg', pred_images_save)
+            ### -------- debug [end]-------------
 
         if self.opt.lambda_lpips > 0:
             loss_lpips = self.lpips_loss(
