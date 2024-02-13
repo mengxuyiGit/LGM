@@ -87,12 +87,34 @@ def main():
 
     # # optimizer
     # optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+
     # ---- new: optimizer ------
+    ## IMPORTANT: run a warm up iteration to update the parameters to the target value
+    # device
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # model = model.to(device)
+    # model.eval()
+    # accelerate
+    fake_optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr)
+    fake_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(fake_optimizer, T_0=3000, eta_min=1e-6)
+    model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
+        model, fake_optimizer, train_dataloader, test_dataloader, fake_scheduler
+    )
+    for i, data in enumerate(train_dataloader):
+        out = model(data)
+    # # Now you know the initial value of the dynamic parameter
+    # initial_value = model.splatter_out
+    # print(f"Initial value of dynamic parameter: {initial_value}")
+    # initial_value = model.splatter_out.shape
+    # print(f"Initial value of dynamic parameter (shape): {initial_value}")
+    # # st()
+    ## optimizer
     if opt.fix_pretrained:
         # params_to_opt = filter(lambda p: p.requires_grad, model.parameters())
         # print(f"params_to_opt: {len(list(params_to_opt))}")
-        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
-        print(f"opt.lr = {opt.lr}")
+        # optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr)
+        print(f"opt.lr = {opt.lr}, use normal Adam")
     
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
@@ -172,29 +194,56 @@ def main():
                 # last_time = time.time()
                 
                 
-                # accelerator.backward(loss)
-                # Backward pass
-                if opt.fix_pretrained:
-                    for param in model.parameters():
-                        if param.requires_grad:
-                            accelerator.backward(loss)
-                else:
-                    accelerator.backward(loss)
+                # # accelerator.backward(loss)
+                # # Backward pass
+                # if opt.fix_pretrained:
+                #     for param in model.parameters():
+                #         if param.requires_grad:
+                #             accelerator.backward(loss)
+                # else:
+                #     accelerator.backward(loss)
+                # before_back_grad = None
+                # if model.splatter_out.grad is not None:
+                #     before_back_grad = model.splatter_out.grad.max()
+                    
+                # print(f"Parameter: splatter out, Gradient: {before_back_grad}")
+                accelerator.backward(loss)
+                # print("accelerator.backward(loss)")
+                # # Print information about parameter groups
+                # for i, param_group in enumerate(optimizer.param_groups):
+                #     print(f"Parameter Group {i + 1}:")
+                #     print(f"  Learning Rate: {param_group['lr']}")
+                #     print(f"  Weight Decay: {param_group['weight_decay']}")
+                #     print(f"  Parameters:")
+                #     for param in param_group['params']:
+                #         print(f"    {param.shape}")
+                #     print()
+                # st()
 
                 # gradient clipping
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip) 
 
+                # old = model.splatter_out.detach().clone().cpu()
+                # print(f"splatter out before opt step:{old}")
+                # st()
                 optimizer.step()
                 scheduler.step()
                 
-                # Print the parameter list and their gradients
-                for name, param in model.named_parameters():
-                    if param.grad is not None:
-                        print(f"Parameter: {name}, Gradient: {param.grad.max(), param.grad.mean()}")
-                    else:
-                        # print(f"Parameter: {name}, Gradient: None")
-                        pass
+                # new = old + opt.lr * model.splatter_out.grad
+                
+                # new = model.splatter_out.detach().clone().cpu()
+                # # print(f"splatter out after opt step:{new}")
+                # print(f"splatter out unchanges (use opt)?:{torch.all(old == new)}")
+                # # st()
+                
+                # # Print the parameter list and their gradients
+                # for name, param in model.named_parameters():
+                #     if param.grad is not None:
+                #         print(f"Parameter: {name}, Gradient: {param.grad.max(), param.grad.mean()}")
+                #     else:
+                #         # print(f"Parameter: {name}, Gradient: None")
+                #         pass
                 
                 # print(f"-------3. before tb log:{time.time()-last_time}---------")
                 # last_time = time.time()

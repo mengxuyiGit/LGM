@@ -7,7 +7,8 @@
 accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big \
     --workspace workspace_debug_pretrained_tf \
     --resume pretrained/model_fp16.safetensors --num_epochs 1000 --fix_pretrained \
-    --lr 0.0001 --num_input_views 6 --num_views 56 --desc 'fix_input_views' --eval_iter 10
+    --lr 0.0006 --num_input_views 6 --num_views 20 --desc 'check_000_npy' --eval_iter 100 \
+    --prob_cam_jitter 0
 
 # debug training
 # accelerate launch --config_file acc_configs/gpu1.yaml main.py big --workspace workspace_ft --resume pretrained/model_fp16.safetensors --num_epochs 1000

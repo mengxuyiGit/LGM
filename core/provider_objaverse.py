@@ -54,7 +54,7 @@ class ObjaverseDataset(Dataset):
         self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
         self.proj_matrix[2, 3] = 1
 
-        self.global_cnt = 3
+        self.global_cnt = 0
         print(f"init self.global_cnt = 0, self.training={self.training}")
 
 
@@ -103,7 +103,11 @@ class ObjaverseDataset(Dataset):
         # self.global_cnt += 1
         
         ## fix input views
-        vids = [0, 3, 10, 15, 37, 38][:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
+        if self.training:
+            vids = [0, 3, 10, 15, 37, 38][:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
+        else:
+            vids = [0, 3, 10, 15, 37, 38][:self.opt.num_input_views] + np.arange(numerical_value+1).tolist() # fixed order
+        
         final_vids = []
         
         for vid in vids:
@@ -117,6 +121,8 @@ class ObjaverseDataset(Dataset):
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
+            # print(f"cam npy contents:{cam}")
+            
             from kiui.cam import orbit_camera
             c2w = orbit_camera(-cam['elevation'], cam['azimuth'], radius=cam['radius'])
             c2w = torch.from_numpy(c2w)
@@ -178,6 +184,7 @@ class ObjaverseDataset(Dataset):
                 images_input[1:] = grid_distortion(images_input[1:])
             # apply camera jittering (only to input!)
             if random.random() < self.opt.prob_cam_jitter:
+                print("jjjjjjjjjjiiiiiiiiiitttttttttteeeeeeeerrrrrrrrr")
                 cam_poses_input[1:] = orbit_camera_jitter(cam_poses_input[1:])
 
         images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
