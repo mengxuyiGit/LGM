@@ -76,6 +76,7 @@ class Options:
     fix_pretrained: bool = False
     eval_iter: int = 10
     desc: Optional[str] = None
+    save_train_pred: bool = False
     
 
 # all the default settings
