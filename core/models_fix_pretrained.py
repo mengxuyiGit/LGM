@@ -11,6 +11,7 @@ from core.options import Options
 from core.gs import GaussianRenderer
 
 from ipdb import set_trace as st
+import time
 
 
 class LGM(nn.Module):
@@ -145,7 +146,22 @@ class LGM(nn.Module):
         gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
         
         return gaussians
+    
+    def get_activated_splatter_out(self):
+        
+        x = self.splatter_out.flatten(-2).permute(0, 1, 3, 2) # [B, 4, 14, res, res] -> [B, 4, 14, res**2] -> [B, 4, res**2, 14]
+        
+        pos = self.pos_act(x[..., 0:3]) # [B, 4, N, 3]
+        opacity = self.opacity_act(x[..., 3:4])
+        scale = self.scale_act(x[..., 4:7])
+        rotation = self.rot_act(x[..., 7:11])
+        rgbs = self.rgb_act(x[..., 11:])
 
+        spaltter_batch = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, 4, N, 14]
+        
+        return spaltter_batch
+        
+        
     
     def forward(self, data, step_ratio=1):
         # data: output of the dataloader
@@ -156,10 +172,16 @@ class LGM(nn.Module):
 
         images = data['input'] # [B, 4, 9, h, W], input features
         
+        # print(f"-------1. before forward_gaussians:---------")
+        # last_time = time.time()
+        
         # use the first view to predict gaussians
         gaussians = self.forward_gaussians(images) # [B, N, 14]
+        
+        # print(f"-------2. after forward_gaussians:{time.time()-last_time}---------")
+        # last_time = time.time()
 
-        results['gaussians'] = gaussians
+        # results['gaussians'] = gaussians #FIXME: WHY do this? results is overwritten
 
         # random bg for training
         if self.training:
@@ -169,8 +191,15 @@ class LGM(nn.Module):
 
         # use the other views for rendering and supervision
         results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+        # st()
         pred_images = results['image'] # [B, V, C, output_size, output_size]
         pred_alphas = results['alpha'] # [B, V, 1, output_size, output_size]
+        
+        ## also output gaussians
+        results['gaussians'] = gaussians
+        
+        # print(f"-------3. after gs.render:{time.time()-last_time}---------")
+        # last_time = time.time()
 
         results['images_pred'] = pred_images
         results['alphas_pred'] = pred_alphas
@@ -202,5 +231,7 @@ class LGM(nn.Module):
         with torch.no_grad():
             psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
             results['psnr'] = psnr
+        
+        # print(f"-------4. after metric:{time.time()-last_time}---------")
 
         return results

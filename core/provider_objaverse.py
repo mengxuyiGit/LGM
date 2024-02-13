@@ -16,6 +16,8 @@ from core.utils import get_rays, grid_distortion, orbit_camera_jitter
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
+import glob
+
 
 class ObjaverseDataset(Dataset):
 
@@ -31,6 +33,7 @@ class ObjaverseDataset(Dataset):
         # self._warn()
 
         # TODO: load the list of objects for training
+        # self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/data-1000/0c77dfdf9430465f9767a58d56e8fca1"]
         self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd"]
         # with open('TODO: file containing the list', 'r') as f:
         #     for line in f.readlines():
@@ -74,9 +77,26 @@ class ObjaverseDataset(Dataset):
         # else:
         #     # fixed views
         #     vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
-        vids = np.arange(1, 10)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
+        
+        # vids = np.arange(1, 10)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
+        # vids = np.arange(0, 7)[:self.opt.num_input_views].tolist()
+        
+        extension='.png'
+        file_pattern = os.path.join(uid, f'*{extension}')
+        files = sorted(glob.glob(file_pattern))
+        
+        if files:
+            largest_file = files[-1]
+            largest_filename = os.path.splitext(os.path.basename(largest_file))[0]
+            numerical_value = int(''.join(c for c in largest_filename if c.isdigit()))
+            # print(f"largest_filename:{largest_filename} -> value:{numerical_value}")
+        
+        # vids = np.random.permutation(numerical_value+1)[:self.opt.num_views].tolist()
+        vids = np.arange(0, numerical_value+1)[:self.opt.num_views].tolist()
+        # print(f"vids: {vids}")
         
         for vid in vids:
+            
 
             image_path = os.path.join(uid, f'{vid:03d}.png')
             camera_path = os.path.join(uid, f'{vid:03d}.npy')
@@ -119,6 +139,7 @@ class ObjaverseDataset(Dataset):
             vid_cnt += 1
             if vid_cnt == self.opt.num_views:
                 break
+            
 
         if vid_cnt < self.opt.num_views:
             print(f'[WARN] dataset {uid}: not enough valid views, only {vid_cnt} views found!')
