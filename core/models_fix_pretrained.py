@@ -214,7 +214,7 @@ class LGM(nn.Module):
         loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
         loss = loss + loss_mse
         
-        # print('train vids',[t.item() for t in data['vids']])
+        print('train vids',[t.item() for t in data['vids']])
         if (opt is not None) and opt.save_train_pred and epoch > 0:
             
 
