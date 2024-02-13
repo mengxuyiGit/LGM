@@ -22,7 +22,7 @@ from mvdream.pipeline_mvdream import MVDreamPipeline
 
 from ipdb import set_trace as st
 from PIL import Image
-from core.provider_objaverse_inference import ObjaverseDataset as Dataset
+from core.provider_objaverse_inference_xuyi import ObjaverseDataset as Dataset
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
