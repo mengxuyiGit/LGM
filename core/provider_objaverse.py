@@ -55,7 +55,7 @@ class ObjaverseDataset(Dataset):
         self.proj_matrix[2, 3] = 1
 
         self.global_cnt = 0
-        print(f"init self.global_cnt = 0, self.training={self.training}")
+        # print(f"init self.global_cnt = 0, self.training={self.training}")
 
 
     def __len__(self):
@@ -103,10 +103,11 @@ class ObjaverseDataset(Dataset):
         # self.global_cnt += 1
         
         ## fix input views
+        fixed_input_views = np.arange(1,7).tolist()
         if self.training:
-            vids = [0, 3, 10, 15, 37, 38][:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
+            vids = fixed_input_views[:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
         else:
-            vids = [0, 3, 10, 15, 37, 38][:self.opt.num_input_views] + np.arange(numerical_value+1).tolist() # fixed order
+            vids = fixed_input_views[:self.opt.num_input_views] + np.arange(numerical_value+1).tolist() # fixed order
         
         final_vids = []
         
