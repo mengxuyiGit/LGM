@@ -125,8 +125,9 @@ def main():
         prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
         prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
         cur_run_id = max(prev_run_ids, default=-1) + 1
-        desc = f"inViews{opt.num_input_views}-lr{opt.lr}"
+        desc = f"inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
         run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
+        print(f"[Save dir] {run_dir}")
         assert not os.path.exists(run_dir)
     
         opt.workspace = run_dir
@@ -155,11 +156,19 @@ def main():
 
                 step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
+                
+                # print(f"-------1. before out=model():---------")
+                # last_time = time.time()
+                
                 out = model(data, step_ratio)
                 loss = out['loss']
                 psnr = out['psnr']
                 
-              
+
+                # print(f"-------2. before backward:{time.time()-last_time}---------")
+                # last_time = time.time()
+                
+                
                 # accelerator.backward(loss)
                 # Backward pass
                 if opt.fix_pretrained:
@@ -183,6 +192,9 @@ def main():
                     else:
                         # print(f"Parameter: {name}, Gradient: None")
                         pass
+                
+                # print(f"-------3. before tb log:{time.time()-last_time}---------")
+                # last_time = time.time()
 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
@@ -209,7 +221,7 @@ def main():
                     for name, value in stats_metrics.items():
                         stats_tfevents.add_scalar(f'Metrics/{name}', value, global_step=global_step, walltime=walltime)
                     stats_tfevents.flush()
-                    print("tf log sucessful!")
+                    # print("tf log sucessful!")
 
             # if accelerator.is_main_process:
             #     # logging
@@ -235,6 +247,9 @@ def main():
             #         # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
             #         # kiui.write_image(f'{opt.workspace}/train_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
 
+        # print(f"-------4. epoch end(before gather):{time.time()-last_time}---------")
+        # last_time = time.time()
+        
         total_loss = accelerator.gather_for_metrics(total_loss).mean()
         total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
         if accelerator.is_main_process:
@@ -245,16 +260,24 @@ def main():
         # checkpoint
         # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
         accelerator.wait_for_everyone()
-        accelerator.save_model(model, opt.workspace)
+        if not opt.fix_pretrained:
+            accelerator.save_model(model, opt.workspace)
+
+        # print(f"-------5. epoch end(after save_model):{time.time()-last_time}---------")
+        # last_time = time.time()
 
         if epoch % opt.eval_iter == 0:
             # eval
             with torch.no_grad():
+                
+                # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                # model = model.half().to(device) # TODO:
+                
                 model.eval()
                 total_psnr = 0
                 for i, data in enumerate(test_dataloader):
-
                     out = model(data)
+                   
         
                     psnr = out['psnr']
                     total_psnr += psnr.detach()
@@ -272,6 +295,19 @@ def main():
                         # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                         # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                         # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
+                        
+                        # save optimized ply
+                        if not os.path.exists(os.path.join(opt.workspace, f'eval_pred_gs_{epoch}_{i}')):
+                            os.makedirs(os.path.join(opt.workspace, f'eval_pred_gs_{epoch}_{i}'))
+                        
+                        ## save spaltter imgs: model.splatter_out
+                        splatter_out_save_batch = model.get_activated_splatter_out()
+                        for splatter_out_save in splatter_out_save_batch:
+                            for j, _sp_im in enumerate(splatter_out_save):
+                                model.gs.save_ply(_sp_im[None], os.path.join(opt.workspace, f'eval_pred_gs_{epoch}_{i}', f'splatter_{j}' + '.ply')) # print(_sp_im[None].shape) # [1, splatter_res**2, 14]
+                        ## save fused gaussian
+                        model.gs.save_ply(out['gaussians'].detach(), os.path.join(opt.workspace, f'eval_pred_gs_{epoch}_{i}', 'fused' + '.ply')) # out['gaussians'].shape: [B, Npts, 14]
+
 
                 torch.cuda.empty_cache()
 
