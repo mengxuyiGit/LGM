@@ -64,7 +64,12 @@ def main():
     else:
         raise NotImplementedError
 
-    train_dataset = Dataset(opt, training=True)
+    # data_name = '/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0c58250e3a7242e9bf21b114f2c8dce6' # elephant
+    if opt.data_path is not None:
+        data_name = opt.data_path
+    else:
+        data_name = '/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0c58250e3a7242e9bf21b114f2c8dce6' # elephant
+    train_dataset = Dataset(opt, name=data_name, training=True)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=opt.batch_size,
@@ -75,7 +80,7 @@ def main():
         drop_last=False,
     )
 
-    test_dataset = Dataset(opt, training=False)
+    test_dataset = Dataset(opt, name=data_name, training=False)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=opt.batch_size,
@@ -253,6 +258,7 @@ def main():
               
                 
                 ## log with tb
+    
                 timestamp = time.time()
                 stats_metrics.update({
                     'loss':total_loss,
@@ -271,9 +277,12 @@ def main():
                     global_step = int(cur_nimg / 10)
                     walltime = timestamp - start_time
                     for name, value in stats_metrics.items():
-                        stats_tfevents.add_scalar(f'Metrics/{name}', value, global_step=global_step, walltime=walltime)
+                        stats_tfevents.add_scalar(f'Train/{name}', value, global_step=global_step, walltime=walltime)
                     stats_tfevents.flush()
                     # print("tf log sucessful!")
+                
+                print(f"stats_metrics:{stats_metrics}, stats_dict:{stats_dict}")
+       
                 
 
             # if accelerator.is_main_process:
@@ -328,6 +337,7 @@ def main():
                 
                 model.eval()
                 total_psnr = 0
+                total_loss = 0
                 for i, data in enumerate(test_dataloader):
                     # st()
                     print(f"test data vids:{[t.item() for t in data['vids']]}")
@@ -335,6 +345,8 @@ def main():
                    
                     psnr = out['psnr']
                     total_psnr += psnr.detach()
+                    loss = out['loss']
+                    total_loss += loss.detach()
                     
                     # save some images
                     if accelerator.is_main_process:
@@ -367,10 +379,46 @@ def main():
                 torch.cuda.empty_cache()
 
                 total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
+                total_loss = accelerator.gather_for_metrics(total_loss).mean()
                 if accelerator.is_main_process:
                     total_psnr /= len(test_dataloader)
-                    accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f}")
-
+                    total_loss /= len(test_dataloader)
+                    accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f} loss: {loss:.4f}")
+                
+                ## log with tb
+                timestamp = time.time()
+                # stats_metrics.update({
+                #     'Eval/loss':total_loss,
+                #     'Eval/psnr':total_psnr
+                # })
+                stats_metrics = {
+                    'Eval/loss':total_loss,
+                    'Eval/psnr':total_psnr
+                }
+                # stats_dict.update({
+                #     'Eval/loss':total_loss.item(),
+                #     'Eval/psnr':total_psnr.item()
+                # })
+                stats_dict = {
+                    'Eval/loss':total_loss.item(),
+                    'Eval/psnr':total_psnr.item()
+                }
+                
+                if stats_jsonl is not None:
+                    fields = dict(stats_dict, timestamp=timestamp)
+                    stats_jsonl.write(json.dumps(fields) + '\n')
+                    stats_jsonl.flush()
+                if stats_tfevents is not None:
+                    global_step = int(cur_nimg / 10)
+                    walltime = timestamp - start_time
+                    for name, value in stats_metrics.items():
+                        stats_tfevents.add_scalar(f'{name}', value, global_step=global_step, walltime=walltime)
+                    stats_tfevents.flush()
+                    # print("tf log sucessful!")
+                
+                stats_metrics = dict()
+                stats_dict = dict() # clear dict entries for logging training
+              
 
 
 if __name__ == "__main__":

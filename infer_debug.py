@@ -22,7 +22,8 @@ from mvdream.pipeline_mvdream import MVDreamPipeline
 
 from ipdb import set_trace as st
 from PIL import Image
-from core.provider_objaverse_inference_xuyi import ObjaverseDataset as Dataset
+from core.provider_objaverse import ObjaverseDataset as Dataset
+# from core.provider_objaverse_inference_xuyi import ObjaverseDataset as Dataset
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
@@ -150,7 +151,10 @@ def process(opt: Options, path):
             for i, data in enumerate(test_dataloader):
                 print(i)
                 for item in data:
-                    data[item] = data[item].to(device)
+                    try:
+                        data[item] = data[item].to(device)
+                    except:
+                        pass
             
         input_image = data['input']
         # name = 'jiatao'
@@ -170,6 +174,20 @@ def process(opt: Options, path):
         # render 360 video 
         images = []
         elevation = 0
+
+        # if opt.save_inference_img:
+        if True:
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                out = model(data)
+            gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+            gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+            kiui.write_image(f'{opt.workspace}/inference_gt_images.jpg', gt_images)
+
+            pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+            pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+            kiui.write_image(f'{opt.workspace}/inference_pred_images.jpg', pred_images)
+            
+            
 
         if opt.fancy_video:
 

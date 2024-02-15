@@ -24,7 +24,7 @@ class ObjaverseDataset(Dataset):
     def _warn(self):
         raise NotImplementedError('this dataset is just an example and cannot be used directly, you should modify it to your own setting! (search keyword TODO)')
 
-    def __init__(self, opt: Options, training=True):
+    def __init__(self, opt: Options, name=None, training=True):
         
         self.opt = opt
         self.training = training
@@ -35,6 +35,8 @@ class ObjaverseDataset(Dataset):
         # TODO: load the list of objects for training
         # self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/data-1000/0c77dfdf9430465f9767a58d56e8fca1"]
         self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd"]
+        if name is not None:
+            self.items = [name]
         # with open('TODO: file containing the list', 'r') as f:
         #     for line in f.readlines():
         #         self.items.append(line.strip())
@@ -218,6 +220,7 @@ class ObjaverseDataset(Dataset):
         results['cam_view_proj'] = cam_view_proj
         results['cam_pos'] = cam_pos
 
+        # results['vids'] = torch.tensor(final_vids)
         results['vids'] = final_vids
 
         return results
