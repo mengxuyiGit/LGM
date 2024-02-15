@@ -98,7 +98,7 @@ class LGM(nn.Module):
         x = self.unet(images) # [B*4, 14, h, w]
         x = self.conv(x) # [B*4, 14, h, w]
 
-        x = x.reshape(B, 4, 14, self.opt.splat_size, self.opt.splat_size)
+        x = x.reshape(B, 6, 14, self.opt.splat_size, self.opt.splat_size) # 4 -> 6 on the 2nd dim
         
         ## visualize multi-view gaussian features for plotting figure
         # tmp_alpha = self.opacity_act(x[0, :, 3:4])

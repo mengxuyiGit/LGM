@@ -77,6 +77,7 @@ class Options:
     eval_iter: int = 10
     desc: Optional[str] = None
     save_train_pred: bool = False
+    data_path: Optional[str] = None
     
 
 # all the default settings
