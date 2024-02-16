@@ -272,6 +272,7 @@ class Zero123PlusGaussian(nn.Module):
 
         x = einops.rearrange(x, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
         splatters = x
+        
 
         return splatters
         
@@ -289,11 +290,29 @@ class Zero123PlusGaussian(nn.Module):
         gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
         return gaussians, splatters
     
-    def fuse_splatters(self, splatters):
-        # fuse splatters
-        B, V, C, H, W = splatters.shape
-    
-        x = splatters.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
+    def forward_splatters_with_activation(self, images, cond):
+        B, V, C, H, W = images.shape
+        # print(f"images.shape in forward+spaltter:{images.shape}") # SAME as the input_size
+        with torch.no_grad():
+            text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
+            cross_attention_kwargs_stu = cross_attention_kwargs
+
+        # make input 6 views into a 3x2 grid
+        images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+
+        # scale as in zero123plus
+        latents = self.encode_image(images) # [1, 4, 48, 32]
+        
+        t = torch.tensor([10] * B, device=latents.device)
+        latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
+        x = self.predict_x0(
+            latents, text_embeddings, t=10, guidance_scale=1.0, 
+            cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+        # x = torch.randn([B, 4, 96, 64], device=images.device)
+        x = self.decode_latents(x) # (B, 14, H, W)
+        # x = self.conv(x)
+
+        x = x.permute(0, 2, 3, 1)
         
         pos = self.pos_act(x[..., :3]) # [B, N, 3]
         opacity = self.opacity_act(x[..., 3:4])
@@ -301,11 +320,18 @@ class Zero123PlusGaussian(nn.Module):
         rotation = self.rot_act(x[..., 7:11])
         rgbs = x[..., 11:] # FIXME: original activation removed
 
-        gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
+        splatters = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
         
-        return gaussians
-        
+        splatters = einops.rearrange(splatters, 'b (h2 h) (w2 w) c -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
+        return splatters
     
+    def fuse_splatters(self, splatters):
+        # fuse splatters
+        B, V, C, H, W = splatters.shape
+    
+        x = splatters.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
+        return x
+        
     def forward(self, data, step_ratio=1, calculate_metric=True, use_rendering_loss=False, use_splatter_loss=False):
         # Gaussian shape: (B*6, 14, H, W)
         
@@ -317,7 +343,7 @@ class Zero123PlusGaussian(nn.Module):
         
         # use the first view to predict gaussians
        
-        pred_splatters = self.forward_splatters(images, cond) # [B, N, 14] # (B, 6, 14, H, W)
+        pred_splatters = self.forward_splatters_with_activation(images, cond) # [B, N, 14] # (B, 6, 14, H, W)
         results['splatters_pred'] = pred_splatters # [1, 6, 14, 256, 256]
         
     
