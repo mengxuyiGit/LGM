@@ -318,7 +318,8 @@ class Zero123PlusGaussian(nn.Module):
         opacity = self.opacity_act(x[..., 3:4])
         scale = self.scale_act(x[..., 4:7])
         rotation = self.rot_act(x[..., 7:11])
-        rgbs = x[..., 11:] # FIXME: original activation removed
+        # rgbs = x[..., 11:] # FIXME: original activation removed
+        rgbs = self.rgb_act(x[..., 11:])
 
         splatters = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
         
