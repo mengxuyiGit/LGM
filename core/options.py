@@ -74,10 +74,20 @@ class Options:
     
     ### optimize splatter
     fix_pretrained: bool = False
-    eval_iter: int = 10
+    eval_iter: int = 100
+    save_iter: int = 200
     desc: Optional[str] = None
     save_train_pred: bool = False
     data_path: Optional[str] = None
+    
+    ### zero123plus
+    model_type: str = 'Zero123PlusGaussian'
+    model_path: str = 'sudo-ai/zero123plus-v1.1' 
+    custom_pipeline: str ='./zero123plus/pipeline_v2.py'
+    bg: float = 0.5
+    
+    use_rendering_loss: bool = False
+    use_splatter_loss: bool = False
     
 
 # all the default settings
@@ -103,6 +113,19 @@ config_defaults['big'] = Options(
     up_channels=(1024, 1024, 512, 256, 128), # one more decoder
     up_attention=(True, True, True, False, False),
     splat_size=128,
+    output_size=512, # render & supervise Gaussians at a higher resolution.
+    batch_size=8,
+    num_views=8,
+    gradient_accumulation_steps=1,
+    mixed_precision='bf16',
+)
+
+config_doc['large'] = 'big model with even higher resolution Gaussians'
+config_defaults['large'] = Options(
+    input_size=256,
+    up_channels=(1024, 1024, 512, 256, 128), # one more decoder
+    up_attention=(True, True, True, False, False),
+    splat_size=512,
     output_size=512, # render & supervise Gaussians at a higher resolution.
     batch_size=8,
     num_views=8,

@@ -153,7 +153,7 @@ def main():
         prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
         prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
         cur_run_id = max(prev_run_ids, default=-1) + 1
-        desc = f"inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
+        desc = f"splat{opt.splat_size}-inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
         if opt.desc is not None:
             desc = f"{opt.desc}-{desc}"
         run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
@@ -340,7 +340,7 @@ def main():
                 total_loss = 0
                 for i, data in enumerate(test_dataloader):
                     # st()
-                    print(f"test data vids:{[t.item() for t in data['vids']]}")
+                    # print(f"test data vids:{[t.item() for t in data['vids']]}")
                     out = model(data, opt=opt)
                    
                     psnr = out['psnr']
@@ -372,6 +372,10 @@ def main():
                         for splatter_out_save in splatter_out_save_batch:
                             for j, _sp_im in enumerate(splatter_out_save):
                                 model.gs.save_ply(_sp_im[None], os.path.join(opt.workspace, f'eval_pred_gs_{epoch}_{i}', f'splatter_{j}' + '.ply')) # print(_sp_im[None].shape) # [1, splatter_res**2, 14]
+                                # # load_path = os.path.join(opt.workspace, f'eval_pred_gs_{epoch}_{i}', f'splatter_{j}' + '.ply')
+                                # load_path = '/home/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/workspace_splatter_gt_full_ply/00000-hydrant-inV6-lossV20-lr0.0006/eval_pred_gs_100_0/splatter_2.ply'
+                                # gaussians_loaded = model.gs.load_ply(load_path)
+                                # st() # then peroform einops, and check
                         ## save fused gaussian
                         model.gs.save_ply(out['gaussians'].detach(), os.path.join(opt.workspace, f'eval_pred_gs_{epoch}_{i}', 'fused' + '.ply')) # out['gaussians'].shape: [B, Npts, 14]
 

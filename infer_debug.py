@@ -170,6 +170,7 @@ def process(opt: Options, path):
         
         # save gaussians
         model.gs.save_ply(gaussians, os.path.join(opt.workspace, name + '.ply'))
+       
 
         # render 360 video 
         images = []

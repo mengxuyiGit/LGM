@@ -113,7 +113,8 @@ class GaussianRenderer:
         shs = gaussians[0, :, 11:].unsqueeze(1).contiguous().float() # [N, 1, 3]
 
         # prune by opacity
-        mask = opacity.squeeze(-1) >= 0.005
+        # mask = opacity.squeeze(-1) >= 0.005
+        mask = opacity.squeeze(-1) >= -0.005
         means3D = means3D[mask]
         opacity = opacity[mask]
         scales = scales[mask]
