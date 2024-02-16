@@ -13,30 +13,69 @@ import kiui
 from core.options import Options
 from core.utils import get_rays, grid_distortion, orbit_camera_jitter
 
+import glob
+import einops
+import math
+
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
-import glob
+
+# exactly the same as self.load_ply() in the the gs.py 
+def load_ply(path, compatible=True):
+
+    from plyfile import PlyData, PlyElement
+
+    plydata = PlyData.read(path)
+
+    xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
+                    np.asarray(plydata.elements[0]["y"]),
+                    np.asarray(plydata.elements[0]["z"])),  axis=1)
+    # print("Number of points at loading : ", xyz.shape[0])
+
+    opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
+
+    shs = np.zeros((xyz.shape[0], 3))
+    shs[:, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
+    shs[:, 1] = np.asarray(plydata.elements[0]["f_dc_1"])
+    shs[:, 2] = np.asarray(plydata.elements[0]["f_dc_2"])
+
+    scale_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")]
+    scales = np.zeros((xyz.shape[0], len(scale_names)))
+    for idx, attr_name in enumerate(scale_names):
+        scales[:, idx] = np.asarray(plydata.elements[0][attr_name])
+
+    rot_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("rot_")]
+    rots = np.zeros((xyz.shape[0], len(rot_names)))
+    for idx, attr_name in enumerate(rot_names):
+        rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
+        
+    gaussians = np.concatenate([xyz, opacities, scales, rots, shs], axis=1)
+    gaussians = torch.from_numpy(gaussians).float() # cpu
+
+    if compatible:
+        gaussians[..., 3:4] = torch.sigmoid(gaussians[..., 3:4])
+        gaussians[..., 4:7] = torch.exp(gaussians[..., 4:7])
+        gaussians[..., 11:] = 0.28209479177387814 * gaussians[..., 11:] + 0.5
+
+    return gaussians
 
 
 class ObjaverseDataset(Dataset):
 
-    def _warn(self):
-        raise NotImplementedError('this dataset is just an example and cannot be used directly, you should modify it to your own setting! (search keyword TODO)')
-
-    def __init__(self, opt: Options, name=None, training=True):
+    def __init__(self, opt: Options, training=True):
         
         self.opt = opt
+        if self.opt.model_type == 'LGM':
+            self.opt.bg = 1.0
         self.training = training
 
         # # TODO: remove this barrier
         # self._warn()
 
         # TODO: load the list of objects for training
-        # self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/data-1000/0c77dfdf9430465f9767a58d56e8fca1"]
         self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd"]
-        if name is not None:
-            self.items = [name]
+        self.items_splatter_gt = ['/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0']
         # with open('TODO: file containing the list', 'r') as f:
         #     for line in f.readlines():
         #         self.items.append(line.strip())
@@ -55,9 +94,6 @@ class ObjaverseDataset(Dataset):
         self.proj_matrix[2, 2] = (self.opt.zfar + self.opt.znear) / (self.opt.zfar - self.opt.znear)
         self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
         self.proj_matrix[2, 3] = 1
-
-        self.global_cnt = 0
-        # print(f"init self.global_cnt = 0, self.training={self.training}")
 
 
     def __len__(self):
@@ -82,50 +118,43 @@ class ObjaverseDataset(Dataset):
         # else:
         #     # fixed views
         #     vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
+        vids = np.arange(1, 10)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
+
+        cond_path = os.path.join(uid, f'000.png')
+        from PIL import Image
+        cond = np.array(Image.open(cond_path).resize((self.opt.input_size, self.opt.input_size)))
+        mask = cond[..., 3:4] / 255
+        cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
+        results['cond'] = cond.astype(np.uint8)
+
+        # load splatter gt
+        splatter_uid = self.items_splatter_gt[idx]
+        splatter_images_multi_views = []
+        spaltter_files = glob.glob(os.path.join(splatter_uid, "splatter_*.ply")) # TODO: make this expresion more precise: only load the ply files with numbers
+        for sf in spaltter_files:
+            splatter_im = load_ply(sf)
+            splatter_images_multi_views.append(splatter_im)
+            # print(splatter_im.shape) # ([16384, 14])
         
-        # vids = np.arange(1, 10)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
-        # vids = np.arange(0, 7)[:self.opt.num_input_views].tolist()
+        splatter_images_mv = torch.stack(splatter_images_multi_views, dim=0) # # [6, 16384, 14]
+        splatter_res = int(math.sqrt(splatter_images_mv.shape[-2]))
+        # print(f"splatter_res: {splatter_res}")
+        ## when saving the splatter image in model_fix_pretrained.py: x = einops.rearrange(self.splatter_out, 'b v c h w -> b v (h w) c')
+        splatter_images_mv = einops.rearrange(splatter_images_mv, 'v (h w) c -> v c h w', h=splatter_res, w=splatter_res)
+        results['splatters_output'] = splatter_images_mv
+        # print(results['splatters_output'].shape) # [6, 14, 128, 128])
         
-        extension='.png'
-        file_pattern = os.path.join(uid, f'*{extension}')
-        files = sorted(glob.glob(file_pattern))
         
-        if files:
-            largest_file = files[-1]
-            largest_filename = os.path.splitext(os.path.basename(largest_file))[0]
-            numerical_value = int(''.join(c for c in largest_filename if c.isdigit()))
-            # print(f"largest_filename:{largest_filename} -> value:{numerical_value}")
-        
-        # vids = np.random.permutation(numerical_value+1)[:self.opt.num_views].tolist()
-        # vids = np.arange(0, numerical_value+1)[:self.opt.num_views].tolist()
-        # print(f"vids: {vids}")
-        # vids = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-        # vids = [50, 50, 50, 50, 50, 50, 50, 50, 50, 50]
-        # vids = [self.global_cnt] * self.opt.num_views
-        # self.global_cnt += 1
-        
-        ## fix input views
-        fixed_input_views = np.arange(1,7).tolist()
-        if self.training:
-            vids = fixed_input_views[:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
-        else:
-            vids = fixed_input_views[:self.opt.num_input_views] + np.arange(numerical_value+1).tolist() # fixed order
-        
-        final_vids = []
         
         for vid in vids:
-            final_vids.append(vid)
-            
+
             image_path = os.path.join(uid, f'{vid:03d}.png')
             camera_path = os.path.join(uid, f'{vid:03d}.npy')
-            # print(f"image path: {image_path}; cam path:{camera_path}")
 
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
-            # print(f"cam npy contents:{cam}")
-            
             from kiui.cam import orbit_camera
             c2w = orbit_camera(-cam['elevation'], cam['azimuth'], radius=cam['radius'])
             c2w = torch.from_numpy(c2w)
@@ -150,7 +179,7 @@ class ObjaverseDataset(Dataset):
           
             image = image.permute(2, 0, 1) # [4, 512, 512]
             mask = image[3:4] # [1, 512, 512]
-            image = image[:3] * mask + (1 - mask) # [3, 512, 512], to white bg
+            image = image[:3] * mask + (1 - mask) * self.opt.bg # [3, 512, 512], to white bg
             image = image[[2,1,0]].contiguous() # bgr to rgb
 
             images.append(image)
@@ -160,7 +189,6 @@ class ObjaverseDataset(Dataset):
             vid_cnt += 1
             if vid_cnt == self.opt.num_views:
                 break
-            
 
         if vid_cnt < self.opt.num_views:
             print(f'[WARN] dataset {uid}: not enough valid views, only {vid_cnt} views found!')
@@ -187,27 +215,31 @@ class ObjaverseDataset(Dataset):
                 images_input[1:] = grid_distortion(images_input[1:])
             # apply camera jittering (only to input!)
             if random.random() < self.opt.prob_cam_jitter:
-                print("jjjjjjjjjjiiiiiiiiiitttttttttteeeeeeeerrrrrrrrr")
                 cam_poses_input[1:] = orbit_camera_jitter(cam_poses_input[1:])
 
-        images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+        # FIXME: we don't need this for zero123plus?
+        if self.opt.model_type == 'LGM':
+            images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
         # resize render ground-truth images, range still in [0, 1]
         results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        # print(f"images_input:{images_input.shape}") # [20, 3, input_size, input_size] input_size=128
+        # print(results['images_output'].shape) # [20, 3, 512, 512]
         results['masks_output'] = F.interpolate(masks.unsqueeze(1), size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-        print(f"output size:{results['masks_output'].shape}")
 
         # build rays for input views
-        rays_embeddings = []
-        for i in range(self.opt.num_input_views):
-            rays_o, rays_d = get_rays(cam_poses_input[i], self.opt.input_size, self.opt.input_size, self.opt.fovy) # [h, w, 3]
-            rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
-            rays_embeddings.append(rays_plucker)
+        if self.opt.model_type == 'LGM':
+            rays_embeddings = []
+            for i in range(self.opt.num_input_views):
+                rays_o, rays_d = get_rays(cam_poses_input[i], self.opt.input_size, self.opt.input_size, self.opt.fovy) # [h, w, 3]
+                rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
+                rays_embeddings.append(rays_plucker)
 
-     
-        rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
-        final_input = torch.cat([images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
-        results['input'] = final_input
+            rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
+            final_input = torch.cat([images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
+            results['input'] = final_input
+        else:
+            results['input'] = images_input
 
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
@@ -221,7 +253,5 @@ class ObjaverseDataset(Dataset):
         results['cam_view_proj'] = cam_view_proj
         results['cam_pos'] = cam_pos
 
-        # results['vids'] = torch.tensor(final_vids)
-        results['vids'] = final_vids
 
         return results

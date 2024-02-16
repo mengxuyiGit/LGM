@@ -12,6 +12,7 @@ from core.gs import GaussianRenderer
 
 from ipdb import set_trace as st
 import time
+import einops
 
 
 class LGM(nn.Module):
@@ -149,7 +150,8 @@ class LGM(nn.Module):
     
     def get_activated_splatter_out(self):
         
-        x = self.splatter_out.flatten(-2).permute(0, 1, 3, 2) # [B, 4, 14, res, res] -> [B, 4, 14, res**2] -> [B, 4, res**2, 14]
+        # x1 = self.splatter_out.flatten(-2).permute(0, 1, 3, 2) # [B, 4, 14, res, res] -> [B, 4, 14, res**2] -> [B, 4, res**2, 14]
+        x = einops.rearrange(self.splatter_out, 'b v c h w -> b v (h w) c')
         
         pos = self.pos_act(x[..., 0:3]) # [B, 4, N, 3]
         opacity = self.opacity_act(x[..., 3:4])
@@ -214,7 +216,7 @@ class LGM(nn.Module):
         loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
         loss = loss + loss_mse
         
-        print('train vids',[t.item() for t in data['vids']])
+        # print('train vids',[t.item() for t in data['vids']])
         if (opt is not None) and opt.save_train_pred and epoch > 0:
             
 
