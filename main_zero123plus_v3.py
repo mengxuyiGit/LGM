@@ -43,6 +43,8 @@ def main():
         loss_str+='_render'
     if opt.use_splatter_loss:
         loss_str+='_splatter'
+    if opt.lambda_lpips > 0:
+        loss_str+='_lpips'
     desc = opt.desc
     if opt.train_unet:
         desc += '_train_unet'
@@ -120,6 +122,7 @@ def main():
         total_psnr = 0
         total_loss_splatter = 0 #torch.tensor([0]).to()
         total_loss_rendering = 0 #torch.tensor([0])
+        total_loss_lpips = 0 #torch.tensor([0])
         for i, data in enumerate(train_dataloader):
             with accelerator.accumulate(model):
 
@@ -154,6 +157,8 @@ def main():
                     total_loss_splatter += out['loss_splatter'].detach()
                 if 'loss_rendering' in out.keys():
                     total_loss_rendering += out['loss_rendering'].detach()
+                if 'loss_lpips' in out.keys():
+                    total_loss_lpips += out['loss_lpips'].detach()
 
             # if accelerator.is_main_process:
             #     # logging
@@ -186,17 +191,21 @@ def main():
             total_loss_splatter = accelerator.gather_for_metrics(total_loss_splatter).mean().item()
         if 'loss_rendering' in out.keys():
             total_loss_rendering = accelerator.gather_for_metrics(total_loss_rendering).mean().item()
+        if 'loss_lpips' in out.keys():
+            total_loss_lpips = accelerator.gather_for_metrics(total_loss_lpips).mean().item()
         if accelerator.is_main_process:
             total_loss /= len(train_dataloader)
             total_psnr /= len(train_dataloader)
             total_loss_splatter /= len(train_dataloader)
             total_loss_rendering /= len(train_dataloader)
+            total_loss_lpips /= len(train_dataloader)
             
-            accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} ")
+            accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} lpips_loss: {total_loss_lpips:.4f} ")
             writer.add_scalar('train/loss', total_loss.item(), epoch)
             writer.add_scalar('train/psnr', total_psnr.item(), epoch)
             writer.add_scalar('train/loss_splatter', total_loss_splatter, epoch)
             writer.add_scalar('train/loss_rendering', total_loss_rendering, epoch)
+            writer.add_scalar('train/loss_lpips', total_loss_lpips, epoch)
         
         # checkpoint
         # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
