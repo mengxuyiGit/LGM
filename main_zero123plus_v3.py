@@ -16,6 +16,8 @@ from datetime import datetime
 import torch.utils.tensorboard as tensorboard
 import shutil, os
 
+from ipdb import set_trace as st
+
 def main():    
     opt = tyro.cli(AllConfigs)
 
@@ -41,7 +43,10 @@ def main():
         loss_str+='_render'
     if opt.use_splatter_loss:
         loss_str+='_splatter'
-    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{opt.desc}-{loss_str}-lr{opt.lr}")
+    desc = opt.desc
+    if opt.train_unet:
+        desc += '_train_unet'
+    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}")
     writer = tensorboard.SummaryWriter(opt.workspace)
 
     src_snapshot_folder = os.path.join(opt.workspace, 'src')
@@ -126,6 +131,14 @@ def main():
                 loss = out['loss']
                 psnr = out['psnr']
                 accelerator.backward(loss)
+
+                # ## debug
+                # # Check gradients of the unet parameters
+                # print(f"check unet parameters")
+                # for name, param in model.unet.named_parameters():
+                #     if param.requires_grad and param.grad is not None:
+                #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+
 
                 # gradient clipping
                 if accelerator.sync_gradients:
