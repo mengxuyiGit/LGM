@@ -44,7 +44,7 @@ def main():
     if opt.use_splatter_loss:
         loss_str+='_splatter'
     if opt.lambda_lpips > 0:
-        loss_str+='_lpips'
+        loss_str+=f'_lpips{opt.lambda_lpips}'
     desc = opt.desc
     if opt.train_unet:
         desc += '_train_unet'
@@ -209,7 +209,7 @@ def main():
         
         # checkpoint
         # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
-        if epoch % opt.save_iter == 0:
+        if epoch > 0 and epoch % opt.save_iter == 0:
             accelerator.wait_for_everyone()
             accelerator.save_model(model, opt.workspace)
 

@@ -91,7 +91,12 @@ class Options:
 
     train_unet: bool = False
     discard_small_opacities: bool = False
+    # for zero123++
     render_gt_splatter: bool = False
+
+    # for LGM
+    eval_fused_gt: bool = False
+    eval_splatter_gt: bool = False
     
 
 # all the default settings

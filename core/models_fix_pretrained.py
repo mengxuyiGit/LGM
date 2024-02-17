@@ -13,6 +13,9 @@ from core.gs import GaussianRenderer
 from ipdb import set_trace as st
 import time
 import einops
+import glob
+import os
+import math
 
 
 class LGM(nn.Module):
@@ -149,9 +152,10 @@ class LGM(nn.Module):
         return gaussians
     
     def get_activated_splatter_out(self):
-        
-        # x1 = self.splatter_out.flatten(-2).permute(0, 1, 3, 2) # [B, 4, 14, res, res] -> [B, 4, 14, res**2] -> [B, 4, res**2, 14]
-        x = einops.rearrange(self.splatter_out, 'b v c h w -> b v (h w) c')
+        B, V, C, H, W, = self.splatter_out.shape
+        # x = einops.rearrange(self.splatter_out, 'b v c h w -> b v (h w) c') --> Will result in error!!!FIXME
+        x = einops.rearrange(self.splatter_out, 'b v c h w -> b (v h w) c')
+      
         
         pos = self.pos_act(x[..., 0:3]) # [B, 4, N, 3]
         opacity = self.opacity_act(x[..., 3:4])
@@ -160,8 +164,24 @@ class LGM(nn.Module):
         rgbs = self.rgb_act(x[..., 11:])
 
         spaltter_batch = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, 4, N, 14]
-        
+        spaltter_batch = einops.rearrange(spaltter_batch, 'b (v h w) c -> b v (h w) c', v=V, h=H, w=W)
+
         return spaltter_batch
+    
+    def get_activated_splatter_out2(self):
+        x = self.splatter_out
+        
+        x = x.permute(0, 1, 3, 4, 2).reshape(1, -1, 14)
+        
+        pos = self.pos_act(x[..., 0:3]) # [B, N, 3]
+        opacity = self.opacity_act(x[..., 3:4])
+        scale = self.scale_act(x[..., 4:7])
+        rotation = self.rot_act(x[..., 7:11])
+        rgbs = self.rgb_act(x[..., 11:])
+
+        gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
+        
+        return gaussians
         
         
     
@@ -177,8 +197,50 @@ class LGM(nn.Module):
         # print(f"-------1. before forward_gaussians:---------")
         # last_time = time.time()
         
+
         # use the first view to predict gaussians
         gaussians = self.forward_gaussians(images) # [B, N, 14]
+        # verify whether the gaussians and the splatter_out are correct
+
+        # ######## debug code #############
+        # ## ----- v1 -----
+        # sp_images = self.get_activated_splatter_out()
+        # B, V, hw, C = sp_images.shape
+        # print(f"B, V, hw, W, C:{B, V, hw, C}")
+        # guassians_fused = sp_images.reshape(B, -1, C).to(gaussians.device)
+       
+        # print(f"two are equal: {torch.all(gaussians == guassians_fused)}")
+        
+        # # # st() # load gt gaussians for render
+        # if not self.training:
+        #     if self.opt.eval_fused_gt:
+        #         st()
+        #         print("Load oreexisitng ply")
+        #         gaussians = self.gs.load_ply('/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0/fused.ply').to(gaussians.device)
+        #         gaussians = gaussians.unsqueeze(0)
+        #     elif self.opt.eval_splatter_gt:
+        #         st()
+        #         splatter_uid = '/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0'
+        #         # splatter_uid = '/home/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/workspace_debug/00006-hydrant-gt-splat128-inV6-lossV20-lr0.0006/eval_pred_gs_0_0'
+        #         print(f"Load splatter gt ply -- wrong!!!! from: {splatter_uid}")
+        #         splatter_images_multi_views = []
+        #         spaltter_files = glob.glob(os.path.join(splatter_uid, "splatter_*.ply")) # TODO: make this expresion more precise: only load the ply files with numbers
+        #         for sf in spaltter_files:
+        #             splatter_im = self.gs.load_ply(sf)
+        #             splatter_images_multi_views.append(splatter_im)
+                
+        #         splatter_images_mv = torch.stack(splatter_images_multi_views, dim=0) # # [6, 16384, 14]
+        #         # splatter_res = int(math.sqrt(splatter_images_mv.shape[-2]))
+        #         splatter_res = self.opt.splat_size
+        #         # print(f"splatter_res: {splatter_res}")
+        #         ## when saving the splatter image in model_fix_pretrained.py: x = einops.rearrange(self.splatter_out, 'b v c h w -> b v (h w) c')
+        #         splatter_images_mv = einops.rearrange(splatter_images_mv, 'v (h w) c -> v c h w', h=splatter_res, w=splatter_res)
+
+        #         gaussians = splatter_images_mv.unsqueeze(0).permute(0, 1, 3, 4, 2).reshape(1, -1, 14).to(gaussians.device)
+        # ######## debug code [END] #############
+        
+        
+        
         
         # print(f"-------2. after forward_gaussians:{time.time()-last_time}---------")
         # last_time = time.time()
