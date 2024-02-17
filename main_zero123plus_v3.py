@@ -38,11 +38,11 @@ def main():
     # opt.workspace += datetime.now().strftime("%Y%m%d-%H%M%S")
     time_str = datetime.now().strftime("%Y%m%d-%H%M%S")
     loss_str = 'loss'
-    assert (opt.use_rendering_loss or opt.use_splatter_loss), 'Must have at least one loss'
-    if opt.use_rendering_loss:
-        loss_str+='_render'
-    if opt.use_splatter_loss:
-        loss_str+='_splatter'
+    assert (opt.lambda_rendering + opt.lambda_splatter + opt.lambda_lpips > 0), 'Must have at least one loss'
+    if opt.lambda_rendering > 0:
+        loss_str+=f'_render{opt.lambda_rendering}'
+    if opt.lambda_splatter > 0:
+        loss_str+=f'_splatter{opt.lambda_splatter}'
     if opt.lambda_lpips > 0:
         loss_str+=f'_lpips{opt.lambda_lpips}'
     desc = opt.desc
@@ -130,7 +130,7 @@ def main():
 
                 step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
-                out = model(data, step_ratio, use_rendering_loss=opt.use_rendering_loss, use_splatter_loss=opt.use_splatter_loss)
+                out = model(data, step_ratio)
                 loss = out['loss']
                 psnr = out['psnr']
                 accelerator.backward(loss)
@@ -220,8 +220,7 @@ def main():
                 total_psnr = 0
                 for i, data in enumerate(test_dataloader):
 
-                    # out = model(data)
-                    out = model(data, use_rendering_loss=opt.use_rendering_loss, use_splatter_loss=opt.use_splatter_loss)
+                    out = model(data)
         
                     psnr = out['psnr']
                     total_psnr += psnr.detach()

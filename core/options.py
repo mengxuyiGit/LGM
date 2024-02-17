@@ -86,8 +86,10 @@ class Options:
     custom_pipeline: str ='./zero123plus/pipeline_v2.py'
     bg: float = 0.5
     
-    use_rendering_loss: bool = False
-    use_splatter_loss: bool = False
+    # use_rendering_loss: bool = False
+    lambda_rendering: float = 1.0
+    lambda_splatter: float = 1.0
+    # use_splatter_loss: bool = False
 
     train_unet: bool = False
     discard_small_opacities: bool = False

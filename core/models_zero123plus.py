@@ -337,7 +337,7 @@ class Zero123PlusGaussian(nn.Module):
         x = splatters.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
         return x
         
-    def forward(self, data, step_ratio=1, calculate_metric=True, use_rendering_loss=False, use_splatter_loss=False):
+    def forward(self, data, step_ratio=1, calculate_metric=True, use_rendering_loss=False,):
         # Gaussian shape: (B*6, 14, H, W)
         
         results = {}
@@ -352,7 +352,7 @@ class Zero123PlusGaussian(nn.Module):
         results['splatters_pred'] = pred_splatters # [1, 6, 14, 256, 256]
         
         
-        if use_splatter_loss:
+        if self.opt.lambda_splatter > 0:
             gt_splatters =  data['splatters_output'] # [1, 6, 14, 128, 128]
             # if self.opt.discard_small_opacities: # only for gt debug
             #     opacity = gt_splatters[:,:,3:4]
@@ -362,8 +362,9 @@ class Zero123PlusGaussian(nn.Module):
             #     st()
                 
             loss_mse = F.mse_loss(pred_splatters, gt_splatters)
-            loss = loss + loss_mse
             results['loss_splatter'] = loss_mse
+            loss = loss + self.opt.lambda_splatter * loss_mse
+            
 
 
         ## ------- splatter -> gaussian ------- 
@@ -405,10 +406,11 @@ class Zero123PlusGaussian(nn.Module):
 
         ## ------- end render ----------
         
-        if use_rendering_loss:
+        if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
-            loss = loss + loss_mse_rendering
             results['loss_rendering'] = loss_mse_rendering
+            loss = loss + self.opt.lambda_rendering * loss_mse_rendering
+            
     
 
         ## FIXME: it does not make sense to apply lpips on splatter, right?
