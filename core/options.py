@@ -88,6 +88,8 @@ class Options:
     
     use_rendering_loss: bool = False
     use_splatter_loss: bool = False
+
+    train_unet: bool = False
     
 
 # all the default settings

@@ -138,7 +138,11 @@ class Zero123PlusGaussian(nn.Module):
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.vae.decoder.requires_grad_(True).train()
 
-        self.unet = self.pipe.unet.eval().requires_grad_(False)
+        if opt.train_unet:
+            print("Unet is trainable")
+            self.unet = self.pipe.unet.requires_grad_(True).train()
+        else:
+            self.unet = self.pipe.unet.eval().requires_grad_(False)
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config)
         self.decoder = UNetDecoder(self.vae)
 
