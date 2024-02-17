@@ -351,15 +351,23 @@ class Zero123PlusGaussian(nn.Module):
         pred_splatters = self.forward_splatters_with_activation(images, cond) # [B, N, 14] # (B, 6, 14, H, W)
         results['splatters_pred'] = pred_splatters # [1, 6, 14, 256, 256]
         
-    
+        
         if use_splatter_loss:
             gt_splatters =  data['splatters_output'] # [1, 6, 14, 128, 128]
+            if self.opt.discard_small_opacities:
+                opacity = gt_splatters[:,:,3:4]
+                mask = opacity.squeeze(-1) >= 0.005
+                print(mask.shape)
+                st()
             loss_mse = F.mse_loss(pred_splatters, gt_splatters)
             loss = loss + loss_mse
             results['loss_splatter'] = loss_mse
 
-        if use_rendering_loss:
-            gaussians = self.fuse_splatters(pred_splatters)
+        if use_rendering_loss or self.opt.lambda_lpips > 0:
+            if self.opt.render_gt_splatter:
+                gaussians = self.fuse_splatters(data['splatters_output'])
+            else:
+                gaussians = self.fuse_splatters(pred_splatters)
 
             # random bg for training
             if self.training:
@@ -381,28 +389,29 @@ class Zero123PlusGaussian(nn.Module):
 
             gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
             
-            loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
-            loss = loss + loss_mse_rendering
+            if use_rendering_loss:
+                loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
+                loss = loss + loss_mse_rendering
+                results['loss_rendering'] = loss_mse_rendering
       
 
             ## FIXME: it does not make sense to apply lpips on splatter, right?
-            # if self.opt.lambda_lpips > 0:
-            #     st()
-            #     loss_lpips = self.lpips_loss(
-            #         # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-            #         # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-            #         # downsampled to at most 256 to reduce memory cost
+            if self.opt.lambda_lpips > 0:
+                loss_lpips = self.lpips_loss(
+                    # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
+                    # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
+                    # downsampled to at most 256 to reduce memory cost
                     
-            #         # FIXME: change the dim to 14 for splatter imaegs
-            #         F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-            #         F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            #     ).mean()
-            #     results['loss_lpips'] = loss_lpips
-            #     loss = loss + self.opt.lambda_lpips * loss_lpips
+                    # FIXME: change the dim to 14 for splatter imaegs
+                    F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+                    F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                ).mean()
+                results['loss_lpips'] = loss_lpips
+                loss = loss + self.opt.lambda_lpips * loss_lpips
                 
-            results['loss_rendering'] = loss_mse_rendering
+           
 
-             # ----- rendering [end] -----
+            # ----- rendering [end] -----
             psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
             results['psnr'] = psnr
         

@@ -90,6 +90,8 @@ class Options:
     use_splatter_loss: bool = False
 
     train_unet: bool = False
+    discard_small_opacities: bool = False
+    render_gt_splatter: bool = False
     
 
 # all the default settings
