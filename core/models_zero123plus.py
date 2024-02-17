@@ -354,96 +354,82 @@ class Zero123PlusGaussian(nn.Module):
         
         if use_splatter_loss:
             gt_splatters =  data['splatters_output'] # [1, 6, 14, 128, 128]
-            if self.opt.discard_small_opacities:
-                opacity = gt_splatters[:,:,3:4]
-                mask = opacity.squeeze(-1) >= 0.005
-                print(mask.shape)
-                st()
+            # if self.opt.discard_small_opacities: # only for gt debug
+            #     opacity = gt_splatters[:,:,3:4]
+            #     mask = opacity.squeeze(-1) >= 0.005
+            #     mask = mask.repeat(1,1,14,1,1)
+            #     print(mask.shape)
+            #     st()
+                
             loss_mse = F.mse_loss(pred_splatters, gt_splatters)
             loss = loss + loss_mse
             results['loss_splatter'] = loss_mse
 
-        if use_rendering_loss or self.opt.lambda_lpips > 0:
-            if self.opt.render_gt_splatter:
-                gaussians = self.fuse_splatters(data['splatters_output'])
-            else:
-                gaussians = self.fuse_splatters(pred_splatters)
 
-            # random bg for training
-            if self.training:
-                bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
-            else:
-                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-
-            # use the other views for rendering and supervision
-            gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
-            pred_images = gs_results['image'] # [B, V, C, output_size, output_size]
-            pred_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
-
-            # FIXME: duplicate items with different keys? (in dict:results)
-            results['images_pred'] = pred_images
-            results['alphas_pred'] = pred_alphas
+        ## ------- splatter -> gaussian ------- 
+        if self.opt.render_gt_splatter:
+            print("load splatters then fuse")
+            gaussians = self.fuse_splatters(data['splatters_output'])
+            # print("directly load fused gaussian ply")
+            # gaussians = self.gs.load_ply('/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0/fused.ply').to(pred_splatters.device)
+            # gaussians = gaussians.unsqueeze(0)
             
-            gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
-            gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+            if self.opt.discard_small_opacities: # only for gt debug
+                opacity = gaussians[...,3:4]
+                mask = opacity.squeeze(-1) >= 0.005
+                gaussians = gaussians[mask].unsqueeze(0)
+        else:
+            gaussians = self.fuse_splatters(pred_splatters)
+        
+        
+        ## ------- begin render ----------
+        # random bg for training
+        if self.training:
+            bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
+        else:
+            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
 
-            gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
-            
-            if use_rendering_loss:
-                loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
-                loss = loss + loss_mse_rendering
-                results['loss_rendering'] = loss_mse_rendering
-      
+        # use the other views for rendering and supervision
+        gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+        pred_images = gs_results['image'] # [B, V, C, output_size, output_size]
+        pred_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
 
-            ## FIXME: it does not make sense to apply lpips on splatter, right?
-            if self.opt.lambda_lpips > 0:
-                loss_lpips = self.lpips_loss(
-                    # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-                    # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-                    # downsampled to at most 256 to reduce memory cost
-                    
-                    # FIXME: change the dim to 14 for splatter imaegs
-                    F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-                    F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-                ).mean()
-                results['loss_lpips'] = loss_lpips
-                loss = loss + self.opt.lambda_lpips * loss_lpips
+        # FIXME: duplicate items with different keys? (in dict:results)
+        results['images_pred'] = pred_images
+        results['alphas_pred'] = pred_alphas
+        
+        gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
+        gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+
+        gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+
+        ## ------- end render ----------
+        
+        if use_rendering_loss:
+            loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
+            loss = loss + loss_mse_rendering
+            results['loss_rendering'] = loss_mse_rendering
+    
+
+        ## FIXME: it does not make sense to apply lpips on splatter, right?
+        if self.opt.lambda_lpips > 0:
+            loss_lpips = self.lpips_loss(
+                # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
+                # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
+                # downsampled to at most 256 to reduce memory cost
                 
-           
-
-            # ----- rendering [end] -----
-            psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
-            results['psnr'] = psnr
+                # FIXME: change the dim to 14 for splatter imaegs
+                F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+                F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+            ).mean()
+            results['loss_lpips'] = loss_lpips
+            loss = loss + self.opt.lambda_lpips * loss_lpips
+            
         
 
-        elif calculate_metric:
-            with torch.no_grad():
-                gaussians = self.fuse_splatters(pred_splatters)
-                ## -----remove the below rendering parts-----
-
-                # random bg for training
-                if self.training:
-                    bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
-                else:
-                    bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-
-                # use the other views for rendering and supervision
-                gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
-                pred_images = gs_results['image'] # [B, V, C, output_size, output_size]
-                pred_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
-
-                # FIXME: duplicate items with different keys? (in dict:results)
-                results['images_pred'] = pred_images
-                results['alphas_pred'] = pred_alphas
-                
-                gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
-                gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
-
-                gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
-                
-                # ----- rendering [end] -----
-                psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
-                results['psnr'] = psnr
+        # ----- rendering [end] -----
+        psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
+        results['psnr'] = psnr
             
         
         results['loss'] = loss

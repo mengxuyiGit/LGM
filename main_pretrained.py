@@ -287,12 +287,14 @@ def main():
 
             # if accelerator.is_main_process:
             #     # logging
-            #     if i % 100 == 0:
+            #     # if i % 100 == 0:
+            #     if i % 1 == 0:
             #         mem_free, mem_total = torch.cuda.mem_get_info()    
             #         print(f"[INFO] {i}/{len(train_dataloader)} mem: {(mem_total-mem_free)/1024**3:.2f}/{mem_total/1024**3:.2f}G lr: {scheduler.get_last_lr()[0]:.7f} step_ratio: {step_ratio:.4f} loss: {loss.item():.6f}")
                 
             #     # save log images
-            #     if i % 500 == 0:
+            #     # if i % 500 == 0:
+            #     if i % 1 == 0:
             #         gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
             #         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
             #         kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images)

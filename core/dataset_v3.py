@@ -75,7 +75,8 @@ class ObjaverseDataset(Dataset):
 
         # TODO: load the list of objects for training
         self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd"]
-        self.items_splatter_gt = ['/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0']
+        # self.items_splatter_gt = ['/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0']
+        self.items_splatter_gt = ['/home/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/workspace_splatter_gt_full_ply_fixed_einops/00000-hydrant-splat128-inV6-lossV20-lr0.0006/eval_pred_gs_0_0']
         # with open('TODO: file containing the list', 'r') as f:
         #     for line in f.readlines():
         #         self.items.append(line.strip())
