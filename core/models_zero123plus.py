@@ -336,6 +336,59 @@ class Zero123PlusGaussian(nn.Module):
     
         x = splatters.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
         return x
+    
+    def gs_weighted_mse_loss(self, pred_splatters, gt_splatters):
+        # ORIGINAL :loss_mse = F.mse_loss(pred_splatters, gt_splatters)
+        ## TODO: make it even smarter: dynamically adjusting the weights for each attributes!!
+        ## 
+        # ipdb> abs(gt_splatters_flat).mean(dim=-2)
+        # tensor([[0.1491, 0.2690, 0.1600, 
+        #           0.1925, 
+        #           0.0054, 0.0062, 0.0076, 
+        #           0.0023, 0.0023, 0.0023, 0.0024, 
+        #           0.4818, 0.4843, 0.4778]], device='cuda:0')
+        
+     
+        gt_splatters = einops.rearrange(gt_splatters, 'b v c h w -> b (v h w) c')
+        pred_splatters = einops.rearrange(pred_splatters, 'b v c h w -> b (v h w) c')
+        
+        attr_weight_dict = {
+            'pos':1, 'opacity':1e-3, 'scale':1e-3, 'rotation':1, 'rgbs':1
+        }
+        ## rotation is not that important. Rgb scaling matters
+        gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
+        start_indices = [0, 3, 4, 7, 11]
+        end_indices = [3, 4, 7, 11, 14]
+        attr_weighted_loss_dict = {}
+        
+        total_loss_weighted = 0
+        for key, si, ei in zip (gt_attr_keys, start_indices, end_indices):
+            
+            attr_weight = attr_weight_dict[key]
+            
+            gt_attr = gt_splatters[..., si:ei]
+            pred_attr = pred_splatters[..., si:ei]
+            
+            if key in self.opt.attr_use_logrithm_loss:
+                # print(f"apply log loss to {key}")
+                # mse_before_log = F.mse_loss(pred_attr, gt_attr)
+                # print(f"loss before apply logrithm{mse_before_log}")
+                # attr_weighted_loss_dict[f"{key}_before_log"] = mse_before_log
+                gt_attr = torch.log(gt_attr)
+                pred_attr = torch.log(pred_attr)
+                # print(f"loss after apply logrithm{F.mse_loss(pred_attr, gt_attr)}")
+                # st()
+            
+            attr_weighted_loss = F.mse_loss(pred_attr, gt_attr) * attr_weight
+            attr_weighted_loss_dict.update({key: attr_weighted_loss})
+            total_loss_weighted += attr_weighted_loss
+            
+            print(key, attr_weight, attr_weighted_loss)
+        
+        attr_weighted_loss_dict.update({'total': total_loss_weighted})
+
+        return attr_weighted_loss_dict
+        
         
     def forward(self, data, step_ratio=1, calculate_metric=True, use_rendering_loss=False,):
         # Gaussian shape: (B*6, 14, H, W)
@@ -361,9 +414,15 @@ class Zero123PlusGaussian(nn.Module):
             #     print(mask.shape)
             #     st()
                 
-            loss_mse = F.mse_loss(pred_splatters, gt_splatters)
+            # loss_mse_unweighted = F.mse_loss(pred_splatters, gt_splatters)
+            
+            gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters, gt_splatters)
+            loss_mse = gs_loss_mse_dict['total']
+            # st()
             results['loss_splatter'] = loss_mse
             loss = loss + self.opt.lambda_splatter * loss_mse
+            # also log the losses for each attributes
+            results['gs_loss_mse_dict'] = gs_loss_mse_dict
             
 
 
@@ -374,6 +433,14 @@ class Zero123PlusGaussian(nn.Module):
             # print("directly load fused gaussian ply")
             # gaussians = self.gs.load_ply('/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0/fused.ply').to(pred_splatters.device)
             # gaussians = gaussians.unsqueeze(0)
+            if self.opt.perturb_rot_scaling:
+                # scaling: 4-7
+                # gaussians[...,4:7] = 0.006 * torch.rand_like(gaussians[...,4:7])
+                # rot: 7-11
+                # gaussians[...,7:11] = F.normalize(-1 + 2 * torch.zeros_like(gaussians[...,7:11]))
+                # print("small scale")
+                pass
+                
             
             if self.opt.discard_small_opacities: # only for gt debug
                 opacity = gaussians[...,3:4]

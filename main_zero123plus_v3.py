@@ -45,9 +45,18 @@ def main():
         loss_str+=f'_splatter{opt.lambda_splatter}'
     if opt.lambda_lpips > 0:
         loss_str+=f'_lpips{opt.lambda_lpips}'
+   
     desc = opt.desc
+    ## the following may not exists, thus directly added to opt.desc if exists
+    if len(opt.attr_use_logrithm_loss) > 0:
+        loss_special = '-logrithm'
+        for key in opt.attr_use_logrithm_loss:
+            loss_special += f"_{key}"
+        desc += loss_special
+    
     if opt.train_unet:
-        desc += '_train_unet'
+        desc += '-train_unet'
+        
     opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}")
     writer = tensorboard.SummaryWriter(opt.workspace)
 
@@ -123,6 +132,12 @@ def main():
         total_loss_splatter = 0 #torch.tensor([0]).to()
         total_loss_rendering = 0 #torch.tensor([0])
         total_loss_lpips = 0 #torch.tensor([0])
+        if opt.log_gs_loss_mse_dict:
+            gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
+            total_gs_loss_mse_dict = dict()
+            for key in gt_attr_keys:
+                total_gs_loss_mse_dict[key] = 0
+                
         for i, data in enumerate(train_dataloader):
             with accelerator.accumulate(model):
 
@@ -159,6 +174,10 @@ def main():
                     total_loss_rendering += out['loss_rendering'].detach()
                 if 'loss_lpips' in out.keys():
                     total_loss_lpips += out['loss_lpips'].detach()
+              
+                if opt.log_gs_loss_mse_dict:
+                    for key in gt_attr_keys:
+                        total_gs_loss_mse_dict[key] += out['gs_loss_mse_dict'][key].detach()
 
             # if accelerator.is_main_process:
             #     # logging
@@ -193,6 +212,10 @@ def main():
             total_loss_rendering = accelerator.gather_for_metrics(total_loss_rendering).mean().item()
         if 'loss_lpips' in out.keys():
             total_loss_lpips = accelerator.gather_for_metrics(total_loss_lpips).mean().item()
+        if opt.log_gs_loss_mse_dict:
+            for key in gt_attr_keys:
+                total_gs_loss_mse_dict[key] = accelerator.gather_for_metrics(total_gs_loss_mse_dict[key]).mean().item()
+                
         if accelerator.is_main_process:
             total_loss /= len(train_dataloader)
             total_psnr /= len(train_dataloader)
@@ -206,6 +229,16 @@ def main():
             writer.add_scalar('train/loss_splatter', total_loss_splatter, epoch)
             writer.add_scalar('train/loss_rendering', total_loss_rendering, epoch)
             writer.add_scalar('train/loss_lpips', total_loss_lpips, epoch)
+            if opt.log_gs_loss_mse_dict:
+                for key in gt_attr_keys:
+                    total_attr_loss = total_gs_loss_mse_dict[key]
+                    # if key in opt.attr_use_logrithm_loss:
+                    #     total_attr_loss = total_gs_loss_mse_dict[f"{key}_before_log"]
+                    #     print(f"we log {key}_before_log")
+                    # else:
+                    #     total_attr_loss = total_gs_loss_mse_dict[key]
+                    writer.add_scalar(f'train/loss(weighted)_{key}', total_attr_loss, epoch)
+            
         
         # checkpoint
         # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
