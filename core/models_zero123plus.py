@@ -143,7 +143,7 @@ class Zero123PlusGaussian(nn.Module):
             self.unet = self.pipe.unet.requires_grad_(True).train()
         else:
             self.unet = self.pipe.unet.eval().requires_grad_(False)
-        self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config)
+        self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
         self.decoder = UNetDecoder(self.vae)
 
         # with torch.no_grad():
