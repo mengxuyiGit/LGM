@@ -125,13 +125,17 @@ def main():
     
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
-
-    # scheduler (per-iteration)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
-    total_steps = opt.num_epochs * len(train_dataloader)
-    pct_start = 3000 / total_steps
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=opt.lr, total_steps=total_steps, pct_start=pct_start)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
+    
+    if opt.lr_scheduler == 'CosAnn':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
+    elif opt.lr_scheduler == 'OneCyc':
+        total_steps = opt.num_epochs * len(train_dataloader)
+        pct_start = 3000 / total_steps
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=opt.lr, total_steps=total_steps, pct_start=pct_start)
+    elif opt.lr_scheduler == 'Plat':
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=opt.lr_scheduler_factor, patience=opt.lr_scheduler_patience, verbose=True, min_lr=1e-6)
+    else:
+        assert ValueError('Not a valid lr_scheduler option.')
 
     # accelerate
     model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
@@ -158,6 +162,13 @@ def main():
         desc = f"splat{opt.splat_size}-inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
         if opt.use_adamW:
             desc = f"adamW-{desc}"
+            
+        
+        if opt.lr_scheduler == 'Plat':
+            desc = f"{opt.lr_scheduler}-patience_{opt.lr_scheduler_patience}-factor_{opt.lr_scheduler_factor}-eval_{opt.eval_iter}-{desc}"
+        else:
+            desc = f"{opt.lr_scheduler}-{desc}"
+            
         if opt.desc is not None:
             desc = f"{opt.desc}-{desc}"
         run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
@@ -237,7 +248,8 @@ def main():
                 # print(f"splatter out before opt step:{old}")
                 # st()
                 optimizer.step()
-                scheduler.step()
+               
+                # scheduler.step()# FIXME: THIS is the original position of scheduler
                 
                 # new = old + opt.lr * model.splatter_out.grad
                 
@@ -354,8 +366,9 @@ def main():
                     loss = out['loss']
                     total_loss += loss.detach()
                     
+                    
                     # save some images
-                    if accelerator.is_main_process:
+                    if accelerator.is_main_process and epoch % opt.save_iter == 0:
                         gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                         kiui.write_image(f'{opt.workspace}/eval_gt_images_{epoch}_{i}.jpg', gt_images)
@@ -395,6 +408,11 @@ def main():
                     total_loss /= len(test_dataloader)
                     accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f} loss: {loss:.4f}")
                 
+                scheduler.step(total_loss)
+                # Check if the learning rate was reduced
+                if scheduler._last_lr[0] < optimizer.param_groups[0]['lr']:
+                    accelerator.print(f"Learning rate reduced to: {scheduler._last_lr[0]}")
+                
                 ## log with tb
                 timestamp = time.time()
                 # stats_metrics.update({
@@ -403,7 +421,8 @@ def main():
                 # })
                 stats_metrics = {
                     'Eval/loss':total_loss,
-                    'Eval/psnr':total_psnr
+                    'Eval/psnr':total_psnr,
+                    'Eval/lr': optimizer.param_groups[0]['lr']  # Log the learning rate
                 }
                 # stats_dict.update({
                 #     'Eval/loss':total_loss.item(),
@@ -411,7 +430,8 @@ def main():
                 # })
                 stats_dict = {
                     'Eval/loss':total_loss.item(),
-                    'Eval/psnr':total_psnr.item()
+                    'Eval/psnr':total_psnr.item(),
+                    'Eval/lr': optimizer.param_groups[0]['lr']  # Log the learning rate
                 }
                 
                 if stats_jsonl is not None:
