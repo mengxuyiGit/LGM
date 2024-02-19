@@ -103,6 +103,9 @@ class Options:
     eval_fused_gt: bool = False
     eval_splatter_gt: bool = False
     use_adamW: bool = False
+    lr_scheduler: str = 'Plat'
+    lr_scheduler_patience: int = 2
+    lr_scheduler_factor: float = 0.5
     
 
 # all the default settings
