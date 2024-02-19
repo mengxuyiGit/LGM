@@ -117,9 +117,11 @@ def main():
     if opt.fix_pretrained:
         # params_to_opt = filter(lambda p: p.requires_grad, model.parameters())
         # print(f"params_to_opt: {len(list(params_to_opt))}")
-        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
-        # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr)
-        print(f"opt.lr = {opt.lr}, use normal Adam")
+        if opt.use_adamW:
+            optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+        else:
+            optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr)
+            print(f"opt.lr = {opt.lr}, use normal Adam")
     
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
@@ -154,6 +156,8 @@ def main():
         prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
         cur_run_id = max(prev_run_ids, default=-1) + 1
         desc = f"splat{opt.splat_size}-inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
+        if opt.use_adamW:
+            desc = f"adamW-{desc}"
         if opt.desc is not None:
             desc = f"{opt.desc}-{desc}"
         run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
