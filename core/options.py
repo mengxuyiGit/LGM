@@ -93,8 +93,11 @@ class Options:
 
     train_unet: bool = False
     discard_small_opacities: bool = False
-    # for zero123++
+    # for zero123++ debug
     render_gt_splatter: bool = False
+    log_gs_loss_mse_dict: bool = False
+    perturb_rot_scaling: bool = False
+    attr_use_logrithm_loss: Tuple[str, ...] = ()
 
     # for LGM
     eval_fused_gt: bool = False
