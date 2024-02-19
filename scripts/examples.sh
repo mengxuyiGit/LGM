@@ -18,8 +18,8 @@ DATA_DIR_LAMP='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9
 accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big \
     --workspace runs/LGM_optimize_splatter/workspace_splatter_gt_full_ply_fixed_einops \
     --resume pretrained/model_fp16.safetensors --num_epochs 10001 --fix_pretrained \
-    --lr 0.0006 --num_input_views 6 --num_views 20 --desc 'hydrant-adamW' --eval_iter 200 \
-    --prob_cam_jitter 0 --data_path ${DATA_DIR_HYDRANT}
+    --lr 0.003 --num_input_views 6 --num_views 56 --desc 'hydrant' --eval_iter 200 \
+    --prob_cam_jitter 0 --data_path ${DATA_DIR_HYDRANT} --use_adamW
 
 # accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big \
 #     --workspace runs/LGM_optimize_splatter/workspace_debug \

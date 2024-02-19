@@ -102,6 +102,7 @@ class Options:
     # for LGM
     eval_fused_gt: bool = False
     eval_splatter_gt: bool = False
+    use_adamW: bool = False
     
 
 # all the default settings
