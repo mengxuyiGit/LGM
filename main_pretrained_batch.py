@@ -17,6 +17,7 @@ import json
 import re
 import glob
 import shutil
+from tqdm import tqdm
 
 try:
     import torch.utils.tensorboard as tensorboard
@@ -114,16 +115,18 @@ def main():
 
             run_dir = opt.resume_workspace
             assert os.path.exists(run_dir)
+            print(f"[Resume from dir (all scenes)] {run_dir}")
             
             # resume folder
             for i in range(1,100): # assume the number of resume does not pass 100
                 src_snapshot_folder = os.path.join(run_dir, f'src_{i:03d}')
                 if not os.path.exists(src_snapshot_folder):
-                    print(f"Resume src folder: {src_snapshot_folder}")
+                    if opt.verbose:
+                        print(f"Resume src folder: {src_snapshot_folder}")
                     break
                     
                 
-        else:  
+        else: 
             print(f"[Save dir (all scenes)] {run_dir}")
             assert not os.path.exists(run_dir)
 
@@ -168,21 +171,29 @@ def main():
     scene_dirs = scene_dirs[opt.scene_start_index: opt.scene_end_index]
 
     for i, scene_path in enumerate(scene_dirs):
-        print(f"Processing scene {i}: {scene_path}")
+        scene_name = scene_path.split('/')[-2] if scene_path.endswith('/') else scene_path.split('/')[-1]
+        
+        if opt.verbose:
+            print(f"Processing scene {i}: {scene_name}")
         
         # create scene_workspace
-        scene_name = scene_path.split('/')[-2] if scene_path.endswith('/') else scene_path.split('/')[-1]
         scene_workspace = os.path.join(run_dir, scene_split, scene_name)
         
         if os.path.exists(scene_workspace):
-            print(f"Already exists {i}th scene: {scene_name}")
+            if opt.verbose:
+                print(f"Already exists {i}th scene: {scene_name}")
 
+            scene_finished = False
             for item in os.listdir(scene_workspace):
                 if item.startswith('eval_pred_gs_') and item.endswith('_es'):
-                    print(f"Already early stopped.")
-            
-            # check whether the early stopping ckpt has been saved
-            continue
+                    if opt.verbose:
+                        print(f"Already early stopped.")
+                    scene_finished = True
+                    # check whether the early stopping ckpt has been saved
+                    break
+        
+            if scene_finished:
+                continue
         
         try:
             os.listdir(scene_path)
@@ -225,7 +236,7 @@ def main():
             not_improved = 0
             best_val_psnr = 0
         
-        for i, data in enumerate(train_dataloader):
+        for j, data in enumerate(train_dataloader):
             out = model(data)
         # # Now you know the initial value of the dynamic parameter
         # initial_value = model.splatter_out
@@ -280,7 +291,8 @@ def main():
 
 
         # loop
-        for epoch in range(opt.num_epochs):
+        # for epoch in range(opt.num_epochs):
+        for epoch in tqdm(range(opt.num_epochs), disable=(opt.verbose), desc = f"Processing scene {i}: {scene_name}"):
             # train
             model.train()
             total_loss = 0
@@ -288,7 +300,8 @@ def main():
             for i, data in enumerate(train_dataloader):
                 # cur_nimg += 1
                 cur_nimg += opt.num_views
-                print(f"cur_nimg={cur_nimg}")
+                if opt.verbose:
+                    print(f"cur_nimg={cur_nimg}")
     
                 with accelerator.accumulate(model):
 
@@ -390,9 +403,10 @@ def main():
                         for name, value in stats_metrics.items():
                             stats_tfevents.add_scalar(f'Train/{name}', value, global_step=global_step, walltime=walltime)
                         stats_tfevents.flush()
-                        print("tf log sucessful!")
+                        # print("tf log sucessful!")
                     
-                    print(f"stats_metrics:{stats_metrics}, stats_dict:{stats_dict}")
+                    if opt.verbose:
+                        print(f"stats_metrics:{stats_metrics}, stats_dict:{stats_dict}")
         
                     
 
@@ -430,7 +444,8 @@ def main():
             if accelerator.is_main_process:
                 total_loss /= len(train_dataloader)
                 total_psnr /= len(train_dataloader)
-                accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f}")
+                if opt.verbose:
+                    accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f}")
             
             # checkpoint
             # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
@@ -499,7 +514,8 @@ def main():
                     if accelerator.is_main_process:
                         total_psnr /= len(test_dataloader)
                         total_loss /= len(test_dataloader)
-                        accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f} loss: {loss:.4f}")
+                        if opt.verbose:
+                            accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f} loss: {loss:.4f}")
                     
                     scheduler.step(total_loss)
 
@@ -590,6 +606,6 @@ def main():
                     stats_dict = dict() # clear dict entries for logging training
               
 
-    print("All checked")
+    print("All finished!!!!\n")
 if __name__ == "__main__":
     main()

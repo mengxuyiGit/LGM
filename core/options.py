@@ -112,6 +112,7 @@ class Options:
     early_stopping: bool = False
     early_stopping_patience: int = 10
     resume_workspace: Optional[str] = None
+    verbose: bool = False
   
     
 

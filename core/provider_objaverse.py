@@ -195,7 +195,8 @@ class ObjaverseDataset(Dataset):
         # resize render ground-truth images, range still in [0, 1]
         results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         results['masks_output'] = F.interpolate(masks.unsqueeze(1), size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-        print(f"output size:{results['masks_output'].shape}")
+        if self.opt.verbose:
+            print(f"output size:{results['masks_output'].shape}")
 
         # build rays for input views
         rays_embeddings = []
