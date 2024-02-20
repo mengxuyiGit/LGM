@@ -109,6 +109,9 @@ class Options:
     ## batch process
     scene_start_index: int = 0
     scene_end_index: int = -1
+    early_stopping: bool = False
+    early_stopping_patience: int = 10
+    resume_workspace: Optional[str] = None
   
     
 
