@@ -16,6 +16,7 @@ import os
 import json
 import re
 import glob
+import shutil
 
 try:
     import torch.utils.tensorboard as tensorboard
@@ -75,6 +76,7 @@ def main():
     if rank == 0:
         ## ------------ dynamically change the workspace dir ------------
         #### for all scenes #####
+        
         prev_run_dirs = []
         outdir = opt.workspace
         if os.path.isdir(outdir):
@@ -82,7 +84,7 @@ def main():
         prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
         prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
         cur_run_id = max(prev_run_ids, default=-1) + 1
-        desc = f"splat{opt.splat_size}-inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
+        desc = f"subset_{opt.scene_start_index}_{opt.scene_end_index}_splat{opt.splat_size}-inV{opt.num_input_views}-lossV{opt.num_views}-lr{opt.lr}"
         if opt.use_adamW:
             desc = f"adamW-{desc}"
             
@@ -90,14 +92,51 @@ def main():
             desc = f"{opt.lr_scheduler}-patience_{opt.lr_scheduler_patience}-factor_{opt.lr_scheduler_factor}-eval_{opt.eval_iter}-{desc}"
         else:
             desc = f"{opt.lr_scheduler}-{desc}"
-            
+        
+        if opt.early_stopping:
+            desc = f"es{opt.early_stopping_patience}-{desc}"
+
         if opt.desc is not None:
             desc = f"{opt.desc}-{desc}"
-        run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
-        print(f"[Save dir (all scenes)] {run_dir}")
-        assert not os.path.exists(run_dir)
         
-        # TODO: copy important files to outdir
+        
+        run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
+        if opt.resume_workspace is not None:
+            
+            # check their conditions are the same
+            match = re.match(r'.*?(\d{5})-.*', opt.resume_workspace)
+            if match:
+                resume_run_id = match.group(1)
+                assert run_dir.replace(f'{cur_run_id:05d}', resume_run_id) == opt.resume_workspace
+                
+            else:
+                raise ValueError(f"Invalid opt.resume_workspace format: {opt.resume_workspace}")
+
+            run_dir = opt.resume_workspace
+            assert os.path.exists(run_dir)
+            
+            # resume folder
+            for i in range(1,100): # assume the number of resume does not pass 100
+                src_snapshot_folder = os.path.join(run_dir, f'src_{i:03d}')
+                if not os.path.exists(src_snapshot_folder):
+                    print(f"Resume src folder: {src_snapshot_folder}")
+                    break
+                    
+                
+        else:  
+            print(f"[Save dir (all scenes)] {run_dir}")
+            assert not os.path.exists(run_dir)
+
+            src_snapshot_folder = os.path.join(run_dir, 'src')
+        
+        # copy important files to outdir
+        ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
+        for folder in ['core', 'scripts']:
+            dst_dir = os.path.join(src_snapshot_folder, folder)
+            shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
+        for file in ['main_pretrained_batch.py']:
+            dest_file = os.path.join(src_snapshot_folder, file)
+            shutil.copy2(file, dest_file)
         
         #### for all scenes #####
     
@@ -135,6 +174,22 @@ def main():
         scene_name = scene_path.split('/')[-2] if scene_path.endswith('/') else scene_path.split('/')[-1]
         scene_workspace = os.path.join(run_dir, scene_split, scene_name)
         
+        if os.path.exists(scene_workspace):
+            print(f"Already exists {i}th scene: {scene_name}")
+
+            for item in os.listdir(scene_workspace):
+                if item.startswith('eval_pred_gs_') and item.endswith('_es'):
+                    print(f"Already early stopped.")
+            
+            # check whether the early stopping ckpt has been saved
+            continue
+        
+        try:
+            os.listdir(scene_path)
+        except:
+            print(f'{i}th scene is not a valid scene folder:{scene_name}')
+            continue
+        
         # training 
         train_dataset = Dataset(opt, name=scene_path, training=True)
         train_dataloader = torch.utils.data.DataLoader(
@@ -165,6 +220,10 @@ def main():
         model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
             model, fake_optimizer, train_dataloader, test_dataloader, fake_scheduler
         )
+        
+        if opt.early_stopping:
+            not_improved = 0
+            best_val_psnr = 0
         
         for i, data in enumerate(train_dataloader):
             out = model(data)
@@ -430,6 +489,7 @@ def main():
                                     # st() # then peroform einops, and check
                             ## save fused gaussian
                             model.gs.save_ply(out['gaussians'].detach(), os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}', 'fused' + '.ply')) # out['gaussians'].shape: [B, Npts, 14]
+                            
 
 
                     torch.cuda.empty_cache()
@@ -442,9 +502,56 @@ def main():
                         accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f} loss: {loss:.4f}")
                     
                     scheduler.step(total_loss)
-                    # Check if the learning rate was reduced
-                    if scheduler._last_lr[0] < optimizer.param_groups[0]['lr']:
-                        accelerator.print(f"Learning rate reduced to: {scheduler._last_lr[0]}")
+
+                    # Check for early stopping
+                    if opt.early_stopping:
+                        if total_psnr > best_val_psnr:
+                            best_val_psnr = total_psnr
+                            not_improved = 0
+                        else:
+                            not_improved += 1
+            
+                        if not_improved >= opt.early_stopping_patience:
+                            print("Validation PSNR hasn't improved for several evaluations. Early stopping.")
+
+                            ## save results
+                            if accelerator.is_main_process:
+                                gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                                gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                                kiui.write_image(f'{scene_workspace}/eval_gt_images_{epoch}_{i}.jpg', gt_images)
+
+                                pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                                pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                                kiui.write_image(f'{scene_workspace}/eval_pred_images_{epoch}_{i}_early_stopping.jpg', pred_images)
+                                    
+                                # save optimized ply
+                                if not os.path.exists(os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}_es')):
+                                    os.makedirs(os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}_es'))
+                                
+                                ## save spaltter imgs: model.splatter_out
+                                splatter_out_save_batch = model.get_activated_splatter_out()
+                                for splatter_out_save in splatter_out_save_batch:
+                                    for j, _sp_im in enumerate(splatter_out_save):
+                                        model.gs.save_ply(_sp_im[None], os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}_es', f'splatter_{j}' + '.ply')) # print(_sp_im[None].shape) # [1, splatter_res**2, 14]
+                                        # # load_path = os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}', f'splatter_{j}' + '.ply')
+                                        # load_path = '/home/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/workspace_splatter_gt_full_ply/00000-hydrant-inV6-lossV20-lr0.0006/eval_pred_gs_100_0/splatter_2.ply'
+                                        # gaussians_loaded = model.gs.load_ply(load_path)
+                                        # st() # then peroform einops, and check
+                                ## save fused gaussian
+                                model.gs.save_ply(out['gaussians'].detach(), os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}_es', 'fused' + '.ply')) # out['gaussians'].shape: [B, Npts, 14]
+                          
+                                ## save model
+                                accelerator.wait_for_everyone()
+                                if not opt.fix_pretrained:
+                                    accelerator.save_model(model, scene_workspace)
+                                    
+                                ### finish saving
+                            
+                            break
+                
+                    # # Check if the learning rate was reduced
+                    # if scheduler._last_lr[0] < optimizer.param_groups[0]['lr']:
+                    #     accelerator.print(f"Learning rate reduced to: {scheduler._last_lr[0]}")
                     
                     ## log with tb
                     timestamp = time.time()
@@ -483,6 +590,6 @@ def main():
                     stats_dict = dict() # clear dict entries for logging training
               
 
-
+    print("All checked")
 if __name__ == "__main__":
     main()
