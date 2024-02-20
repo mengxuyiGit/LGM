@@ -107,6 +107,26 @@ def main():
     scene_name_pattern = os.path.join(opt.data_path, '*')
     scene_dirs = sorted(glob.glob(scene_name_pattern))
     scene_split = (opt.data_path).split('/')[-2] if (opt.data_path).endswith('/') else (opt.data_path).split('/')[-1]
+    
+    # debug_glob = True
+    # if debug_glob:
+    #     total_scenes = len(scene_dirs)
+    #     print(f"total scenes:{total_scenes}")
+    #     for i in range(100):
+    #         si = random.randint(0, total_scenes)
+    #         ei = random.randint(si+1, total_scenes)
+    #         print(f"si:{si} - ei{ei}")
+    #         scenes_subset1 = scene_dirs[si:ei]
+
+    #         scene_dirs2 = sorted(glob.glob(scene_name_pattern))
+    #         scenes_subset2 = scene_dirs2[si:ei]
+            
+    #         assert scenes_subset1 == scenes_subset2
+    #     st()   
+    ### test passed!!
+    
+    
+    scene_dirs = scene_dirs[opt.scene_start_index: opt.scene_end_index]
 
     for i, scene_path in enumerate(scene_dirs):
         print(f"Processing scene {i}: {scene_path}")
@@ -186,7 +206,7 @@ def main():
         stats_metrics = dict()
         stats_dict = dict()
         
-        cur_nimg = -1
+        cur_nimg = 0
         start_time = time.time()
         if rank == 0:
             os.makedirs(scene_workspace, exist_ok=True)
@@ -207,7 +227,10 @@ def main():
             total_loss = 0
             total_psnr = 0
             for i, data in enumerate(train_dataloader):
-                cur_nimg += 1
+                # cur_nimg += 1
+                cur_nimg += opt.num_views
+                print(f"cur_nimg={cur_nimg}")
+    
                 with accelerator.accumulate(model):
 
                     optimizer.zero_grad()
@@ -308,7 +331,7 @@ def main():
                         for name, value in stats_metrics.items():
                             stats_tfevents.add_scalar(f'Train/{name}', value, global_step=global_step, walltime=walltime)
                         stats_tfevents.flush()
-                        # print("tf log sucessful!")
+                        print("tf log sucessful!")
                     
                     print(f"stats_metrics:{stats_metrics}, stats_dict:{stats_dict}")
         
@@ -362,10 +385,7 @@ def main():
             if epoch % opt.eval_iter == 0:
                 # eval
                 with torch.no_grad():
-                    
-                    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                    # model = model.half().to(device) # TODO:
-                    
+                
                     model.eval()
                     total_psnr = 0
                     total_loss = 0

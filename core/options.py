@@ -106,6 +106,10 @@ class Options:
     lr_scheduler: str = 'Plat'
     lr_scheduler_patience: int = 2
     lr_scheduler_factor: float = 0.5
+    ## batch process
+    scene_start_index: int = 0
+    scene_end_index: int = -1
+  
     
 
 # all the default settings
