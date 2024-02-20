@@ -59,6 +59,9 @@ class LGM(nn.Module):
         # self.output_parameter = nn.Parameter(torch.randn((your_output_shape_here), requires_grad=True))
         self.splatter_out = nn.Parameter(torch.randn((1, 4, 14, self.opt.splat_size, self.opt.splat_size), requires_grad=True))
         self.splatter_out_is_random=True
+    
+    def clear_splatter_out(self):
+        self.splatter_out_is_random=True
 
 
     def state_dict(self, **kwargs):

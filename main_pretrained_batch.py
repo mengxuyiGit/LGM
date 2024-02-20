@@ -138,11 +138,14 @@ def main():
         )
 
         ## Scene init
+        model.clear_splatter_out()
+        
         fake_optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr)
         fake_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(fake_optimizer, T_0=3000, eta_min=1e-6)
         model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
             model, fake_optimizer, train_dataloader, test_dataloader, fake_scheduler
         )
+        
         for i, data in enumerate(train_dataloader):
             out = model(data)
         # # Now you know the initial value of the dynamic parameter
@@ -153,13 +156,10 @@ def main():
         # # st()
         ## optimizer
         if opt.fix_pretrained:
-            # params_to_opt = filter(lambda p: p.requires_grad, model.parameters())
-            # print(f"params_to_opt: {len(list(params_to_opt))}")
             if opt.use_adamW:
                 optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
             else:
                 optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr)
-                print(f"opt.lr = {opt.lr}, use normal Adam")
         
         else:
             optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
