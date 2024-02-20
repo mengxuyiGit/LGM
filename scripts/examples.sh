@@ -2,6 +2,7 @@ DATA_DIR_DESK='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9
 DATA_DIR_PINK_IRONMAN='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/1dbcffe2f80b4d3ca50ff6406ab81f84'
 DATA_DIR_HYDRANT='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd'
 DATA_DIR_LAMP='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0c58250e3a7242e9bf21b114f2c8dce6'
+DATA_DIR_BATCH="/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999"
 
 # debug training: fix pretrained 
 #  accelerate launch --config_file acc_configs/gpu1.yaml main_cw.py big \
@@ -14,20 +15,26 @@ DATA_DIR_LAMP='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9
 #     --resume pretrained/model_fp16.safetensors --num_epochs 10001 --fix_pretrained \
 #     --lr 0.0006 --num_input_views 6 --num_views 20 --desc 'desk' --eval_iter 100 \
 #     --prob_cam_jitter 0 --data_path '/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0d83a6b0d3dc4a3b8544fff507c04d86'
-    
-accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big \
-    --workspace runs/LGM_optimize_splatter/workspace_splatter_gt_full_ply_fixed_einops \
-    --resume pretrained/model_fp16.safetensors --num_epochs 10001 --fix_pretrained \
-    --lr 0.003 --num_input_views 6 --num_views 20 --desc 'hydrant' --eval_iter 50 --save_iter 500\
-    --prob_cam_jitter 0 --data_path ${DATA_DIR_HYDRANT} --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 5
 
 # accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big \
 #     --workspace runs/LGM_optimize_splatter/workspace_debug \
 #     --resume pretrained/model_fp16.safetensors --num_epochs 10001 --fix_pretrained \
 #     --lr 0.0006 --num_input_views 6 --num_views 20 --desc 'hydrant-gt' --eval_iter 2 \
 #     --prob_cam_jitter 0 --data_path ${DATA_DIR_HYDRANT} --eval_splatter_gt
-    
-    # pink_ironman: '/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/1dbcffe2f80b4d3ca50ff6406ab81f84'
+
+# #### [FEB 19] Fast fitting: using Plateau LR scheduler
+# accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained.py big \
+#     --workspace runs/LGM_optimize_splatter/workspace_splatter_gt_full_ply_fixed_einops \
+#     --resume pretrained/model_fp16.safetensors --num_epochs 10001 --fix_pretrained \
+#     --lr 0.003 --num_input_views 6 --num_views 20 --desc 'hydrant' --eval_iter 50 --save_iter 500\
+#     --prob_cam_jitter 0 --data_path ${DATA_DIR_HYDRANT} --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 2
+
+#### [FEB 19] Fast fitting - Batch process
+accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big \
+    --workspace runs/LGM_optimize_splatter/workspace_debug_batch \
+    --resume pretrained/model_fp16.safetensors --num_epochs 20 --fix_pretrained --prob_cam_jitter 0 \
+    --lr 0.003 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 2 \
+    --eval_iter 2 --save_iter 5 --desc 'batch' --data_path ${DATA_DIR_BATCH}
 
 # debug training
 # accelerate launch --config_file acc_configs/gpu1.yaml main.py big --workspace workspace_ft --resume pretrained/model_fp16.safetensors --num_epochs 1000
