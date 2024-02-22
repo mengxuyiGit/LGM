@@ -128,7 +128,7 @@ class Options:
     scale_act: str = 'softplus'
     scale_act_bias: float = 0
     skip_predict_x0: bool = False
-    
+    scale_bias_learnable: bool = False
   
     
 

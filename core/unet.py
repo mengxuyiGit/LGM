@@ -8,7 +8,7 @@ from functools import partial
 
 from core.attention import MemEffAttention
 
-from ipdb import set_trace as st
+from pdb import set_trace as st
 
 class MVAttention(nn.Module):
     def __init__(

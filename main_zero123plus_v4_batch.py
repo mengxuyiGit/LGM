@@ -23,7 +23,17 @@ import numpy as np
 
 from tqdm import tqdm
 
+
 def main():    
+    import sys
+
+    # # Your additional path
+    # # your_path = "/home/xuyimeng/Repo/LGM"
+    # your_path = " /home/chenwang/xuyi_runs"
+
+    # # Add your path to sys.path
+    # sys.path.append(your_path)
+    
     opt = tyro.cli(AllConfigs)
     
     if opt.set_random_seed:
@@ -74,6 +84,8 @@ def main():
         desc += '-skip_predict_x0'
         
     opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}")
+    print(f"makdir: {opt.workspace}")
+    os.makedirs(opt.workspace, exist_ok=True)
     writer = tensorboard.SummaryWriter(opt.workspace)
 
     src_snapshot_folder = os.path.join(opt.workspace, 'src')
@@ -172,13 +184,19 @@ def main():
                 psnr = out['psnr']
                 accelerator.backward(loss)
 
-                # ## debug
+                ## debug
                 # # Check gradients of the unet parameters
                 # print(f"check unet parameters")
                 # for name, param in model.unet.named_parameters():
                 #     if param.requires_grad and param.grad is not None:
                 #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-
+              
+                # print(f"check other model parameters")
+                # for name, param in model.named_parameters():
+                #     if param.requires_grad and param.grad is not None:
+                #         if 'scale' in name:
+                #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                # st()
 
                 # gradient clipping
                 if accelerator.sync_gradients:

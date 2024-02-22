@@ -108,6 +108,7 @@ class GaussianRenderer:
             alphas = torch.stack(alphas, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
         except:
             print(f"^|_______OOM: torch.stack")
+            print(f"Max scale: {scales.max()}")
             st()
       
         
