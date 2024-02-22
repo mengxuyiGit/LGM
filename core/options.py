@@ -90,6 +90,7 @@ class Options:
     lambda_rendering: float = 1.0
     lambda_splatter: float = 1.0
     # use_splatter_loss: bool = False
+    lambda_alpha: float = 1.0
 
     train_unet: bool = False
     discard_small_opacities: bool = False
@@ -127,6 +128,7 @@ class Options:
     scale_act: str = 'softplus'
     scale_act_bias: float = 0
     skip_predict_x0: bool = False
+    
   
     
 

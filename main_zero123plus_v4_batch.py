@@ -53,6 +53,8 @@ def main():
     assert (opt.lambda_rendering + opt.lambda_splatter + opt.lambda_lpips > 0), 'Must have at least one loss'
     if opt.lambda_rendering > 0:
         loss_str+=f'_render{opt.lambda_rendering}'
+    elif opt.lambda_alpha > 0:
+        loss_str+=f'_alpha{opt.lambda_alpha}'
     if opt.lambda_splatter > 0:
         loss_str+=f'_splatter{opt.lambda_splatter}'
     if opt.lambda_lpips > 0:
@@ -145,6 +147,7 @@ def main():
         total_psnr = 0
         total_loss_splatter = 0 #torch.tensor([0]).to()
         total_loss_rendering = 0 #torch.tensor([0])
+        total_loss_alpha = 0
         total_loss_lpips = 0 #torch.tensor([0])
         
         if opt.log_gs_loss_mse_dict:
@@ -191,6 +194,9 @@ def main():
                     total_loss_splatter += out['loss_splatter'].detach()
                 if 'loss_rendering' in out.keys():
                     total_loss_rendering += out['loss_rendering'].detach()
+                elif 'loss_alpha' in out.keys():
+                    total_loss_alpha += out["loss_alpha"].detach()
+                    
                 if 'loss_lpips' in out.keys():
                     total_loss_lpips += out['loss_lpips'].detach()
               
@@ -230,6 +236,9 @@ def main():
             total_loss_splatter = accelerator.gather_for_metrics(total_loss_splatter).mean().item()
         if 'loss_rendering' in out.keys():
             total_loss_rendering = accelerator.gather_for_metrics(total_loss_rendering).mean().item()
+        elif 'loss_alpha' in out.keys():
+            total_loss_alpha = accelerator.gather_for_metrics(total_loss_alpha).mean().item()
+        
         if 'loss_lpips' in out.keys():
             total_loss_lpips = accelerator.gather_for_metrics(total_loss_lpips).mean().item()
         if opt.log_gs_loss_mse_dict:
@@ -241,13 +250,15 @@ def main():
             total_psnr /= len(train_dataloader)
             total_loss_splatter /= len(train_dataloader)
             total_loss_rendering /= len(train_dataloader)
+            total_loss_alpha /= len(train_dataloader)
             total_loss_lpips /= len(train_dataloader)
             
-            accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} lpips_loss: {total_loss_lpips:.4f} ")
+            accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
             writer.add_scalar('train/loss', total_loss.item(), epoch)
             writer.add_scalar('train/psnr', total_psnr.item(), epoch)
             writer.add_scalar('train/loss_splatter', total_loss_splatter, epoch)
             writer.add_scalar('train/loss_rendering', total_loss_rendering, epoch)
+            writer.add_scalar('train/loss_alpha', total_loss_alpha, epoch)
             writer.add_scalar('train/loss_lpips', total_loss_lpips, epoch)
             if opt.log_gs_loss_mse_dict:
                 for key in gt_attr_keys:
@@ -296,16 +307,21 @@ def main():
                         if len(opt.plot_attribute_histgram) > 0:
                             gaussians = fuse_splatters(out['splatters_pred'] )
                             gt_gaussians = fuse_splatters(data['splatters_output'])
+                            
+                            color_pairs = [('pink', 'teal'), ("red", "green"), ("orange", "blue"), ('purple', 'yellow'), ('cyan', 'brown')]
 
-                            attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
+                            attr_map = {key: (si, ei, color_pair) for key, si, ei, color_pair in zip (gt_attr_keys, start_indices, end_indices, color_pairs)}
             
                             for attr in opt.plot_attribute_histgram:
-                                start_i, end_i = attr_map[attr]
+                               
+                                start_i, end_i, (gt_color, pred_color) = attr_map[attr]
+                                # if opt.verbose_main:
+                                #     print(f"plot {attr} in dim ({start_i}, {end_i})")
                                 
                                 gt_attr_flatten =  gt_gaussians[..., start_i:end_i].detach()
                                 pred_attr_flatten = gaussians[..., start_i:end_i].detach()
                                 
-                                if attr == 'scale':
+                                if attr in ['scale', 'opacity']:
                                     gt_attr_flatten = torch.log(gt_attr_flatten.flatten()).cpu().numpy()
                                     pred_attr_flatten = torch.log(pred_attr_flatten.flatten()).cpu().numpy()
                                     
@@ -317,8 +333,8 @@ def main():
                                 # Manually define bin edges
                                 bin_edges = np.linspace(min(min(gt_attr_flatten), min(pred_attr_flatten)), max(max(gt_attr_flatten), max(pred_attr_flatten)), num=50)
 
-                                plt.hist(gt_attr_flatten, bins=bin_edges, color='orange', alpha=0.7, label=f'{attr}_gt')
-                                plt.hist(pred_attr_flatten, bins=bin_edges, color='blue', alpha=0.3, label=f'{attr}_pred')
+                                plt.hist(gt_attr_flatten, bins=bin_edges, color=gt_color, alpha=0.7, label=f'{attr}_gt')
+                                plt.hist(pred_attr_flatten, bins=bin_edges, color=pred_color, alpha=0.3, label=f'{attr}_pred')
                                 
                                 # Add labels and legend
                                 plt.xlabel('Value')
@@ -326,15 +342,16 @@ def main():
                                 plt.legend()
 
                                 # Save the plot as an image file (e.g., PNG)
-                                name = f'histogram_epoch{epoch}_batch{i}_{attr}_{opt.scale_act}_bias{opt.scale_act_bias}'
+                                name = f'histogram_epoch{epoch}_batch{i}_{attr}'
+                                if attr == "scale":
+                                    name += f"_{opt.scale_act}_bias{opt.scale_act_bias}"
                                 plt.title(f'{name}')
 
-                            plt.savefig(f'{opt.workspace}/eval_epoch_{epoch}/{i}_{name}.jpg')
+                                plt.savefig(f'{opt.workspace}/eval_epoch_{epoch}/{i}_{name}.jpg')
                             
-                            # Clear the figure
-                            plt.clf()
+                                # Clear the figure
+                                plt.clf()
                             
-                
             
                 torch.cuda.empty_cache()
 
