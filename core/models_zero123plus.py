@@ -12,7 +12,8 @@ import einops
 from core.options import Options
 from core.gs import GaussianRenderer
 
-from ipdb import set_trace as st
+# from ipdb import set_trace as st
+from pdb import set_trace as st
 import matplotlib.pyplot as plt
 
 
@@ -172,12 +173,16 @@ class Zero123PlusGaussian(nn.Module):
         self.gs = GaussianRenderer(opt)
         # activations...
         self.pos_act = lambda x: x.clamp(-1, 1)
+        
+       
+        if opt.scale_bias_learnable:
+            self.scale_bias = nn.Parameter(torch.tensor([opt.scale_act_bias]), requires_grad=True)
+        else:
+            self.scale_bias = opt.scale_act_bias
         if self.opt.scale_act == "biased_exp":
-            bias = opt.scale_act_bias
-            self.scale_act = lambda x: torch.exp(x + bias)
+            self.scale_act = lambda x: torch.exp(x + self.scale_bias)
         elif self.opt.scale_act == "biased_softplus":
-            bias = opt.scale_act_bias
-            self.scale_act = lambda x: 0.1 * F.softplus(x + bias)
+            self.scale_act = lambda x: 0.1 * F.softplus(x + self.scale_bias)
         elif self.opt.scale_act == "softplus":
             self.scale_act = lambda x: 0.1 * F.softplus(x)
         else: 
@@ -352,6 +357,8 @@ class Zero123PlusGaussian(nn.Module):
         pos = self.pos_act(x[..., :3]) # [B, N, 3]
         opacity = self.opacity_act(x[..., 3:4])
         scale = self.scale_act(x[..., 4:7])
+        if self.opt.verbose_main:
+            print(f"self.scale bias: {self.scale_bias}")
 
         ## TODO: clamp
         # print(f"pred scale max:{scale.max()} scale min: {scale.min()}")
