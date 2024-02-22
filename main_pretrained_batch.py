@@ -18,6 +18,7 @@ import re
 import glob
 import shutil
 from tqdm import tqdm
+import numpy as np
 
 try:
     import torch.utils.tensorboard as tensorboard
@@ -54,10 +55,16 @@ def main():
         else:
             ckpt = torch.load(opt.resume, map_location='cpu')
         
+        
         # tolerant load (only load matching shapes)
         # model.load_state_dict(ckpt, strict=False)
         state_dict = model.state_dict()
+        # conv_weights = {} 
         for k, v in ckpt.items():
+            # if k.split('.')[0] =='conv': 
+            #     conv_weights[k] = v  
+            #     # print(k)
+            #     # print(v)
             if k in state_dict: 
                 if state_dict[k].shape == v.shape:
                     state_dict[k].copy_(v)
@@ -65,7 +72,16 @@ def main():
                     accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
-    
+        
+        # # Save to NumPy file (.npy)
+        # np.save('LGM_conv_weights.npy', conv_weights)
+        
+        # # Alternatively, save to text file (.txt)
+        # with open('LGM_conv_weights.txt', 'w') as f:
+        #     for k, v in conv_weights.items():
+        #         f.write(f"{k}:\n{v}\n\n")
+
+        
     # data
     if opt.data_mode == 's3':
         from core.provider_objaverse import ObjaverseDataset as Dataset

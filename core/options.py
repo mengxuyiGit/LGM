@@ -113,6 +113,20 @@ class Options:
     early_stopping_patience: int = 10
     resume_workspace: Optional[str] = None
     verbose: bool = False
+    
+    # for zero123++ batch training 
+    data_path_rendering: Optional[str] = None
+    data_path_splatter_gt: Optional[str] = None
+    verbose_main: bool = False
+    # scale_max_clamp: float = 
+    plot_attribute_histgram: Tuple[str, ...] = ()
+    gt_replace_pred: Tuple[str, ...] = ()
+    set_random_seed: bool = False
+    # biased_exp_scale_act: bool = False
+    # biased_softplus_scale_act: bool = False
+    scale_act: str = 'softplus'
+    scale_act_bias: float = 0
+    skip_predict_x0: bool = False
   
     
 
