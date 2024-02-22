@@ -550,10 +550,21 @@ class Zero123PlusGaussian(nn.Module):
             psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
             results['psnr'] = psnr
         
+       
+            
+            
         if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
             results['loss_rendering'] = loss_mse_rendering
             loss = loss + self.opt.lambda_rendering * loss_mse_rendering
+            if self.opt.verbose_main:
+                print(f"loss rendering (with alpha):{loss_mse_rendering}")
+        elif self.opt.lambda_alpha > 0:
+            loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
+            results['loss_alpha'] = loss_mse_alpha
+            loss = loss + self.opt.lambda_alpha * loss_mse_alpha
+            if self.opt.verbose_main:
+                print(f"loss alpha:{loss_mse_alpha}")
             
     
 
@@ -570,6 +581,8 @@ class Zero123PlusGaussian(nn.Module):
             ).mean()
             results['loss_lpips'] = loss_lpips
             loss = loss + self.opt.lambda_lpips * loss_lpips
+            if self.opt.verbose_main:
+                print(f"loss lpips:{loss_lpips}")
             
         
 
