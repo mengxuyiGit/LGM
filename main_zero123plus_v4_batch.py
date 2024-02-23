@@ -22,6 +22,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from tqdm import tqdm
+import torch.nn.functional as F
+
 
 
 def main():    
@@ -78,6 +80,12 @@ def main():
             loss_special += f"_{key}"
         desc += loss_special
     
+    if len(opt.normalize_scale_using_gt) > 0:
+        loss_special = '-norm'
+        for key in opt.normalize_scale_using_gt:
+            loss_special += f"_{key}"
+        desc += loss_special
+        
     if opt.train_unet:
         desc += '-train_unet'
     if opt.skip_predict_x0:
@@ -170,6 +178,9 @@ def main():
                 
         # for i, data in enumerate(train_dataloader):
         for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
+            if i > 0 and opt.skip_training:
+                break
+                
             if opt.verbose_main:
                 print(f"data['input']:{data['input'].shape}")
                 
@@ -300,6 +311,8 @@ def main():
             with torch.no_grad():
                 model.eval()
                 total_psnr = 0
+                
+                print(f"Save to run dir: {opt.workspace}")
                 for i, data in enumerate(test_dataloader):
 
                     out = model(data)
@@ -320,6 +333,8 @@ def main():
                         # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                         # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                         # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
+
+                        
                         
 
                         if len(opt.plot_attribute_histgram) > 0:
@@ -336,12 +351,38 @@ def main():
                                 # if opt.verbose_main:
                                 #     print(f"plot {attr} in dim ({start_i}, {end_i})")
                                 
-                                gt_attr_flatten =  gt_gaussians[..., start_i:end_i].detach()
-                                pred_attr_flatten = gaussians[..., start_i:end_i].detach()
+                                gt_attr_flatten =  gt_gaussians[..., start_i:end_i] # [B, L, C]
+                                pred_attr_flatten = gaussians[..., start_i:end_i]
                                 
                                 if attr in ['scale', 'opacity']:
-                                    gt_attr_flatten = torch.log(gt_attr_flatten.flatten()).cpu().numpy()
-                                    pred_attr_flatten = torch.log(pred_attr_flatten.flatten()).cpu().numpy()
+                                    gt_attr_flatten = torch.log(gt_attr_flatten).permute(0,2,1) # [B, C, L]
+                                    pred_attr_flatten = torch.log(pred_attr_flatten).permute(0,2,1) 
+                                    # if opt.normalize_scale_using_gt:
+                                       
+                                    #     # Assuming input_tensor and gt_tensor have the same shape (e.g., batch_size x num_features)
+
+                                    #     # # Calculate mean and std from ground truth (gt) data
+                                    #     # gt_mean = torch.mean(gt_attr_flatten, dim=0, keepdim=True)
+                                    #     # gt_std = torch.std(gt_attr_flatten, dim=0, keepdim=True)
+                                        
+                                    #     # Assuming train_data has shape (B, C, L)
+                                    #     gt_mean = torch.mean(gt_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
+                                    #     gt_std = torch.std(gt_attr_flatten, dim=(0, 2), keepdim=True)
+
+                                        
+                                    #     pred_mean = torch.mean(pred_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
+                                    #     pred_std = torch.std(pred_attr_flatten, dim=(0, 2), keepdim=True)
+
+                                    #     # Normalize input_tensor to match the distribution of gt
+                                    #     st()
+                                    #     normalized_pred = (pred_attr_flatten - pred_mean) / (pred_std + 1e-5)  # Adding a small epsilon for numerical stability
+
+                                    #     # If you want the normalized_input to have the same mean and std as gt_tensor
+                                    #     pred_attr_flatten = normalized_pred * gt_std + gt_mean
+
+                                    gt_attr_flatten = gt_attr_flatten.flatten().detach().cpu().numpy()
+                                    pred_attr_flatten = pred_attr_flatten.flatten().detach().cpu().numpy()
+
                                     
                                 else:
                                     ## cannot flatten due to their meaning
@@ -363,6 +404,10 @@ def main():
                                 name = f'histogram_epoch{epoch}_batch{i}_{attr}'
                                 if attr == "scale":
                                     name += f"_{opt.scale_act}_bias{opt.scale_act_bias}"
+                                
+                                if opt.normalize_scale_using_gt:
+                                    name += "normed_on_gt"
+                                    
                                 plt.title(f'{name}')
 
                                 plt.savefig(f'{opt.workspace}/eval_epoch_{epoch}/{i}_{name}.jpg')

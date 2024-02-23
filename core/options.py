@@ -129,6 +129,11 @@ class Options:
     scale_act_bias: float = 0
     skip_predict_x0: bool = False
     scale_bias_learnable: bool = False
+    scale_clamp_max: float = -2
+    scale_clamp_min: float = -10
+    normalize_scale_using_gt: Tuple[str, ...] = ()
+    
+    skip_training: bool = False
   
     
 
