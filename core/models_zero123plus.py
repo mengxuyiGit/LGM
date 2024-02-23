@@ -12,8 +12,7 @@ import einops
 from core.options import Options
 from core.gs import GaussianRenderer
 
-# from ipdb import set_trace as st
-from pdb import set_trace as st
+from ipdb import set_trace as st
 import matplotlib.pyplot as plt
 
 
@@ -179,12 +178,22 @@ class Zero123PlusGaussian(nn.Module):
             self.scale_bias = nn.Parameter(torch.tensor([opt.scale_act_bias]), requires_grad=True)
         else:
             self.scale_bias = opt.scale_act_bias
+       
         if self.opt.scale_act == "biased_exp":
-            self.scale_act = lambda x: torch.exp(x + self.scale_bias)
+            max_scale = self.opt.scale_clamp_max # in torch.log scale
+            min_scale = self.opt.scale_clamp_min
+            # self.scale_act = lambda x: torch.exp(x + self.scale_bias)
+            self.scale_act = lambda x: torch.exp(torch.clamp(x + self.scale_bias, max=max_scale, min=min_scale))
         elif self.opt.scale_act == "biased_softplus":
-            self.scale_act = lambda x: 0.1 * F.softplus(x + self.scale_bias)
+            max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
+            min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
+            # self.scale_act = lambda x: 0.1 * F.softplus(x + self.scale_bias)
+            self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x + self.scale_bias), max=max_scale, min=min_scale)
         elif self.opt.scale_act == "softplus":
-            self.scale_act = lambda x: 0.1 * F.softplus(x)
+            # self.scale_act = lambda x: 0.1 * F.softplus(x)
+            max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
+            min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
+            self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x), max=max_scale, min=min_scale)
         else: 
             raise ValueError ("Unsupported scale_act")
         
@@ -359,6 +368,58 @@ class Zero123PlusGaussian(nn.Module):
         scale = self.scale_act(x[..., 4:7])
         if self.opt.verbose_main:
             print(f"self.scale bias: {self.scale_bias}")
+            print(f"scale after clamp: max={torch.log(scale.max())}, min={torch.log(scale.min())}")
+           
+        for attr in self.opt.normalize_scale_using_gt:
+            if self.opt.verbose_main:
+                print(f"Normalizing attr {attr} in forward splatttre")
+            if attr == 'opacity':
+                pred_attr_flatten = opacity
+                gt_std = torch.tensor([[[3.2988]]], device='cuda:0')
+                gt_mean = torch.tensor([[[-4.7325]]], device='cuda:0')
+            elif attr == 'scale':
+                pred_attr_flatten = scale
+                gt_std = torch.tensor([[[1.0321],
+                    [0.9340],
+                    [1.0183]]], device='cuda:0')
+                gt_mean = torch.tensor([[[-5.7224],
+                    [-5.5628],
+                    [-5.4192]]], device='cuda:0')
+
+            else:
+                raise ValueError ("This attribute is not supported for normalization")
+            
+            # gt_attr_flatten = torch.log(gt_attr_flatten).permute(0,2,1) # [B, C, L]
+            b, H, W, c = pred_attr_flatten.shape
+    
+            pred_attr_flatten = einops.rearrange(pred_attr_flatten, 'b H W c -> b c (H W)') # # [B, C, L]
+            pred_attr_flatten = torch.log(pred_attr_flatten)
+            
+            # TODO: Change the GT mean and var to be the one calculatd by the dataloader
+        
+            # # Assuming train_data has shape (B, C, L)
+            # gt_mean = torch.mean(gt_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
+            # gt_std = torch.std(gt_attr_flatten, dim=(0, 2), keepdim=True)
+
+            pred_mean = torch.mean(pred_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
+            pred_std = torch.std(pred_attr_flatten, dim=(0, 2), keepdim=True)
+
+            # Normalize input_tensor to match the distribution of gt
+        
+            normalized_pred = (pred_attr_flatten - pred_mean) / (pred_std + 1e-5)  # Adding a small epsilon for numerical stability
+
+            # If you want the normalized_input to have the same mean and std as gt_tensor
+            pred_attr_flatten = normalized_pred * gt_std + gt_mean
+
+            pred_attr_flatten = torch.exp(pred_attr_flatten) # because the norm is on the log scale
+            pred_attr_flatten = einops.rearrange(pred_attr_flatten, 'b c (H W) -> b H W c', H=H, W=W) # [B, C, L]
+            
+            if attr == 'opacity':
+                opacity = pred_attr_flatten 
+            elif attr == 'scale':
+                scale = pred_attr_flatten
+            else:
+                raise ValueError ("This attribute is not supported for normalization")
 
         ## TODO: clamp
         # print(f"pred scale max:{scale.max()} scale min: {scale.min()}")
@@ -459,7 +520,8 @@ class Zero123PlusGaussian(nn.Module):
             #     st()
                 
             # loss_mse_unweighted = F.mse_loss(pred_splatters, gt_splatters)
-            
+            # st()
+            # print(f"dtype of splatter image: {pred_splatters}")
             gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters, gt_splatters)
             loss_mse = gs_loss_mse_dict['total']
             # st()
