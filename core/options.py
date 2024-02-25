@@ -135,6 +135,8 @@ class Options:
     
     skip_training: bool = False
     save_train_pred: int = 50
+    lr_schedule_by_train: bool = True
+    
   
     
 
