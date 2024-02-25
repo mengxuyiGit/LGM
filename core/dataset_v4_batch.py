@@ -187,8 +187,14 @@ class ObjaverseDataset(Dataset):
         # splatter_uid = self.items_splatter_gt[idx]
        
         splatter_images_multi_views = []
-        spaltter_files = glob.glob(os.path.join(splatter_uid, "splatter_*.ply")) # TODO: make this expresion more precise: only load the ply files with numbers
-        for sf in spaltter_files:
+        
+        # spaltter_files = glob.glob(os.path.join(splatter_uid, "splatter_*.ply")) # TODO: make this expresion more precise: only load the ply files with numbers ## FIXME: 
+        # for sf in spaltter_files:
+        
+        for input_id in vids[:self.opt.num_input_views]:
+            sf = os.path.join(splatter_uid, f"splatter_{input_id-1}.ply")
+            if self.opt.verbose:
+                print(f"sf:{sf}")
             splatter_im = load_ply(sf)
             splatter_images_multi_views.append(splatter_im)
             # print(splatter_im.shape) # ([16384, 14])
