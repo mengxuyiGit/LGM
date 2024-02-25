@@ -134,6 +134,7 @@ class Options:
     normalize_scale_using_gt: Tuple[str, ...] = ()
     
     skip_training: bool = False
+    save_train_pred: int = 50
   
     
 

@@ -84,11 +84,19 @@ class ObjaverseDataset(Dataset):
         self.data_path_splatter_gt = {}
         
         # check the integrity of each splatter gt
-        for scene_path in sorted(glob.glob(os.path.join(opt.data_path_splatter_gt, "*"))):
+        
+        if not opt.data_path_splatter_gt.endswith('9000-9999'):
+            scene_path_pattern = os.path.join(opt.data_path_splatter_gt, "*", "9000-9999", "*")
+        else:
+            scene_path_pattern = os.path.join(opt.data_path_splatter_gt, "*")
+        
+        all_scene_paths = sorted(glob.glob(scene_path_pattern))
+            
+        for scene_path in all_scene_paths:
             pattern = os.path.join(scene_path, 'eval_pred_gs_*_es')
             es_folder =  glob.glob(pattern)
             try:
-                assert len(es_folder) == 1
+                assert len(es_folder) >= 1
             except:
                 print(f"{es_folder} does not contain exactly one early stop ckpt")
                 continue
@@ -96,6 +104,10 @@ class ObjaverseDataset(Dataset):
             splatter_gt_folder = es_folder[0]
 
             scene_name = scene_path.split('/')[-1]
+            
+            if scene_name in self.data_path_splatter_gt.keys():
+                continue
+            
             if len(os.listdir(splatter_gt_folder)) == 7:
                 
                 rendering_folder = os.path.join(opt.data_path_rendering, scene_name)
@@ -109,7 +121,14 @@ class ObjaverseDataset(Dataset):
                 self.data_path_rendering[scene_name] = rendering_folder
 
         assert len(self.data_path_splatter_gt) == len(self.data_path_rendering)
-        self.items = [k for k in self.data_path_splatter_gt.keys()]
+        
+        # self.items = [k for k in self.data_path_splatter_gt.keys()]
+        all_items = [k for k in self.data_path_splatter_gt.keys()]
+        if self.training:
+            self.items = all_items[:-50]
+        else:
+            self.items = all_items[-50:]
+        
         
         # naive split
         # if self.training:
@@ -277,6 +296,21 @@ class ObjaverseDataset(Dataset):
             results['input'] = final_input
         else:
             results['input'] = images_input
+            
+            
+            lgm_images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(256, 256), mode='bilinear', align_corners=False) # [V, C, H, W]
+            lgm_images_input = TF.normalize(lgm_images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+
+            ## for adding additonal input for lgm
+            rays_embeddings = []
+            for i in range(self.opt.num_input_views):
+                rays_o, rays_d = get_rays(cam_poses_input[i], 256, 256, self.opt.fovy) # [h, w, 3]
+                rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
+                rays_embeddings.append(rays_plucker)
+
+            rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
+            final_input = torch.cat([lgm_images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
+            results['input_lgm'] = final_input
 
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction

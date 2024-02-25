@@ -97,6 +97,7 @@ class LGM(nn.Module):
 
         x = self.unet(images) # [B*4, 14, h, w]
         x = self.conv(x) # [B*4, 14, h, w]
+        st()
 
         x = x.reshape(B, 6, 14, self.opt.splat_size, self.opt.splat_size) # 4 -> 6 on the 2nd dim
         
@@ -127,7 +128,11 @@ class LGM(nn.Module):
         results = {}
         loss = 0
 
-        images = data['input'] # [B, 4, 9, h, W], input features
+        if 'input_lgm' in data.keys():
+            images = data['input_lgm'] # [8, 6, 9, 128, 128])
+            st()
+        else:
+            images = data['input'] # [B, 4, 9, h, W], input features
         
         # use the first view to predict gaussians
         gaussians = self.forward_gaussians(images) # [B, N, 14]
