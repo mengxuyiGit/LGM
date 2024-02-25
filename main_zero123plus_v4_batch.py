@@ -99,7 +99,9 @@ def main():
     if opt.skip_predict_x0:
         desc += '-skip_predict_x0'
         
-    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}")
+    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
+    if opt.lr_scheduler == 'Plat':
+        opt.workspace += f"{opt.lr_scheduler_patience}"
     print(f"makdir: {opt.workspace}")
     os.makedirs(opt.workspace, exist_ok=True)
     writer = tensorboard.SummaryWriter(opt.workspace)
@@ -157,11 +159,16 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
 
     # scheduler (per-iteration)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
-    total_steps = opt.num_epochs * len(train_dataloader)
-    pct_start = 3000 / total_steps
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=opt.lr, total_steps=total_steps, pct_start=pct_start)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
+    if opt.lr_scheduler == 'CosAnn':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
+    elif opt.lr_scheduler == 'OneCyc':
+        total_steps = opt.num_epochs * len(train_dataloader)
+        pct_start = 3000 / total_steps
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=opt.lr, total_steps=total_steps, pct_start=pct_start)
+    elif opt.lr_scheduler == 'Plat':
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=opt.lr_scheduler_factor, patience=opt.lr_scheduler_patience, verbose=True, min_lr=1e-6)
+    else:
+        assert ValueError('Not a valid lr_scheduler option.')
 
     # accelerate
     model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
@@ -223,7 +230,8 @@ def main():
                     accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
 
                 optimizer.step()
-                scheduler.step()
+                if opt.lr_scheduler != 'Plat':
+                    scheduler.step()
 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
@@ -307,6 +315,10 @@ def main():
                     # else:
                     #     total_attr_loss = total_gs_loss_mse_dict[key]
                     writer.add_scalar(f'train/loss(weighted)_{key}', total_attr_loss, epoch)
+            
+            if opt.lr_scheduler == 'Plat' and opt.lr_schedule_by_train:
+                scheduler.step(total_loss)
+                writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch)
             
         
         # checkpoint
@@ -435,6 +447,10 @@ def main():
                     writer.add_scalar('eval/loss_rendering', total_loss_rendering, epoch)
                     writer.add_scalar('eval/loss_alpha', total_loss_alpha, epoch)
                     writer.add_scalar('eval/loss_lpips', total_loss_lpips, epoch)
+
+                    if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
+                        scheduler.step(total_loss)
+                        writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
                
                 if opt.save_train_pred > 0:
                     for j, data in enumerate(train_dataloader):
