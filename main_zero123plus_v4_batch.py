@@ -319,7 +319,13 @@ def main():
             # eval
             with torch.no_grad():
                 model.eval()
+        
+                total_loss = 0
                 total_psnr = 0
+                total_loss_splatter = 0 #torch.tensor([0]).to()
+                total_loss_rendering = 0 #torch.tensor([0])
+                total_loss_alpha = 0
+                total_loss_lpips = 0
                 
                 print(f"Save to run dir: {opt.workspace}")
                 for i, data in enumerate(test_dataloader):
@@ -328,6 +334,17 @@ def main():
         
                     psnr = out['psnr']
                     total_psnr += psnr.detach()
+                    loss = out['loss']
+                    total_loss += loss.detach()
+                    if 'loss_splatter' in out.keys():
+                        total_loss_splatter += out['loss_splatter'].detach()
+                    if 'loss_rendering' in out.keys():
+                        total_loss_rendering += out['loss_rendering'].detach()
+                    elif 'loss_alpha' in out.keys():
+                        total_loss_alpha += out["loss_alpha"].detach()
+                    if 'loss_lpips' in out.keys():
+                        total_loss_lpips += out['loss_lpips'].detach()
+            
                     
                     # save some images
                     if accelerator.is_main_process:
@@ -404,8 +421,21 @@ def main():
                 total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
                 if accelerator.is_main_process:
                     total_psnr /= len(test_dataloader)
-                    accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f}")
-                
+                    # accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f}")
+                    total_loss /= len(test_dataloader)
+                    total_loss_splatter /= len(test_dataloader)
+                    total_loss_rendering /= len(test_dataloader)
+                    total_loss_alpha /= len(test_dataloader)
+                    total_loss_lpips /= len(test_dataloader)
+                    
+                    accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
+                    writer.add_scalar('eval/loss', total_loss.item(), epoch)
+                    writer.add_scalar('eval/psnr', total_psnr.item(), epoch)
+                    writer.add_scalar('eval/loss_splatter', total_loss_splatter, epoch)
+                    writer.add_scalar('eval/loss_rendering', total_loss_rendering, epoch)
+                    writer.add_scalar('eval/loss_alpha', total_loss_alpha, epoch)
+                    writer.add_scalar('eval/loss_lpips', total_loss_lpips, epoch)
+               
                 if opt.save_train_pred > 0:
                     for j, data in enumerate(train_dataloader):
                         if j > opt.save_train_pred:
