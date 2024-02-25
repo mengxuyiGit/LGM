@@ -5,6 +5,7 @@ import random
 import torch
 from core.options import AllConfigs
 from core.models_zero123plus import Zero123PlusGaussian, gt_attr_keys, start_indices, end_indices, fuse_splatters
+from core.models_zero123plus_large import Zero123PlusGaussianLarge #, gt_attr_keys, start_indices, end_indices, fuse_splatters
 
 from core.models_fix_pretrained import LGM
 
@@ -24,6 +25,8 @@ import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
 
+import warnings
+
 
 
 def main():    
@@ -35,7 +38,8 @@ def main():
 
     # # Add your path to sys.path
     # sys.path.append(your_path)
-    
+   
+
     opt = tyro.cli(AllConfigs)
     
     if opt.set_random_seed:
@@ -56,6 +60,10 @@ def main():
     # model
     if opt.model_type == 'Zero123PlusGaussian':
         model = Zero123PlusGaussian(opt)
+        from core.dataset_v4_batch import ObjaverseDataset as Dataset
+    elif opt.model_type == 'Zero123PlusGaussianLarge':
+        model = Zero123PlusGaussianLarge(opt)
+        from core.dataset_v5_large import ObjaverseDataset as Dataset
     elif opt.model_type == 'LGM':
         model = LGM(opt)
     # model = SingleSplatterImage(opt)
@@ -143,6 +151,7 @@ def main():
         pin_memory=True,
         drop_last=False,
     )
+
 
     # optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
@@ -334,9 +343,6 @@ def main():
                         # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                         # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
 
-                        
-                        
-
                         if len(opt.plot_attribute_histgram) > 0:
                             gaussians = fuse_splatters(out['splatters_pred'] )
                             gt_gaussians = fuse_splatters(data['splatters_output'])
@@ -357,29 +363,6 @@ def main():
                                 if attr in ['scale', 'opacity']:
                                     gt_attr_flatten = torch.log(gt_attr_flatten).permute(0,2,1) # [B, C, L]
                                     pred_attr_flatten = torch.log(pred_attr_flatten).permute(0,2,1) 
-                                    # if opt.normalize_scale_using_gt:
-                                       
-                                    #     # Assuming input_tensor and gt_tensor have the same shape (e.g., batch_size x num_features)
-
-                                    #     # # Calculate mean and std from ground truth (gt) data
-                                    #     # gt_mean = torch.mean(gt_attr_flatten, dim=0, keepdim=True)
-                                    #     # gt_std = torch.std(gt_attr_flatten, dim=0, keepdim=True)
-                                        
-                                    #     # Assuming train_data has shape (B, C, L)
-                                    #     gt_mean = torch.mean(gt_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
-                                    #     gt_std = torch.std(gt_attr_flatten, dim=(0, 2), keepdim=True)
-
-                                        
-                                    #     pred_mean = torch.mean(pred_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
-                                    #     pred_std = torch.std(pred_attr_flatten, dim=(0, 2), keepdim=True)
-
-                                    #     # Normalize input_tensor to match the distribution of gt
-                                    #     st()
-                                    #     normalized_pred = (pred_attr_flatten - pred_mean) / (pred_std + 1e-5)  # Adding a small epsilon for numerical stability
-
-                                    #     # If you want the normalized_input to have the same mean and std as gt_tensor
-                                    #     pred_attr_flatten = normalized_pred * gt_std + gt_mean
-
                                     gt_attr_flatten = gt_attr_flatten.flatten().detach().cpu().numpy()
                                     pred_attr_flatten = pred_attr_flatten.flatten().detach().cpu().numpy()
 
@@ -422,8 +405,34 @@ def main():
                 if accelerator.is_main_process:
                     total_psnr /= len(test_dataloader)
                     accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f}")
+                
+                if opt.save_train_pred > 0:
+                    for j, data in enumerate(train_dataloader):
+                        if j > opt.save_train_pred:
+                            break
+
+                        out = model(data)
+        
+                        # save some training images
+                        if accelerator.is_main_process:
+                            gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_gt.jpg', gt_images)
+
+                            pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_pred.jpg', pred_images)
+                    
+            
 
 
 
 if __name__ == "__main__":
+    
+    ### Ignore the FutureWarning from pipeline_stable_diffusion.py
+    warnings.filterwarnings("ignore", category=FutureWarning, module="pipeline_stable_diffusion")
+    
     main()
+    
+    # Reset the warning filter to its default state (optional)
+    warnings.resetwarnings()
