@@ -81,6 +81,7 @@ def main():
         loss_str+=f'_lpips{opt.lambda_lpips}'
    
     desc = opt.desc
+    desc += f"-{opt.decoder_mode}"
     ## the following may not exists, thus directly added to opt.desc if exists
     if len(opt.attr_use_logrithm_loss) > 0:
         loss_special = '-logrithm'
@@ -116,7 +117,7 @@ def main():
         shutil.copy2(file, dest_file)
         
     # resume
-    if opt.resume is not None:
+    if opt.resume is not None and not opt.decoder_mode.startswith("v1_fix_rgb"):
         if opt.resume.endswith('safetensors'):
             ckpt = load_file(opt.resume, device='cpu')
         else:
