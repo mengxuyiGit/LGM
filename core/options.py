@@ -136,7 +136,10 @@ class Options:
     skip_training: bool = False
     save_train_pred: int = 50
     lr_schedule_by_train: bool = True
+    check_splatter_alignment: bool = False
     
+    decoder_mode: str = "v0_unfreeze_all" # "v1_fix_rgb" "v1_fix_rgb_remove_unscale" "v2_fix_rgb_more_conv"
+
   
     
 

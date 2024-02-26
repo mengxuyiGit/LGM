@@ -101,11 +101,28 @@ def predict_noise0_diffuser(unet, noisy_latents, text_embeddings, t,
 
 # From: https://github.com/huggingface/diffusers/blob/v0.26.3/src/diffusers/models/autoencoders/autoencoder_kl.py#L35
 class UNetDecoder(nn.Module):
-    def __init__(self, vae):
+    def __init__(self, vae, opt):
         super(UNetDecoder, self).__init__()
         self.vae = vae
         self.decoder = vae.decoder
+        
+        if opt.decoder_mode in ["v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
+            self.decoder = self.decoder.requires_grad_(False).eval()
+        else:
+            self.decoder = self.decoder.requires_grad_(True).train()
+        
         self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        
+        # if opt.verbose or opt.verbose_main:
+        if True:
+            print(f"opt.decoder_mode : {opt.decoder_mode}")    
+            
+            decoder_requires_grad = any(p.requires_grad for p in self.decoder.parameters()) ## check decoder requires grad
+            print(f"UNet Decoder vae.decoder requires grad: {decoder_requires_grad}")
+
+            others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
+            print(f"UNet Decoder others requires grad: {others_requires_grad}")
+            # st()
     
     def forward(self, z):
         sample = self.vae.post_quant_conv(z)
@@ -125,6 +142,59 @@ class UNetDecoder(nn.Module):
         return torch.cat([others, rgb], dim=1)
         # return rgb
 
+class UNetDecoderV2(nn.Module):
+    def __init__(self, vae, opt):
+        super(UNetDecoderV2, self).__init__()
+        
+        assert opt.decoder_mode in ["v2_fix_rgb_more_conv"]
+        self.vae = vae
+        self.decoder = vae.decoder
+        
+        if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
+            self.decoder = self.decoder.requires_grad_(False).eval()
+        else:
+            self.decoder = self.decoder.requires_grad_(True).train()
+        self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        
+        # self.rgb_conv1 = nn.Conv2d(14, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        # self.rgb_conv2 = nn.Conv2d(14, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv1 = nn.Conv2d(14, 14, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv2 = nn.Conv2d(14, 14, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        
+        # if opt.verbose or opt.verbose_main:
+        if True:
+            print(f"opt.decoder_mode : {opt.decoder_mode}")    
+            
+            decoder_requires_grad = any(p.requires_grad for p in self.decoder.parameters()) ## check decoder requires grad
+            print(f"UNet Decoder vae.decoder requires grad: {decoder_requires_grad}")
+
+            others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
+            print(f"UNet Decoder others requires grad: {others_requires_grad}")
+            # st()
+    
+    def forward(self, z):
+        sample = self.vae.post_quant_conv(z)
+        latent_embeds = None
+        sample = self.decoder.conv_in(sample)
+        upscale_dtype = next(iter(self.decoder.up_blocks.parameters())).dtype
+        sample = self.decoder.mid_block(sample, latent_embeds)
+        sample = sample.to(upscale_dtype)
+        # up
+        for up_block in self.decoder.up_blocks:
+            sample = up_block(sample, latent_embeds)
+
+        sample = self.decoder.conv_norm_out(sample)
+        sample = self.decoder.conv_act(sample)
+        rgb_2D = self.decoder.conv_out(sample)
+        others = self.others(sample)
+        raw =  torch.cat([others, rgb_2D], dim=1)
+
+        raw = self.conv1(raw)
+        raw = self.conv2(raw)
+        
+        return raw
+        # return torch.cat([others, rgb], dim=1)
+        # return rgb
 
 class Zero123PlusGaussian(nn.Module):
     def __init__(
@@ -150,7 +220,7 @@ class Zero123PlusGaussian(nn.Module):
 
         self.pipe.prepare() 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
-        self.vae.decoder.requires_grad_(True).train()
+        # self.vae.decoder.requires_grad_(True).train() #NOTE: this is done in the Unet Decoder
 
         if opt.train_unet:
             print("Unet is trainable")
@@ -158,7 +228,13 @@ class Zero123PlusGaussian(nn.Module):
         else:
             self.unet = self.pipe.unet.eval().requires_grad_(False)
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
-        self.decoder = UNetDecoder(self.vae)
+
+        if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
+            self.decoder = UNetDecoderV2(self.vae, opt)
+        elif opt.decoder_mode in ["v0_unfreeze_all", "v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
+            self.decoder = UNetDecoder(self.vae, opt)
+        else:
+            raise ValueError ("NOT a valid choice for decoder in Zero123PlusGaussian")
 
         # with torch.no_grad():
         #     cond = to_rgb_image(Image.open('/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd/000.png'))
@@ -199,7 +275,12 @@ class Zero123PlusGaussian(nn.Module):
         
         self.opacity_act = lambda x: torch.sigmoid(x)
         self.rot_act = F.normalize
-        self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
+        if self.opt.decoder_mode == "v1_fix_rgb":
+            self.rgb_act = lambda x: x
+        elif self.opt.decoder_mode == "v1_fix_rgb_remove_unscale":
+            self.rgb_act = lambda x: unscale_image(x)
+        else:
+            self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
 
         # LPIPS loss
         if self.opt.lambda_lpips > 0:
@@ -223,6 +304,8 @@ class Zero123PlusGaussian(nn.Module):
             latents = latents / self.vae.config.scaling_factor
             # image = self.vae.decode(latents, return_dict=False)[0]
             image = self.decoder(latents)
+            if self.opt.decoder_mode == "v1_fix_rgb_remove_unscale": 
+                return image # do unscale for rgb only in rgb_act
             image = unscale_image(image)
         else:
             image = self.vae.decode(latents, return_dict=False)[0]
@@ -366,25 +449,30 @@ class Zero123PlusGaussian(nn.Module):
         pos = self.pos_act(x[..., :3]) # [B, N, 3]
         opacity = self.opacity_act(x[..., 3:4])
         scale = self.scale_act(x[..., 4:7])
+        rotation = self.rot_act(x[..., 7:11])
+        rgbs = self.rgb_act(x[..., 11:])
+        
         if self.opt.verbose_main:
             print(f"self.scale bias: {self.scale_bias}")
             print(f"scale after clamp: max={torch.log(scale.max())}, min={torch.log(scale.min())}")
-           
+        
+        device = x.device
         for attr in self.opt.normalize_scale_using_gt:
+            st()
             if self.opt.verbose_main:
                 print(f"Normalizing attr {attr} in forward splatttre")
             if attr == 'opacity':
                 pred_attr_flatten = opacity
-                gt_std = torch.tensor([[[3.2988]]], device='cuda:0')
-                gt_mean = torch.tensor([[[-4.7325]]], device='cuda:0')
+                gt_std = torch.tensor([[[3.2988]]], device=device)
+                gt_mean = torch.tensor([[[-4.7325]]], device=device)
             elif attr == 'scale':
                 pred_attr_flatten = scale
                 gt_std = torch.tensor([[[1.0321],
                     [0.9340],
-                    [1.0183]]], device='cuda:0')
+                    [1.0183]]], device=device)
                 gt_mean = torch.tensor([[[-5.7224],
                     [-5.5628],
-                    [-5.4192]]], device='cuda:0')
+                    [-5.4192]]], device=device)
 
             else:
                 raise ValueError ("This attribute is not supported for normalization")
@@ -420,17 +508,6 @@ class Zero123PlusGaussian(nn.Module):
                 scale = pred_attr_flatten
             else:
                 raise ValueError ("This attribute is not supported for normalization")
-
-        ## TODO: clamp
-        # print(f"pred scale max:{scale.max()} scale min: {scale.min()}")
-        # clamp the min and max scale to avoid oom
-        # st()
-        # print("clamp the scale to 1e-4")
-        # scale = torch.clamp(scale, max=1e-4)
-        
-        rotation = self.rot_act(x[..., 7:11])
-        # rgbs = x[..., 11:] # FIXME: original activation removed
-        rgbs = self.rgb_act(x[..., 11:])
 
         splatters = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
         
@@ -537,6 +614,7 @@ class Zero123PlusGaussian(nn.Module):
         gaussians = fuse_splatters(pred_splatters)
                    
         
+        
         if self.opt.render_gt_splatter:
             print("Render GT splatter --> load splatters then fuse")
             gaussians = fuse_splatters(data['splatters_output'])
@@ -565,6 +643,9 @@ class Zero123PlusGaussian(nn.Module):
                 gaussians = gaussians[mask].unsqueeze(0)
        
         elif len(self.opt.gt_replace_pred) > 0: 
+            ### check rgb output from zero123++
+            # gt_splatters =  data['splatters_output'] # [1, 6, 14, 128, 128]
+           
             ### this will work
             # gaussians = fuse_splatters(data['splatters_output'])
             # print(f"replace --> assign")
@@ -585,10 +666,9 @@ class Zero123PlusGaussian(nn.Module):
             # test_rand_seed = torch.randint(0, 100, (3,))
             # print(f"test_rand_seed: {test_rand_seed}")
             # st()
-           
+            
         
-        # if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 or (not self.training):
-        if True:
+        if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 or (not self.training):
             if self.opt.verbose_main:
                 print(f"Render when self.training = {self.training}")
                 
