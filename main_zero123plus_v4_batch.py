@@ -49,12 +49,12 @@ def main():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    # ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
     accelerator = Accelerator(
         mixed_precision=opt.mixed_precision,
         gradient_accumulation_steps=opt.gradient_accumulation_steps,
-        # kwargs_handlers=[ddp_kwargs],
+        kwargs_handlers=[ddp_kwargs],
     )
 
     # model
