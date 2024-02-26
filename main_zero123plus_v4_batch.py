@@ -99,13 +99,16 @@ def main():
         desc += '-train_unet'
     if opt.skip_predict_x0:
         desc += '-skip_predict_x0'
-        
-    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
-    if opt.lr_scheduler == 'Plat':
-        opt.workspace += f"{opt.lr_scheduler_patience}"
-    print(f"makdir: {opt.workspace}")
-    os.makedirs(opt.workspace, exist_ok=True)
-    writer = tensorboard.SummaryWriter(opt.workspace)
+    if opt.num_views != 20:
+        desc += f'-numV{opt.num_views}'
+    
+    if accelerator.is_main_process:
+        opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
+        if opt.lr_scheduler == 'Plat':
+            opt.workspace += f"{opt.lr_scheduler_patience}"
+        print(f"makdir: {opt.workspace}")
+        os.makedirs(opt.workspace, exist_ok=True)
+        writer = tensorboard.SummaryWriter(opt.workspace)
 
     src_snapshot_folder = os.path.join(opt.workspace, 'src')
     ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
@@ -118,6 +121,7 @@ def main():
         
     # resume
     if opt.resume is not None and not opt.decoder_mode.startswith("v1_fix_rgb"):
+        print(f"Resume from ckpt: {opt.resume}")
         if opt.resume.endswith('safetensors'):
             ckpt = load_file(opt.resume, device='cpu')
         else:
