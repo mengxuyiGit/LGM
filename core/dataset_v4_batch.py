@@ -98,7 +98,8 @@ class ObjaverseDataset(Dataset):
             try:
                 assert len(es_folder) >= 1
             except:
-                print(f"{es_folder} does not contain exactly one early stop ckpt")
+                if self.opt.verbose:
+                    print(f"{scene_path} does not contain exactly one early stop ckpt")
                 continue
                 
             splatter_gt_folder = es_folder[0]
