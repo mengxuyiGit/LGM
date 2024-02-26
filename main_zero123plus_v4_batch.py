@@ -211,6 +211,7 @@ def main():
                 loss = out['loss']
                 psnr = out['psnr']
                 accelerator.backward(loss)
+                # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
                 ## debug
                 # # Check gradients of the unet parameters
