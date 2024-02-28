@@ -1,6 +1,6 @@
 
 DATA_DIR_BATCH_RENDERING='.../assets/9000-9999'
-DATA_DIR_BATCH_SPLATTER_GT_ROOT='.../workspace_debug_batch_subset_es'
+DATA_DIR_BATCH_SPLATTER_GT_ROOT='.../workspace_debug_batch_subset_es' # this is the root folder containing all "/00002-batch-es10-Plat-patience_2-factor_0.5-eval_5-adamW-subset_500_650_splat128-inV6-lossV20-lr0.003/9000-9999/..." directories
 
 ### 2GPUs - with latents of size 16x16
 accelerate launch --main_process_port 29510 --config_file acc_configs/gpu2.yaml main_zero123plus_v4_batch.py big --workspace runs/zerp123plus_batch/workspace_train \
