@@ -112,7 +112,7 @@ class UNetDecoder(nn.Module):
             self.decoder = self.decoder.requires_grad_(True).train()
         
         self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        
+        # print(self.decoder)
         # if opt.verbose or opt.verbose_main:
         if True:
             print(f"opt.decoder_mode : {opt.decoder_mode}")    
@@ -207,6 +207,7 @@ class Zero123PlusGaussian(nn.Module):
         # Load zero123plus model
         import sys
         sys.path.append('./zero123plus')
+
         self.pipe = DiffusionPipeline.from_pretrained(
             opt.model_path,
             custom_pipeline=opt.custom_pipeline
@@ -337,83 +338,6 @@ class Zero123PlusGaussian(nn.Module):
             if 'lpips_loss' in k:
                 del state_dict[k]
         return state_dict
-
-    def forward_gaussians(self, images, cond):
-        B, V, C, H, W = images.shape
-        with torch.no_grad():
-            text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
-            cross_attention_kwargs_stu = cross_attention_kwargs
-
-        # make input 6 views into a 3x2 grid
-        images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
-
-        # scale as in zero123plus
-        latents = self.encode_image(images)
-        t = torch.tensor([10] * B, device=latents.device)
-        latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
-        x = self.predict_x0(
-            latents, text_embeddings, t=10, guidance_scale=1.0, 
-            cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-        # x = torch.randn([B, 4, 96, 64], device=images.device)
-        x = self.decode_latents(x) # (B, 14, H, W)
-        # x = self.conv(x)
-
-        x = einops.rearrange(x, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
-        x = x.reshape(B*6, -1, H, W)
-
-        x = x.reshape(B, V, 14, 256, 256)
-        x = x.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
-        
-        pos = self.pos_act(x[..., :3]) # [B, N, 3]
-        opacity = self.opacity_act(x[..., 3:4])
-        scale = self.scale_act(x[..., 4:7])
-        rotation = self.rot_act(x[..., 7:11])
-        rgbs = x[..., 11:] # FIXME: original activation removed
-
-        gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
-        return gaussians
-    
-    def forward_splatters(self, images, cond):
-        B, V, C, H, W = images.shape
-        # print(f"images.shape in forward+spaltter:{images.shape}") # SAME as the input_size
-        with torch.no_grad():
-            text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
-            cross_attention_kwargs_stu = cross_attention_kwargs
-
-        # make input 6 views into a 3x2 grid
-        images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
-
-        # scale as in zero123plus
-        latents = self.encode_image(images) # [1, 4, 48, 32]
-        
-        t = torch.tensor([10] * B, device=latents.device)
-        latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
-        x = self.predict_x0(
-            latents, text_embeddings, t=10, guidance_scale=1.0, 
-            cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-        # x = torch.randn([B, 4, 96, 64], device=images.device)
-        x = self.decode_latents(x) # (B, 14, H, W)
-        # x = self.conv(x)
-
-        x = einops.rearrange(x, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
-        splatters = x
-        
-
-        return splatters
-        
-        x = x.reshape(B*6, -1, H, W)
-
-        x = x.reshape(B, V, 14, H, W)
-        x = x.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
-        
-        pos = self.pos_act(x[..., :3]) # [B, N, 3]
-        opacity = self.opacity_act(x[..., 3:4])
-        scale = self.scale_act(x[..., 4:7])
-        rotation = self.rot_act(x[..., 7:11])
-        rgbs = x[..., 11:] # FIXME: original activation removed
-
-        gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
-        return gaussians, splatters
     
     def forward_splatters_with_activation(self, images, cond):
         B, V, C, H, W = images.shape
@@ -429,7 +353,15 @@ class Zero123PlusGaussian(nn.Module):
         latents = self.encode_image(images) # [1, 4, 48, 32]
         
         if self.opt.skip_predict_x0:
+            # print(f"encode images: {images.shape}")
+            # latents = torch.randn([B, self.pipe.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float16)
             x = self.decode_latents(latents)
+           
+            # print("self.decode_latents output", x.shape)
+            if self.opt.downsample_after_decode_latents:
+                ## output is 320x320, we use downsample to supervise the gaussian
+                x = F.interpolate(x, size=(384, 256), mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
+
         else:
             t = torch.tensor([10] * B, device=latents.device)
             latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
@@ -597,11 +529,21 @@ class Zero123PlusGaussian(nn.Module):
             #     st()
                 
             # loss_mse_unweighted = F.mse_loss(pred_splatters, gt_splatters)
-            # st()
             # print(f"dtype of splatter image: {pred_splatters}")
-            gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters, gt_splatters)
+            
+            if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
+                print("pred_splatters:", pred_splatters.shape)
+                B, V, C, H, W, = pred_splatters.shape
+                pred_splatters_gt_size = einops.rearrange(pred_splatters, "b v c h w -> (b v) c h w")
+                pred_splatters_gt_size = F.interpolate(pred_splatters_gt_size, size=gt_splatters.shape[-2:], mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
+                pred_splatters_gt_size = einops.rearrange(pred_splatters_gt_size, "(b v) c h w -> b v c h w", b=B, v=V)
+                # st()
+                
+            else:
+                pred_splatters_gt_size = pred_splatters
+            gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters_gt_size, gt_splatters)
             loss_mse = gs_loss_mse_dict['total']
-            # st()
+        
             results['loss_splatter'] = loss_mse
             loss = loss + self.opt.lambda_splatter * loss_mse
             # also log the losses for each attributes

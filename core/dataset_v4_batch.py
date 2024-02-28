@@ -180,6 +180,7 @@ class ObjaverseDataset(Dataset):
         cond_path = os.path.join(uid, f'000.png')
         from PIL import Image
         cond = np.array(Image.open(cond_path).resize((self.opt.input_size, self.opt.input_size)))
+        # print(f"cond size:{Image.open(cond_path)}")
         mask = cond[..., 3:4] / 255
         cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
         results['cond'] = cond.astype(np.uint8)
