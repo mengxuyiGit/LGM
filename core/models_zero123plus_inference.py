@@ -106,10 +106,11 @@ class UNetDecoder(nn.Module):
         self.vae = vae
         self.decoder = vae.decoder
         
-        if (opt.decoder_mode in ["v1_fix_rgb", "v1_fix_rgb_remove_unscale"]) or (opt.inference_noise_level > 0):
-            self.decoder = self.decoder.requires_grad_(False).eval()
-        else:
-            self.decoder = self.decoder.requires_grad_(True).train()
+        self.decoder = self.decoder.requires_grad_(False).eval()
+        # if (opt.decoder_mode in ["v1_fix_rgb", "v1_fix_rgb_remove_unscale"]) or (opt.inference_noise_level > 0):
+        #     self.decoder = self.decoder.requires_grad_(False).eval()
+        # else:
+        #     self.decoder = self.decoder.requires_grad_(True).train()
         
         self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
         
@@ -142,61 +143,8 @@ class UNetDecoder(nn.Module):
         return torch.cat([others, rgb], dim=1)
         # return rgb
 
-class UNetDecoderV2(nn.Module):
-    def __init__(self, vae, opt):
-        super(UNetDecoderV2, self).__init__()
-        
-        assert opt.decoder_mode in ["v2_fix_rgb_more_conv"]
-        self.vae = vae
-        self.decoder = vae.decoder
-        
-        if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
-            self.decoder = self.decoder.requires_grad_(False).eval()
-        else:
-            self.decoder = self.decoder.requires_grad_(True).train()
-        self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        
-        # self.rgb_conv1 = nn.Conv2d(14, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        # self.rgb_conv2 = nn.Conv2d(14, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.conv1 = nn.Conv2d(14, 14, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.conv2 = nn.Conv2d(14, 14, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        
-        # if opt.verbose or opt.verbose_main:
-        if True:
-            print(f"opt.decoder_mode : {opt.decoder_mode}")    
-            
-            decoder_requires_grad = any(p.requires_grad for p in self.decoder.parameters()) ## check decoder requires grad
-            print(f"UNet Decoder vae.decoder requires grad: {decoder_requires_grad}")
 
-            others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
-            print(f"UNet Decoder others requires grad: {others_requires_grad}")
-            # st()
-    
-    def forward(self, z):
-        sample = self.vae.post_quant_conv(z)
-        latent_embeds = None
-        sample = self.decoder.conv_in(sample)
-        upscale_dtype = next(iter(self.decoder.up_blocks.parameters())).dtype
-        sample = self.decoder.mid_block(sample, latent_embeds)
-        sample = sample.to(upscale_dtype)
-        # up
-        for up_block in self.decoder.up_blocks:
-            sample = up_block(sample, latent_embeds)
-
-        sample = self.decoder.conv_norm_out(sample)
-        sample = self.decoder.conv_act(sample)
-        rgb_2D = self.decoder.conv_out(sample)
-        others = self.others(sample)
-        raw =  torch.cat([others, rgb_2D], dim=1)
-
-        raw = self.conv1(raw)
-        raw = self.conv2(raw)
-        
-        return raw
-        # return torch.cat([others, rgb], dim=1)
-        # return rgb
-
-class Zero123PlusGaussian(nn.Module):
+class Zero123PlusGaussianInference(nn.Module):
     def __init__(
         self,
         opt: Options,
@@ -211,38 +159,115 @@ class Zero123PlusGaussian(nn.Module):
             opt.model_path,
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
+
         
-        # # Load the pipeline
+        # Load the pipeline
+        self.pipe_0123 = DiffusionPipeline.from_pretrained(
+            "sudo-ai/zero123plus-v1.1", custom_pipeline=opt.custom_pipeline,
+            torch_dtype=torch.float32
+        ).to('cuda')
+        self.pipe_0123.prepare()
+
         # self.pipe = DiffusionPipeline.from_pretrained(
         #     "sudo-ai/zero123plus-v1.1", custom_pipeline="sudo-ai/zero123plus-pipeline",
         #     torch_dtype=torch.float16
         # )
-
+        
+        
         self.pipe.prepare() 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         # self.vae.decoder.requires_grad_(True).train() #NOTE: this is done in the Unet Decoder
 
-        if opt.train_unet:
-            print("Unet is trainable")
-            self.unet = self.pipe.unet.requires_grad_(True).train()
-        else:
-            self.unet = self.pipe.unet.eval().requires_grad_(False)
-        self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
+        ### insert the inference code
+        ## scene: b0bce5ad99d84befaf9159681c551051
 
-        if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
-            self.decoder = UNetDecoderV2(self.vae, opt)
-        elif opt.decoder_mode in ["v0_unfreeze_all", "v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
-            self.decoder = UNetDecoder(self.vae, opt)
-        else:
-            raise ValueError ("NOT a valid choice for decoder in Zero123PlusGaussian")
+        # inference_in_init = 
+        # if inference_in_init:
+        #     print(f"Begin inference ...")
+        #     guidance_scale = 4.0
+        #     pipeline = self.pipe
+        #     prompt_embeds, cak = pipeline.prepare_conditions(cond, guidance_scale=4.0)
+        #     pipeline.scheduler.set_timesteps(1, device='cuda:0')
+        #     timesteps = pipeline.scheduler.timesteps
+        #     latents = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float16)
+        #     latents_init = latents.clone().detach()
+            
 
-        # with torch.no_grad():
-        #     cond = to_rgb_image(Image.open('/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd/000.png'))
-        #     text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
-        #     cross_attention_kwargs_stu = cross_attention_kwargs
+        #     with torch.no_grad():
+        #         for i, t in enumerate(timesteps):
+        #             print(t)
+        #             latent_model_input = torch.cat([latents] * 2)
+        #             latent_model_input = pipeline.scheduler.scale_model_input(latent_model_input, t)
 
-        # add auxiliary layer for generating gaussian (14 channels)
-        # self.conv = nn.Conv2d(3, 14, kernel_size=3, stride=1, padding=1)
+        #             # predict the noise residual
+        #             noise_pred = pipeline.unet(
+        #                 latent_model_input,
+        #                 t,
+        #                 encoder_hidden_states=prompt_embeds,
+        #                 cross_attention_kwargs=cak,
+        #                 return_dict=False,
+        #             )[0]
+
+        #             # perform guidance
+        #             if True:
+        #                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        #                 noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+        #             # noise_pred = predict_noise0_diffuser(pipeline.unet, latents, prompt_embeds, t, guidance_scale, cak, pipeline.scheduler)
+
+        #             # compute the previous noisy sample x_t -> x_t-1
+        #             latents = pipeline.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+        #         latents1 = unscale_latents(latents)
+        #         image = pipeline.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+        #         image = unscale_image(image)
+
+        #         gt_images = image.float().detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+        #         # gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+        #         gt_images = gt_images.transpose(0, 2, 3, 1)
+        #         gt_images = gt_images.reshape(-1, gt_images.shape[2], 3)
+        #         kiui.write_image(f'inference_no_resume.jpg', gt_images)
+        #         st()
+
+        #         latents_init1 = unscale_latents(latents_init)
+        #         image_init = pipeline.vae.decode(latents_init1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+        #         image_init = unscale_image(image_init)
+
+        #         pred_images = image_init.float().detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+        #         # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+        #         pred_images = pred_images.transpose(0, 2, 3, 1)
+        #         kiui.write_image(f'init_image.jpg', pred_images)
+                
+        #         x = self.decode_latents(latents1)
+                
+        #         print(f"Finish inference ...")
+        #         st()
+        
+
+        
+        
+        
+        # ### --------- inference [end] ---------
+        # if opt.train_unet:
+        #     print("Unet is trainable")
+        #     self.unet = self.pipe.unet.requires_grad_(True).train()
+        # else:
+        #     self.unet = self.pipe.unet.eval().requires_grad_(False)
+        # self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
+
+        # if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
+        #     self.decoder = UNetDecoderV2(self.vae, opt)
+        # elif opt.decoder_mode in ["v0_unfreeze_all", "v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
+        #     self.decoder = UNetDecoder(self.vae, opt)
+        # else:
+        #     raise ValueError ("NOT a valid choice for decoder in Zero123PlusGaussian")
+        self.decoder = UNetDecoder(self.vae, opt)
+        self.decoder.requires_grad_(False).eval()
+        # # with torch.no_grad():
+        # #     cond = to_rgb_image(Image.open('/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd/000.png'))
+        # #     text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
+        # #     cross_attention_kwargs_stu = cross_attention_kwargs
+
+        # # add auxiliary layer for generating gaussian (14 channels)
+        # # self.conv = nn.Conv2d(3, 14, kernel_size=3, stride=1, padding=1)
 
         # Gaussian Renderer
         self.gs = GaussianRenderer(opt)
@@ -282,10 +307,10 @@ class Zero123PlusGaussian(nn.Module):
         else:
             self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
 
-        # LPIPS loss
-        if self.opt.lambda_lpips > 0:
-            self.lpips_loss = LPIPS(net='vgg')
-            self.lpips_loss.requires_grad_(False)
+        # # LPIPS loss
+        # if self.opt.lambda_lpips > 0:
+        #     self.lpips_loss = LPIPS(net='vgg')
+        #     self.lpips_loss.requires_grad_(False)
     
     def encode_image(self, image, is_zero123plus=True):
         # st() # image: torch.Size([1, 3, 768, 512])
@@ -427,21 +452,28 @@ class Zero123PlusGaussian(nn.Module):
 
         # scale as in zero123plus
         latents = self.encode_image(images) # [1, 4, 48, 32]
-        
+        debug = False
         if self.opt.skip_predict_x0 and (not inference):
+        # if self.opt.skip_predict_x0:
             x = self.decode_latents(latents)
         elif inference:
-            st()
-            print(f"Begin inference ...")
+            import os
+            import rembg
             guidance_scale = 4.0
-            pipeline = self.pipe
+            # img = to_rgb_image(Image.open(path))
+            # img.save(os.path.join(output_path, f'{name}/cond.png'))
+            # cond = [img]
+            noise_level = 7
+            pipeline = self.pipe_0123
             prompt_embeds, cak = pipeline.prepare_conditions(cond, guidance_scale=4.0)
-            pipeline.scheduler.set_timesteps(1, device='cuda:0')
+            pipeline.scheduler.set_timesteps(noise_level, device='cuda:0')
             timesteps = pipeline.scheduler.timesteps
-            latents = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float16)
+            # latents = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float16)
+            latents = torch.randn([1, pipeline.unet.config.in_channels, 48, 32], device='cuda:0', dtype=torch.float16)
             latents_init = latents.clone().detach()
+            st()
             
-
+            ######## ----- [BEGIN] ----- 
             with torch.no_grad():
                 for i, t in enumerate(timesteps):
                     print(t)
@@ -468,15 +500,105 @@ class Zero123PlusGaussian(nn.Module):
                 latents1 = unscale_latents(latents)
                 image = pipeline.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
                 image = unscale_image(image)
-                
 
                 latents_init1 = unscale_latents(latents_init)
                 image_init = pipeline.vae.decode(latents_init1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
                 image_init = unscale_image(image_init)
+                
+            mv_image = einops.rearrange((image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c (h2 h) (w2 w)-> (h2 w2) h w c', h2=3, w2=2).astype(np.uint8) 
+            for i, image in enumerate(mv_image):
+                image = rembg.remove(image).astype(np.float32) / 255.0
+                if image.shape[-1] == 4:
+                    image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
+                im_path = os.path.join(self.opt.workspace, f'models_inference/{i:03d}.png')
+                Image.fromarray((image * 255).astype(np.uint8)).save(im_path)
+            print(f"Inference image saved to {im_path}")
+            st()
+            
+        elif debug:   
+            # print(f"Begin inference (image) ...")
+            # guidance_scale = 4.0
+            # pipeline = self.pipe_0123
+            # prompt_embeds, cak = pipeline.prepare_conditions(cond, guidance_scale=4.0)
+            # pipeline.scheduler.set_timesteps(noise_level, device='cuda:0')
+            # timesteps = pipeline.scheduler.timesteps
+            # latents = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float16)
+            # latents_init = latents.clone().detach()
+            
+            
+            # print(f"End inference (image) ...")
+            for _pi, pipeline in enumerate([self.pipe_0123, self.pipe]):
+                print(f"Begin inference (for the {_pi}_th pipe) ...")
+                guidance_scale = 4.0
+                pipeline = self.pipe
+                prompt_embeds, cak = pipeline.prepare_conditions(cond, guidance_scale=4.0)
+                pipeline.scheduler.set_timesteps(100, device='cuda:0')
+                timesteps = pipeline.scheduler.timesteps
+                latents = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float16)
+                latents_init = latents.clone().detach()
+                
 
-                x = self.decode_latents(latents1)
-                # st()
-                print(f"Finish inference ...")
+                with torch.no_grad():
+                    for i, t in enumerate(timesteps):
+                        print(t)
+                        latent_model_input = torch.cat([latents] * 2)
+                        latent_model_input = pipeline.scheduler.scale_model_input(latent_model_input, t)
+
+                        # predict the noise residual
+                        noise_pred = pipeline.unet(
+                            latent_model_input,
+                            t,
+                            encoder_hidden_states=prompt_embeds,
+                            cross_attention_kwargs=cak,
+                            return_dict=False,
+                        )[0]
+
+                        # perform guidance
+                        if True:
+                            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                        # noise_pred = predict_noise0_diffuser(pipeline.unet, latents, prompt_embeds, t, guidance_scale, cak, pipeline.scheduler)
+
+                        # compute the previous noisy sample x_t -> x_t-1
+                        latents = pipeline.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                    latents1 = unscale_latents(latents)
+                    image = pipeline.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+                    image = unscale_image(image)
+
+                    gt_images = image.float().detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                    # gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                    gt_images = gt_images.transpose(0, 2, 3, 1)
+                    gt_images = gt_images.reshape(-1, gt_images.shape[2], 3)
+                    kiui.write_image(f'inference_no_resume.jpg', gt_images)
+                    st()
+
+                    latents_init1 = unscale_latents(latents_init)
+                    image_init = pipeline.vae.decode(latents_init1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+                    image_init = unscale_image(image_init)
+
+                    pred_images = image_init.float().detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                    # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                    pred_images = pred_images.transpose(0, 2, 3, 1)
+                    kiui.write_image(f'init_image.jpg', pred_images)
+
+                    
+                    # latents = self.encode_image(images) # [1, 4, 48, 32]
+                    image = scale_image(image)
+                    image = pipeline.vae.encode(image).latent_dist.sample() * pipeline.vae.config.scaling_factor
+                    latents = scale_latents(image)
+                    
+                    self.decode_latents(latents)
+                    latents = unscale_latents(latents)
+                    latents = latents / self.vae.config.scaling_factor
+                    # image = self.vae.decode(latents, return_dict=False)[0]
+                    image = self.decoder(latents)
+                    if self.opt.decoder_mode == "v1_fix_rgb_remove_unscale": 
+                        return image # do unscale for rgb only in rgb_act
+                    image = unscale_image(image)
+                    
+                    x = self.decode_latents(latents)
+                    st()
+                    print(f"Finish inference ...")
         else:
             noise_level = None
             t = torch.tensor([10] * B, device=latents.device)
@@ -485,6 +607,31 @@ class Zero123PlusGaussian(nn.Module):
             x = self.predict_x0(
                 latents, text_embeddings, t=10, guidance_scale=1.0, 
                 cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+
+            # t = torch.tensor([100] * B, device=latents.device)
+            # latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
+            
+            # for step_t in self.scheduler.timesteps:
+            #     print(f"step_t: {step_t}")
+            #     latents = self.predict_x0(
+            #         latents, text_embeddings, t=step_t, guidance_scale=1.0, 
+            #         cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+            # x = latents
+            
+            # pipeline.scheduler.set_timesteps(75, device='cuda:0')
+           
+            # if inference:
+            #     noise_level = self.opt.inference_noise_level
+            # else:
+            #     noise_level = 10
+
+            # t = torch.tensor([noise_level] * B, device=latents.device)
+            # latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
+            
+            # x = self.predict_x0(
+            #     latents, text_embeddings, t=noise_level, guidance_scale=1.0, 
+            #     cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+            
     
             print(f"pred x0: {x.shape}, latents:{latents.shape}, noise_level: {noise_level} (under inferce mode: {inference})")
             x = self.decode_latents(x) # (B, 14, H, W)
@@ -791,6 +938,28 @@ class Zero123PlusGaussian(nn.Module):
             
         
         results['loss'] = loss
+        
+        
+        ### additional for inference
+        if self.opt.inference_noise_level > 0:
+            inference_splatters = self.forward_splatters_with_activation(images, cond, inference=True) # [B, N, 14] # (B, 6, 14, H, W)
+            results['inference_splatters'] = inference_splatters # [1, 6, 14, 256, 256]
+            if self.opt.verbose_main:
+                print(f"model inference_splatters: {inference_splatters.shape}")
+            
+            gaussians = fuse_splatters(inference_splatters)
+            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
+            gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+
+            inference_images = gs_results['image'] # [B, V, C, output_size, output_size]
+            inference_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
+
+
+            results['images_inference'] = inference_images
+            results['alphas_inference'] = inference_alphas
+            
+            psnr = -10 * torch.log10(torch.mean((inference_images.detach() - gt_images) ** 2))
+            results['psnr_inference'] = psnr
         
 
         return results

@@ -2,6 +2,21 @@ import tyro
 from dataclasses import dataclass
 from typing import Tuple, Literal, Dict, Optional
 
+@dataclass
+class SplatterConfig:
+    opacity_scale: float = 1.0
+    opacity_bias: float = -2.0
+    scale_bias: float = 0.02
+    scale_scale: float = 0.003
+    xyz_scale: float = 0.1
+    xyz_bias: float = 0.0
+    depth_scale: float = 1.0
+    depth_bias: float = 0.0
+    
+    max_sh_degree: int = 0
+    
+    with_offset: bool = True
+    resolution: int = 128
 
 @dataclass
 class Options:
@@ -81,7 +96,7 @@ class Options:
     data_path: Optional[str] = None
     
     ### zero123plus
-    model_type: str = 'Zero123PlusGaussian'
+    model_type: str = 'Zero123PlusGaussian' ## "Zero123PlusGaussianPosOffset"
     model_path: str = 'sudo-ai/zero123plus-v1.1' 
     custom_pipeline: str ='./zero123plus/pipeline_v2.py'
     bg: float = 0.5
@@ -138,9 +153,14 @@ class Options:
     lr_schedule_by_train: bool = True
     check_splatter_alignment: bool = False
     
-    decoder_mode: str = "v0_unfreeze_all" # "v1_fix_rgb" "v1_fix_rgb_remove_unscale" "v2_fix_rgb_more_conv"
+    decoder_mode: str = "v0_unfreeze_all" # "v1_fix_rgb" "v1_fix_rgb_remove_unscale" "v2_fix_rgb_more_conv" 
+    # "v3_predict_pos_offset"
+    
+    # splatter_cfg:  Dict[str, float] = {}
+    splatter_cfg: SplatterConfig = SplatterConfig()
+    # inference: bool = False
+    inference_noise_level: int = 0
 
-  
     
 
 # all the default settings

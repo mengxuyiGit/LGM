@@ -6,6 +6,8 @@ import torch
 from core.options import AllConfigs
 from core.models_zero123plus import Zero123PlusGaussian, gt_attr_keys, start_indices, end_indices, fuse_splatters
 from core.models_zero123plus_large import Zero123PlusGaussianLarge #, gt_attr_keys, start_indices, end_indices, fuse_splatters
+from core.models_zero123plus_pos_offset import Zero123PlusGaussianPosOffset #, gt_attr_keys, start_indices, end_indices, fuse_splatters
+from core.models_zero123plus_inference import Zero123PlusGaussianInference
 
 from core.models_fix_pretrained import LGM
 
@@ -58,8 +60,14 @@ def main():
     )
 
     # model
-    if opt.model_type == 'Zero123PlusGaussian':
+    if opt.inference_noise_level > 0:
+        model = Zero123PlusGaussianInference(opt)
+        from core.dataset_v4_batch import ObjaverseDataset as Dataset
+    elif opt.model_type == 'Zero123PlusGaussian':
         model = Zero123PlusGaussian(opt)
+        from core.dataset_v4_batch import ObjaverseDataset as Dataset
+    elif opt.model_type == 'Zero123PlusGaussianPosOffset':
+        model = Zero123PlusGaussianPosOffset(opt)
         from core.dataset_v4_batch import ObjaverseDataset as Dataset
     elif opt.model_type == 'Zero123PlusGaussianLarge':
         model = Zero123PlusGaussianLarge(opt)
@@ -101,6 +109,9 @@ def main():
         desc += '-skip_predict_x0'
     if opt.num_views != 20:
         desc += f'-numV{opt.num_views}'
+    
+    if opt.inference_noise_level > 0:
+        desc = f'inferece_noise_{opt.inference_noise_level}-{desc}'
     
     if accelerator.is_main_process:
         opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
@@ -344,8 +355,10 @@ def main():
                 total_loss_rendering = 0 #torch.tensor([0])
                 total_loss_alpha = 0
                 total_loss_lpips = 0
-                
-                print(f"Save to run dir: {opt.workspace}")
+               
+                if accelerator.is_main_process:
+                    print(f"Save to run dir: {opt.workspace}")
+                        
                 for i, data in enumerate(test_dataloader):
 
                     out = model(data)
@@ -373,6 +386,18 @@ def main():
                         pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
                         kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_pred.jpg', pred_images)
+
+                        if opt.inference_noise_level > 0:
+                            # results['images_inference'] = inference_images
+                            # results['alphas_inference'] = inference_alphas
+                            
+                            # psnr = -10 * torch.log10(torch.mean((inference_images.detach() - gt_images) ** 2))
+                            # results['psnr_inference'] = psnr
+
+                            inference_images = out['images_inference'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            inference_images = inference_images.transpose(0, 3, 1, 4, 2).reshape(-1, inference_images.shape[1] * inference_images.shape[3], 3)
+                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_inference.jpg', inference_images)
+                            
 
                         # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                         # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
@@ -453,6 +478,9 @@ def main():
                     writer.add_scalar('eval/loss_rendering', total_loss_rendering, epoch)
                     writer.add_scalar('eval/loss_alpha', total_loss_alpha, epoch)
                     writer.add_scalar('eval/loss_lpips', total_loss_lpips, epoch)
+
+                    # if opt.inference_noise_level > 0:
+                    #     accelerator.print(f"[inference] epoch: {epoch} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
 
                     if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
                         scheduler.step(total_loss)
