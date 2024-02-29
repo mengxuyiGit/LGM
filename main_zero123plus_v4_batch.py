@@ -5,7 +5,6 @@ import random
 import torch
 from core.options import AllConfigs
 from core.models_zero123plus import Zero123PlusGaussian, gt_attr_keys, start_indices, end_indices, fuse_splatters
-from core.models_zero123plus_large import Zero123PlusGaussianLarge #, gt_attr_keys, start_indices, end_indices, fuse_splatters
 
 from core.models_fix_pretrained import LGM
 
@@ -61,9 +60,6 @@ def main():
     if opt.model_type == 'Zero123PlusGaussian':
         model = Zero123PlusGaussian(opt)
         from core.dataset_v4_batch import ObjaverseDataset as Dataset
-    elif opt.model_type == 'Zero123PlusGaussianLarge':
-        model = Zero123PlusGaussianLarge(opt)
-        from core.dataset_v5_large import ObjaverseDataset as Dataset
     elif opt.model_type == 'LGM':
         model = LGM(opt)
     # model = SingleSplatterImage(opt)
