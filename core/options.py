@@ -1,6 +1,19 @@
 import tyro
-from dataclasses import dataclass
-from typing import Tuple, Literal, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Tuple, Literal, Dict, Optional, Union
+
+optimizer_config = {
+    'type': 'Adam',
+    'lr': 1e-2,
+    'weight_decay': 0.0,  # You can adjust this value as needed
+}
+
+splatter_optimizer_config = {
+    'type': 'AdamW',
+    'lr':  0.003,
+    'weight_decay': 0.05,  # refer to lgm
+    'betas' : (0.9, 0.95),
+}
 
 
 @dataclass
@@ -140,6 +153,14 @@ class Options:
     
     decoder_mode: str = "v0_unfreeze_all" # "v1_fix_rgb" "v1_fix_rgb_remove_unscale" "v2_fix_rgb_more_conv"
     downsample_after_decode_latents: bool = True
+
+    ## for code optimization
+    init_from_mean: bool = False
+    latent_resolution: int = 40
+    
+    optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: optimizer_config)
+    splatter_optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: splatter_optimizer_config)
+
   
     
 
