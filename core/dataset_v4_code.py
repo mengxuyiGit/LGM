@@ -127,13 +127,13 @@ class ObjaverseDataset(Dataset):
         all_items = [k for k in self.data_path_splatter_gt.keys()]
         num_val = min(50, len(all_items)//2) # when using small dataset to debug
         if self.training:
-            # self.items = all_items[:-num_val]
-            print(f"[WARN]: always fetch the 0th item. For debug use only")
-            self.items = all_items[:1]
+            self.items = all_items[:-num_val]
+            # print(f"[WARN]: always fetch the 0th item. For debug use only")
+            # self.items = all_items[:1]
         else:
-            # self.items = all_items[-num_val:]
-            print(f"[WARN]: always fetch the 0th item. For debug use only")
-            self.items = all_items[:1]
+            self.items = all_items[-num_val:]
+            # print(f"[WARN]: always fetch the 0th item. For debug use only")
+            # self.items = all_items[:1]
        
         
         # naive split
@@ -158,8 +158,8 @@ class ObjaverseDataset(Dataset):
     def __getitem__(self, idx):
         
         scene_name = self.items[idx]
-        # scene_name = self.items[0]
-        print(f"[WARN]: always fetch the {idx} item. For debug use only")
+        # # scene_name = self.items[0]
+        # print(f"[WARN]: always fetch the {idx} item. For debug use only")
         uid = self.data_path_rendering[scene_name]
         splatter_uid = self.data_path_splatter_gt[scene_name] 
         if self.opt.verbose:
