@@ -357,10 +357,10 @@ class Zero123PlusGaussian(nn.Module):
             # latents = torch.randn([B, self.pipe.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float16)
             x = self.decode_latents(latents)
            
-            # print("self.decode_latents output", x.shape)
-            if self.opt.downsample_after_decode_latents:
-                ## output is 320x320, we use downsample to supervise the gaussian
-                x = F.interpolate(x, size=(384, 256), mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
+            # # print("self.decode_latents output", x.shape)
+            # if self.opt.downsample_after_decode_latents:
+            #     ## output is 320x320, we use downsample to supervise the gaussian
+            #     x = F.interpolate(x, size=(384, 256), mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
 
         else:
             t = torch.tensor([10] * B, device=latents.device)
@@ -530,7 +530,8 @@ class Zero123PlusGaussian(nn.Module):
                 
             # loss_mse_unweighted = F.mse_loss(pred_splatters, gt_splatters)
             # print(f"dtype of splatter image: {pred_splatters}")
-            
+
+            assert gt_splatters.shape[-2:] == pred_splatters.shape[-2:]
             if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
                 print("pred_splatters:", pred_splatters.shape)
                 B, V, C, H, W, = pred_splatters.shape
@@ -541,6 +542,7 @@ class Zero123PlusGaussian(nn.Module):
                 
             else:
                 pred_splatters_gt_size = pred_splatters
+                
             gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters_gt_size, gt_splatters)
             loss_mse = gs_loss_mse_dict['total']
         
