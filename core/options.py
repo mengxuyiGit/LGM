@@ -152,7 +152,7 @@ class Options:
     check_splatter_alignment: bool = False
     
     decoder_mode: str = "v0_unfreeze_all" # "v1_fix_rgb" "v1_fix_rgb_remove_unscale" "v2_fix_rgb_more_conv"
-    downsample_after_decode_latents: bool = True
+    downsample_after_decode_latents: bool = False
 
     ## for code optimization
     init_from_mean: bool = False
