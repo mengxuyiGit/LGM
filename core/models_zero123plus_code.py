@@ -477,7 +477,8 @@ class Zero123PlusGaussianCode(nn.Module):
 
         # init code
         if latents == None:
-            print(f"get latent from encoding images: {images.shape}")
+            if self.opt.verbose_main:
+                print(f"get latent from encoding images: {images.shape}")
             latents = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
         
         if self.opt.skip_predict_x0:
@@ -636,12 +637,15 @@ class Zero123PlusGaussianCode(nn.Module):
         cond = data['cond'] # [B, H, W, 3], condition image
         
         # 1. optimize the splatters from the code
-        codes = data['codes'] if 'codes' in data else None
-        if 'codes' not in data:
-            st()
+        if self.opt.codes_from_encoder:
+            codes=None
         else:
-            pass
-            # print("has code")
+            codes = data['codes'] if 'codes' in data else None
+            if 'codes' not in data:
+                st()
+            else:
+                pass
+                # print("has code")
             
         pred_splatters = self.forward_splatters_with_activation(images, cond, latents=codes) # [B, N, 14] # (B, 6, 14, H, W)
         

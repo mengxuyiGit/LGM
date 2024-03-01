@@ -84,6 +84,8 @@ def main():
     desc = opt.desc
     if opt.splatter_guidance_interval > 0:
         desc += f"-sp_guide_{opt.splatter_guidance_interval}"
+    if opt.codes_from_encoder:
+        desc += "-codes_from_encoder"
     desc += f"-{opt.decoder_mode}"
     ## the following may not exists, thus directly added to opt.desc if exists
     if len(opt.attr_use_logrithm_loss) > 0:
