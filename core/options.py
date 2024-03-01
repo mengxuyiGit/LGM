@@ -4,8 +4,8 @@ from typing import Tuple, Literal, Dict, Optional, Union
 
 optimizer_config = {
     'type': 'Adam',
-    'lr': 1e-2,
-    'weight_decay': 0.0,  # You can adjust this value as needed
+    'lr': 1e-3,
+    'weight_decay': 0.05,  # You can adjust this value as needed
 }
 
 splatter_optimizer_config = {
@@ -120,6 +120,7 @@ class Options:
     lr_scheduler: str = 'Plat'
     lr_scheduler_patience: int = 2
     lr_scheduler_factor: float = 0.5
+    min_lr_scheduled: float = 1e-6
     ## batch process
     scene_start_index: int = 0
     scene_end_index: int = -1

@@ -26,7 +26,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 
 import warnings
-
+from accelerate.utils import broadcast
 
 
 def main():    
@@ -69,7 +69,25 @@ def main():
         model = LGM(opt)
     # model = SingleSplatterImage(opt)
     # opt.workspace += datetime.now().strftime("%Y%m%d-%H%M%S")
+    # if accelerator.is_main_process:
+    #     time_str = datetime.now().strftime("%Y%m%d-%H%M%S")
+    #     print(f"main process time string: {time_str}")
+    #     time_tensor = torch.tensor([ord(c) for c in time_str], dtype=torch.int64)
+    
+    # time_str = broadcast(time_tensor)
     time_str = datetime.now().strftime("%Y%m%d-%H%M%S")
+    
+    # # gathered_info = accelerator.all_gather(info_to_share)
+    # accelerator.wait_for_everyone()
+    # time_str = ''.join(chr(int(item)) for item in time_tensor.tolist())
+    # print(time_str)
+    
+    # # Use torch.distributed to broadcast the workspace to all processes
+    # time_str = torch.tensor(time_str.encode(), dtype=torch.uint8)
+    # dist.broadcast(workspace, 0)  # Assuming rank 0 is the main process
+
+    # workspace = workspace.decode()
+        
     loss_str = 'loss'
     assert (opt.lambda_rendering + opt.lambda_splatter + opt.lambda_lpips > 0), 'Must have at least one loss'
     if opt.lambda_rendering > 0:
@@ -107,13 +125,17 @@ def main():
     if opt.num_views != 20:
         desc += f'-numV{opt.num_views}'
     
-    if accelerator.is_main_process:
-        opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
-        if opt.lr_scheduler == 'Plat':
+    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
+    # opt.workspace = accelerator.broadcast(opt.workspace)
+    if opt.lr_scheduler == 'Plat':
             opt.workspace += f"{opt.lr_scheduler_patience}"
+            
+    if accelerator.is_main_process:
         print(f"makdir: {opt.workspace}")
         os.makedirs(opt.workspace, exist_ok=True)
         writer = tensorboard.SummaryWriter(opt.workspace)
+
+    accelerator.wait_for_everyone()
     
     opt.code_dir = os.path.join(opt.workspace, 'code_dir')
 
@@ -122,7 +144,7 @@ def main():
     for folder in ['core', 'scripts', 'zero123plus']:
         dst_dir = os.path.join(src_snapshot_folder, folder)
         shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-    for file in ['main_zero123plus_v3.py']:
+    for file in ['main_zero123plus_v4_batch_code.py']:
         dest_file = os.path.join(src_snapshot_folder, file)
         shutil.copy2(file, dest_file)
         
@@ -178,7 +200,7 @@ def main():
         pct_start = 3000 / total_steps
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=opt.lr, total_steps=total_steps, pct_start=pct_start)
     elif opt.lr_scheduler == 'Plat':
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=opt.lr_scheduler_factor, patience=opt.lr_scheduler_patience, verbose=True, min_lr=1e-6)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=opt.lr_scheduler_factor, patience=opt.lr_scheduler_patience, verbose=True, min_lr=opt.min_lr_scheduled)
     else:
         assert ValueError('Not a valid lr_scheduler option.')
 
@@ -233,7 +255,7 @@ def main():
                 data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
                 ## TODO: set this splatter to "gt" when it comes to the splatter_guidance iterations. But assume only optimization for now
                 splatter_guidance = epoch % opt.splatter_guidance_interval == 0
-                print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
+                # print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
                    
                 # ---- finish code init ----
 
@@ -253,7 +275,7 @@ def main():
                 accelerator.backward(loss)
                 # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
-                ## debug
+                # # debug
                 # # Check gradients of the unet parameters
                 # print(f"check unet parameters")
                 # for name, param in model.unet.named_parameters():
@@ -263,8 +285,7 @@ def main():
                 # print(f"check other model parameters")
                 # for name, param in model.named_parameters():
                 #     if param.requires_grad and param.grad is not None:
-                #         if 'scale' in name:
-                #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                 # st()
 
                 # gradient clipping
@@ -281,7 +302,7 @@ def main():
                 # --- for codes ---
                 for code_optimizer in code_optimizers: # NOTE: value changed
                     code_optimizer.step()
-               
+                    
                 # --- for splatters --- 
                 for sp_optimizer in splatter_optimizers: # NOTE: value changed
                     sp_optimizer.step()

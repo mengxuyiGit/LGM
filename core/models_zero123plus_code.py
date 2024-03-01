@@ -477,8 +477,8 @@ class Zero123PlusGaussianCode(nn.Module):
 
         # init code
         if latents == None:
-            if self.opt.verbose_main:
-                print(f"get latent from encoding images: {images.shape}")
+            # if self.opt.verbose_main:
+            print(f"get latent from encoding images: {images.shape}")
             latents = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
         
         if self.opt.skip_predict_x0:
@@ -656,6 +656,8 @@ class Zero123PlusGaussianCode(nn.Module):
         
         # NOTE: when optimizing the splatter and code together, we do not need the loss from gt splatter images
         if self.opt.lambda_splatter > 0 and splatter_guidance:
+            
+            print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
             gt_splatters =  data['splatters_to_optimize'] # [1, 6, 14, 128, 128]
       
             if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
