@@ -82,6 +82,8 @@ def main():
         loss_str+=f'_lpips{opt.lambda_lpips}'
    
     desc = opt.desc
+    if opt.splatter_guidance_interval > 0:
+        desc += f"-sp_guide_{opt.splatter_guidance_interval}"
     desc += f"-{opt.decoder_mode}"
     ## the following may not exists, thus directly added to opt.desc if exists
     if len(opt.attr_use_logrithm_loss) > 0:
@@ -228,14 +230,16 @@ def main():
                 data['codes'] = codes
                 data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
                 ## TODO: set this splatter to "gt" when it comes to the splatter_guidance iterations. But assume only optimization for now
-                
+                splatter_guidance = epoch % opt.splatter_guidance_interval == 0
+                print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
+                   
                 # ---- finish code init ----
 
                 optimizer.zero_grad()
 
                 step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
-                out = model(data, step_ratio)
+                out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                 loss = out['loss']
                 psnr = out['psnr']
                 if 'loss_splatter_cache' in out:
@@ -398,7 +402,7 @@ def main():
             accelerator.wait_for_everyone()
             accelerator.save_model(model, opt.workspace)
 
-        if epoch % opt.eval_iter == 0:
+        if epoch % opt.eval_iter == 0: 
             # eval
             with torch.no_grad():
                 model.eval()

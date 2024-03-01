@@ -162,7 +162,7 @@ class Options:
     splatter_optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: splatter_optimizer_config)
     code_init_from_0123_encoder: bool = True
     use_tanh_code_activation: bool = False
-  
+    splatter_guidance_interval: int = 2
     
 
 # all the default settings
