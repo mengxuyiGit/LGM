@@ -211,7 +211,7 @@ def main():
             with accelerator.accumulate(model):
                 
                 ## ---- load or init code here ----
-                codes_before_act_list_grad_, codes, code_optimizers, splatter_image_list_grad, splatter_images, splatter_optimizers = model.load_scenes(opt.code_dir, data)
+                codes_before_act_list_grad_, codes, code_optimizers, splatter_image_list_grad, splatter_images, splatter_optimizers = model.module.load_scenes(opt.code_dir, data)
                 for code_optimizer in code_optimizers:
                     code_optimizer.zero_grad()
                 for sp_optimizer in splatter_optimizers:
@@ -260,7 +260,7 @@ def main():
                 if opt.lr_scheduler != 'Plat':
                     scheduler.step()
                 
-                ## TODO: optimize and save code here
+                ## optimize and save code here
                 
                 ## 1. do optimization step 
                 # --- for codes ---
@@ -285,7 +285,7 @@ def main():
                 #     print("Parameters have not changed after optimization step.")
                 
                 ## 2. save optimized code and splatter images
-                model.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
+                model.module.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
                                   splatter_image_list=splatter_image_list_grad , scene_names=data['scene_name'],
                                   code_optimizer_list=code_optimizers, splatter_optimizer_list=splatter_optimizers)
                 
@@ -399,7 +399,7 @@ def main():
                 for i, data in enumerate(test_dataloader):
 
                     ## ---- load or init code here ----
-                    codes, splatter_images = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                    codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                     
                     data['codes'] = codes
                     data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
@@ -436,8 +436,14 @@ def main():
                         pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                         kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_alpha.jpg', pred_alphas)
 
-                        # TODO: add write images for splatter to optimize
-                        
+                        # add write images for splatter to optimize
+                        pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt.jpg', pred_images)
+
+                        pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                        pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
 
                         if len(opt.plot_attribute_histgram) > 0:
                             for splatters_pred_key in ['splatters_from_code', 'splatters_to_optimize']:
@@ -530,7 +536,7 @@ def main():
                             break
                             
                         ## ---- load or init code here ----
-                        codes, splatter_images = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                        codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                         
                         data['codes'] = codes
                         data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
@@ -548,8 +554,19 @@ def main():
                             pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                             pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
                             kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_pred.jpg', pred_images)
-                    
-            
+
+                            pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                            pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_alpha.jpg', pred_alphas)
+
+                            # add write images for splatter to optimize
+                            pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_splatter_opt.jpg', pred_images)
+
+                            pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                            pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_splatter_opt_alpha.jpg', pred_alphas)
 
 
 

@@ -162,61 +162,8 @@ class UNetDecoder(nn.Module):
         others = self.others(sample)
         return torch.cat([others, rgb], dim=1)
         # return rgb
-
-class UNetDecoderV2(nn.Module):
-    def __init__(self, vae, opt):
-        super(UNetDecoderV2, self).__init__()
         
-        assert opt.decoder_mode in ["v2_fix_rgb_more_conv"]
-        self.vae = vae
-        self.decoder = vae.decoder
         
-        if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
-            self.decoder = self.decoder.requires_grad_(False).eval()
-        else:
-            self.decoder = self.decoder.requires_grad_(True).train()
-        self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        
-        # self.rgb_conv1 = nn.Conv2d(14, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        # self.rgb_conv2 = nn.Conv2d(14, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.conv1 = nn.Conv2d(14, 14, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.conv2 = nn.Conv2d(14, 14, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        
-        # if opt.verbose or opt.verbose_main:
-        if True:
-            print(f"opt.decoder_mode : {opt.decoder_mode}")    
-            
-            decoder_requires_grad = any(p.requires_grad for p in self.decoder.parameters()) ## check decoder requires grad
-            print(f"UNet Decoder vae.decoder requires grad: {decoder_requires_grad}")
-
-            others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
-            print(f"UNet Decoder others requires grad: {others_requires_grad}")
-            # st()
-    
-    def forward(self, z):
-        sample = self.vae.post_quant_conv(z)
-        latent_embeds = None
-        sample = self.decoder.conv_in(sample)
-        upscale_dtype = next(iter(self.decoder.up_blocks.parameters())).dtype
-        sample = self.decoder.mid_block(sample, latent_embeds)
-        sample = sample.to(upscale_dtype)
-        # up
-        for up_block in self.decoder.up_blocks:
-            sample = up_block(sample, latent_embeds)
-
-        sample = self.decoder.conv_norm_out(sample)
-        sample = self.decoder.conv_act(sample)
-        rgb_2D = self.decoder.conv_out(sample)
-        others = self.others(sample)
-        raw =  torch.cat([others, rgb_2D], dim=1)
-
-        raw = self.conv1(raw)
-        raw = self.conv2(raw)
-        
-        return raw
-        # return torch.cat([others, rgb], dim=1)
-        # return rgb
-
 class Zero123PlusGaussianCode(nn.Module):
     def __init__(
         self,
@@ -252,7 +199,7 @@ class Zero123PlusGaussianCode(nn.Module):
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
 
         if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
-            self.decoder = UNetDecoderV2(self.vae, opt)
+            assert NotImplementedError
         elif opt.decoder_mode in ["v0_unfreeze_all", "v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
             self.decoder = UNetDecoder(self.vae, opt)
         else:
@@ -323,8 +270,13 @@ class Zero123PlusGaussianCode(nn.Module):
         self.init_scale=1e-4
         self.mean_scale=1.0
 
-        self.code_activation = lambda x: torch.tanh(x)
-        self.code_activation_inverse = lambda x: torch.atanh(x)
+        if opt.use_tanh_code_activation:
+            print(f"[WARN]: USE tanh for code activation, which is not good for diffusion training")
+            self.code_activation = lambda x: torch.tanh(x)
+            self.code_activation_inverse = lambda x: torch.atanh(x)
+        else:
+            self.code_activation = lambda x: x
+            self.code_activation_inverse = lambda x: x
         
     
     def encode_image(self, image, is_zero123plus=True):
@@ -388,6 +340,20 @@ class Zero123PlusGaussianCode(nn.Module):
             code_.data[:] = self.code_activation.inverse(self.init_code * self.mean_scale)
         return code_
     
+    def get_init_code_from_0123_encoder(self, images, num_scenes=None, device=None):
+        
+        if num_scenes is None: # images: [6, 3, 320, 320] 
+            images = images[None]
+        assert images.dim() == 5 # to contain the batch dim
+        
+        # make input 6 views into a 3x2 grid
+        images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+        # init code from pretrained zero123++ encoder
+        code_ = self.encode_image(images) # [b, 4, 120, 80]
+        if num_scenes is None:
+            code_ = code_.squeeze(0)
+        return code_
+    
     def build_optimizer(self, code_):
         optimizer_cfg = self.opt.optimizer.copy()
         optimizer_class = getattr(torch.optim, optimizer_cfg.pop('type'))
@@ -442,7 +408,10 @@ class Zero123PlusGaussianCode(nn.Module):
             else:
                 # do init
                 print(f"Init scene: {scene_name}")
-                code_ = self.get_init_code_()
+                if self.opt.code_init_from_0123_encoder: # data['cond']: [B, 320, 320, 3]
+                    code_ = self.get_init_code_from_0123_encoder(data['input'][i])
+                else:
+                    code_ = self.get_init_code_() # torch.Size([4, 120, 80])
                 code_list_.append(code_.requires_grad_(True))
                 
                 splatter_low_res_gt = data['splatters_output'][i] #NOTE: assume these splatter are after activation
@@ -474,7 +443,7 @@ class Zero123PlusGaussianCode(nn.Module):
     def save_scenes(self, save_dir, code_list_, splatter_image_list, scene_names, code_optimizer_list, splatter_optimizer_list):
         os.makedirs(save_dir, exist_ok=True)
 
-        # codes_ = self.code_activation_inverse(codes)
+        # codes_ = self.code_activation_inverse(codes) #NOTE: no need for inverse activation, because the passed in code_list_ is already before activation
         codes_ = torch.stack(code_list_, dim=0)
         splatter_images = torch.stack(splatter_image_list, dim=0)
 
@@ -505,11 +474,8 @@ class Zero123PlusGaussianCode(nn.Module):
 
         # init code
         if latents == None:
-            # print(f"encode images: {images.shape}")
+            print(f"get latent from encoding images: {images.shape}")
             latents = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
-            ## TODO: replace this with decoder invserse code?
-        # else load from dataset
-
         
         if self.opt.skip_predict_x0:
             x = self.decode_latents(latents)
@@ -530,8 +496,6 @@ class Zero123PlusGaussianCode(nn.Module):
             x = self.decode_latents(x) # (B, 14, H, W)
 
             st()
-        
-        # x = self.conv(x)
 
         x = x.permute(0, 2, 3, 1)
         
