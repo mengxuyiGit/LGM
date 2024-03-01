@@ -359,6 +359,7 @@ class Zero123PlusGaussian(nn.Module):
            
             # print("self.decode_latents output", x.shape)
             if self.opt.downsample_after_decode_latents:
+                st()
                 ## output is 320x320, we use downsample to supervise the gaussian
                 x = F.interpolate(x, size=(384, 256), mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
 
@@ -537,7 +538,7 @@ class Zero123PlusGaussian(nn.Module):
                 pred_splatters_gt_size = einops.rearrange(pred_splatters, "b v c h w -> (b v) c h w")
                 pred_splatters_gt_size = F.interpolate(pred_splatters_gt_size, size=gt_splatters.shape[-2:], mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
                 pred_splatters_gt_size = einops.rearrange(pred_splatters_gt_size, "(b v) c h w -> b v c h w", b=B, v=V)
-                # st()
+                st()
                 
             else:
                 pred_splatters_gt_size = pred_splatters

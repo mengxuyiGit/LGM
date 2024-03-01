@@ -126,10 +126,17 @@ class ObjaverseDataset(Dataset):
         # self.items = [k for k in self.data_path_splatter_gt.keys()]
         all_items = [k for k in self.data_path_splatter_gt.keys()]
         num_val = min(50, len(all_items)//2) # when using small dataset to debug
-        if self.training:
-            self.items = all_items[:-num_val]
+        
+        if self.opt.overfit_one_scene:
+            if self.training:
+                self.items = all_items[:1]
+            else:
+                self.items = all_items[:1]
         else:
-            self.items = all_items[-num_val:]
+            if self.training:
+                self.items = all_items[:-num_val]
+            else:
+                self.items = all_items[-num_val:]
        
         
         # naive split
