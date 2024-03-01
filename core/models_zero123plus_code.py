@@ -626,7 +626,7 @@ class Zero123PlusGaussianCode(nn.Module):
         return attr_weighted_loss_dict
         
         
-    def forward(self, data, step_ratio=1):
+    def forward(self, data, step_ratio=1, splatter_guidance=False):
         # Gaussian shape: (B*6, 14, H, W)
         
         results = {}
@@ -651,25 +651,16 @@ class Zero123PlusGaussianCode(nn.Module):
         
         
         # NOTE: when optimizing the splatter and code together, we do not need the loss from gt splatter images
-        if self.opt.lambda_splatter > 0 and False:
-            gt_splatters =  data['splatters_output'] # [1, 6, 14, 128, 128]
-            # if self.opt.discard_small_opacities: # only for gt debug
-            #     opacity = gt_splatters[:,:,3:4]
-            #     mask = opacity.squeeze(-1) >= 0.005
-            #     mask = mask.repeat(1,1,14,1,1)
-            #     print(mask.shape)
-            #     st()
-                
-            # loss_mse_unweighted = F.mse_loss(pred_splatters, gt_splatters)
-            # print(f"dtype of splatter image: {pred_splatters}")
-            
+        if self.opt.lambda_splatter > 0 and splatter_guidance:
+            gt_splatters =  data['splatters_to_optimize'] # [1, 6, 14, 128, 128]
+      
             if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
                 print("pred_splatters:", pred_splatters.shape)
                 B, V, C, H, W, = pred_splatters.shape
                 pred_splatters_gt_size = einops.rearrange(pred_splatters, "b v c h w -> (b v) c h w")
                 pred_splatters_gt_size = F.interpolate(pred_splatters_gt_size, size=gt_splatters.shape[-2:], mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
                 pred_splatters_gt_size = einops.rearrange(pred_splatters_gt_size, "(b v) c h w -> b v c h w", b=B, v=V)
-                # st()
+                st()
                 
             else:
                 pred_splatters_gt_size = pred_splatters
