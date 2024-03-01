@@ -387,7 +387,8 @@ class Zero123PlusGaussianCode(nn.Module):
         for i, scene_name in enumerate(data['scene_name']):
             cache_file = os.path.join(code_dir, scene_name + '.pth')
             if os.path.exists(cache_file):
-                print(f"Load scene: {scene_name}")
+                if self.opt.verbose_main:
+                    print(f"Load scene: {scene_name}")
                 out = torch.load(cache_file, map_location='cpu')
                 assert out['scene_name'] == scene_name
 
@@ -407,7 +408,8 @@ class Zero123PlusGaussianCode(nn.Module):
             
             else:
                 # do init
-                print(f"Init scene: {scene_name}")
+                if self.opt.verbose_main: 
+                    print(f"Init scene: {scene_name}")
                 if self.opt.code_init_from_0123_encoder: # data['cond']: [B, 320, 320, 3]
                     code_ = self.get_init_code_from_0123_encoder(data['input'][i])
                 else:
@@ -448,7 +450,8 @@ class Zero123PlusGaussianCode(nn.Module):
         splatter_images = torch.stack(splatter_image_list, dim=0)
 
         for scene_id, scene_name_single in enumerate(scene_names):
-            print(f"Save scene: {scene_name_single}")
+            if self.opt.verbose_main:
+                print(f"Save scene: {scene_name_single}")
             results = dict(
                 scene_name=scene_name_single,
                 param=dict(
@@ -637,7 +640,8 @@ class Zero123PlusGaussianCode(nn.Module):
         if 'codes' not in data:
             st()
         else:
-            print("has code")
+            pass
+            # print("has code")
             
         pred_splatters = self.forward_splatters_with_activation(images, cond, latents=codes) # [B, N, 14] # (B, 6, 14, H, W)
         
