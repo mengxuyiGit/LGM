@@ -102,11 +102,12 @@ def main():
     if opt.num_views != 20:
         desc += f'-numV{opt.num_views}'
     
+    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
+    if opt.lr_scheduler == 'Plat':
+        opt.workspace += f"{opt.lr_scheduler_patience}"
+    print(f"makdir: {opt.workspace}")
     if accelerator.is_main_process:
-        opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
-        if opt.lr_scheduler == 'Plat':
-            opt.workspace += f"{opt.lr_scheduler_patience}"
-        print(f"makdir: {opt.workspace}")
+        # print(f"makdir: {opt.workspace}")
         os.makedirs(opt.workspace, exist_ok=True)
         writer = tensorboard.SummaryWriter(opt.workspace)
 
