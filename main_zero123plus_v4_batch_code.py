@@ -182,7 +182,12 @@ def main():
     model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, test_dataloader, scheduler
     )
-
+    
+    # Check the number of GPUs
+    num_gpus = accelerator.num_processes
+    if accelerator.is_main_process:
+        print(f"Num gpus: {num_gpus}")
+    
     # loop
     for epoch in range(opt.num_epochs):
         # train
@@ -211,7 +216,10 @@ def main():
             with accelerator.accumulate(model):
                 
                 ## ---- load or init code here ----
-                codes_before_act_list_grad_, codes, code_optimizers, splatter_image_list_grad, splatter_images, splatter_optimizers = model.module.load_scenes(opt.code_dir, data)
+                if num_gpus==1:
+                    codes_before_act_list_grad_, codes, code_optimizers, splatter_image_list_grad, splatter_images, splatter_optimizers = model.load_scenes(opt.code_dir, data)
+                else:
+                    codes_before_act_list_grad_, codes, code_optimizers, splatter_image_list_grad, splatter_images, splatter_optimizers = model.module.load_scenes(opt.code_dir, data)
                 for code_optimizer in code_optimizers:
                     code_optimizer.zero_grad()
                 for sp_optimizer in splatter_optimizers:
@@ -232,7 +240,8 @@ def main():
                 psnr = out['psnr']
                 if 'loss_splatter_cache' in out:
                     loss = loss + out['loss_splatter_cache']
-                    print("Backward with the loss_splatter_cache")
+                    if opt.verbose_main:
+                        print("Backward with the loss_splatter_cache")
                 else:
                     st()
                 accelerator.backward(loss)
@@ -285,7 +294,13 @@ def main():
                 #     print("Parameters have not changed after optimization step.")
                 
                 ## 2. save optimized code and splatter images
-                model.module.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
+                if num_gpus==1:
+                    model.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
+                                  splatter_image_list=splatter_image_list_grad , scene_names=data['scene_name'],
+                                  code_optimizer_list=code_optimizers, splatter_optimizer_list=splatter_optimizers)
+                
+                else:
+                    model.module.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
                                   splatter_image_list=splatter_image_list_grad , scene_names=data['scene_name'],
                                   code_optimizer_list=code_optimizers, splatter_optimizer_list=splatter_optimizers)
                 
@@ -399,7 +414,10 @@ def main():
                 for i, data in enumerate(test_dataloader):
 
                     ## ---- load or init code here ----
-                    codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
+                    if num_gpus==1:
+                        codes, splatter_images = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                    else:
+                        codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                     
                     data['codes'] = codes
                     data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
@@ -536,7 +554,10 @@ def main():
                             break
                             
                         ## ---- load or init code here ----
-                        codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
+                        if num_gpus==1:
+                            codes, splatter_images = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                        else:
+                            codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                         
                         data['codes'] = codes
                         data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
