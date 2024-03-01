@@ -165,6 +165,7 @@ class Options:
     splatter_guidance_interval: int = 2
     
     overfit_one_scene: bool = False
+    codes_from_encoder: bool = False
     
 
 # all the default settings
