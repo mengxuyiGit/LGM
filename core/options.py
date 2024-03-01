@@ -164,6 +164,8 @@ class Options:
     use_tanh_code_activation: bool = False
     splatter_guidance_interval: int = 2
     
+    overfit_one_scene: bool = False
+    
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}
