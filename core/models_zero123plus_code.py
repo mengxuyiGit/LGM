@@ -376,7 +376,7 @@ class Zero123PlusGaussianCode(nn.Module):
             splatter_optimizer = optimizer_class([splatter_image], **optimizer_cfg)
         return splatter_optimizer
 
-    def load_scenes(self, code_dir, data, eval_mode=False):
+    def load_scenes_w_splatters(self, code_dir, data, eval_mode=False):
         code_list_ = []
         optimizer_state_list = []
         splatter_image_list = []
@@ -441,8 +441,72 @@ class Zero123PlusGaussianCode(nn.Module):
             optimizer_set_state(splatter_optimizers[ind], splatter_optimizer_state_single)
         
         return code_list_, codes, code_optimizers, splatter_image_list, splatter_images, splatter_optimizers
+    
+    def load_scenes(self, code_dir, data, eval_mode=False):
+        code_list_ = []
+        optimizer_state_list = []
+    
+        device = data['cond'].device
+        
+        for i, scene_name in enumerate(data['scene_name']):
+            cache_file = os.path.join(code_dir, scene_name + '.pth')
+            if os.path.exists(cache_file):
+                if self.opt.verbose_main:
+                    print(f"Load scene: {scene_name}")
+                out = torch.load(cache_file, map_location='cpu')
+                assert out['scene_name'] == scene_name
 
-    def save_scenes(self, save_dir, code_list_, splatter_image_list, scene_names, code_optimizer_list, splatter_optimizer_list):
+                code_ = out['param']['code_']
+                code_list_.append(code_.requires_grad_(True))
+
+                if not eval_mode:
+                    optimizer_state = out['optimizer']
+                    optimizer_state_list.append(optimizer_state)
+            
+            else:
+                # do init
+                if self.opt.verbose_main: 
+                    print(f"Init scene: {scene_name}")
+                if self.opt.code_init_from_0123_encoder: # data['cond']: [B, 320, 320, 3]
+                    code_ = self.get_init_code_from_0123_encoder(data['input'][i])
+                else:
+                    code_ = self.get_init_code_() # torch.Size([4, 120, 80])
+                code_list_.append(code_.requires_grad_(True))
+            
+        # --- code ---
+        codes_ = torch.stack(code_list_, dim=0).to(device)
+        codes = self.code_activation(codes_)
+        
+        if eval_mode:
+            return codes
+        
+        # --- code optimizers ---
+        code_optimizers = self.build_optimizer(code_list_)
+        for ind, optimizer_state_single in enumerate(optimizer_state_list):
+            optimizer_set_state(code_optimizers[ind], optimizer_state_single)
+        
+        return code_list_, codes, code_optimizers
+
+    def save_scenes(self, save_dir, code_list_, scene_names, code_optimizer_list):
+        os.makedirs(save_dir, exist_ok=True)
+
+        # codes_ = self.code_activation_inverse(codes) #NOTE: no need for inverse activation, because the passed in code_list_ is already before activation
+        codes_ = torch.stack(code_list_, dim=0)
+
+        for scene_id, scene_name_single in enumerate(scene_names):
+            if self.opt.verbose_main:
+                print(f"Save scene: {scene_name_single}")
+            results = dict(
+                scene_name=scene_name_single,
+                param=dict(
+                    code_=codes_.data[scene_id].cpu(), # with "_" is already before activation
+                    ),
+                optimizer=code_optimizer_list[scene_id].state_dict(),
+                )
+
+            torch.save(results, os.path.join(save_dir, scene_name_single) + '.pth')
+    
+    def save_scenes_w_splatters(self, save_dir, code_list_, splatter_image_list, scene_names, code_optimizer_list, splatter_optimizer_list):
         os.makedirs(save_dir, exist_ok=True)
 
         # codes_ = self.code_activation_inverse(codes) #NOTE: no need for inverse activation, because the passed in code_list_ is already before activation
@@ -657,20 +721,24 @@ class Zero123PlusGaussianCode(nn.Module):
         # NOTE: when optimizing the splatter and code together, we do not need the loss from gt splatter images
         if self.opt.lambda_splatter > 0 and splatter_guidance:
             
-            print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
-            gt_splatters =  data['splatters_to_optimize'] # [1, 6, 14, 128, 128]
-      
-            if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
-                print("pred_splatters:", pred_splatters.shape)
-                B, V, C, H, W, = pred_splatters.shape
-                pred_splatters_gt_size = einops.rearrange(pred_splatters, "b v c h w -> (b v) c h w")
-                pred_splatters_gt_size = F.interpolate(pred_splatters_gt_size, size=gt_splatters.shape[-2:], mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
-                pred_splatters_gt_size = einops.rearrange(pred_splatters_gt_size, "(b v) c h w -> b v c h w", b=B, v=V)
-                st()
+            # print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
+            # gt_splatters =  data['splatters_to_optimize'] # [1, 6, 14, 128, 128]
+            gt_splatters_low_res =  data['splatters_output']
+            gt_splatters =  torch.stack([F.interpolate(sp, self.splatter_size[-2:]) for sp in gt_splatters_low_res], dim=0)
+
+            # NOTE: discard the below of downsampling pred, but use upsampling gt
+            # if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
+            #     print("pred_splatters:", pred_splatters.shape)
+            #     B, V, C, H, W, = pred_splatters.shape
+            #     pred_splatters_gt_size = einops.rearrange(pred_splatters, "b v c h w -> (b v) c h w")
+            #     pred_splatters_gt_size = F.interpolate(pred_splatters_gt_size, size=gt_splatters.shape[-2:], mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
+            #     pred_splatters_gt_size = einops.rearrange(pred_splatters_gt_size, "(b v) c h w -> b v c h w", b=B, v=V)
+            #     st()
                 
-            else:
-                pred_splatters_gt_size = pred_splatters
-            gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters_gt_size, gt_splatters)
+            # else:
+            #     pred_splatters_gt_size = pred_splatters
+            
+            gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters, gt_splatters)
             loss_mse = gs_loss_mse_dict['total']
         
             results['loss_splatter'] = loss_mse
@@ -799,57 +867,56 @@ class Zero123PlusGaussianCode(nn.Module):
         results['psnr'] = psnr
         results['loss'] = loss
         
-        
-        #### 2. loss on the splatters to be optimized
-        if 'splatters_to_optimize' in data:
-            loss_splatter_cache = 0
-            splatters_to_optimize = data['splatters_to_optimize']
-            assert (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0
-            gaussians_opt = fuse_splatters(splatters_to_optimize)
+        # #### 2. loss on the splatters to be optimized
+        # if 'splatters_to_optimize' in data:
+        #     loss_splatter_cache = 0
+        #     splatters_to_optimize = data['splatters_to_optimize']
+        #     assert (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0
+        #     gaussians_opt = fuse_splatters(splatters_to_optimize)
 
-            gs_results_opt = self.gs.render(gaussians_opt, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
-            pred_images_opt = gs_results_opt['image'] # [B, V, C, output_size, output_size]
-            pred_alphas_opt = gs_results_opt['alpha'] # [B, V, 1, output_size, output_size]
+        #     gs_results_opt = self.gs.render(gaussians_opt, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+        #     pred_images_opt = gs_results_opt['image'] # [B, V, C, output_size, output_size]
+        #     pred_alphas_opt = gs_results_opt['alpha'] # [B, V, 1, output_size, output_size]
 
-            results['images_opt'] = pred_images_opt
-            results['alphas_opt'] = pred_alphas_opt
+        #     results['images_opt'] = pred_images_opt
+        #     results['alphas_opt'] = pred_alphas_opt
             
-            gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
-            gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
-            gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+        #     gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
+        #     gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+        #     gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
 
-            ## ------- end render ----------
+        #     ## ------- end render ----------
             
-            # ----- FIXME: calculate psnr shoud be at the end -----
-            psnr_opt = -10 * torch.log10(torch.mean((pred_images_opt.detach() - gt_images) ** 2))
-            results['psnr_opt'] = psnr_opt
+        #     # ----- FIXME: calculate psnr shoud be at the end -----
+        #     psnr_opt = -10 * torch.log10(torch.mean((pred_images_opt.detach() - gt_images) ** 2))
+        #     results['psnr_opt'] = psnr_opt
 
-            if self.opt.lambda_rendering > 0: # FIXME: currently using the same set of rendering loss for code and splatter cache
-                loss_mse_rendering_opt = F.mse_loss(pred_images_opt, gt_images) + F.mse_loss(pred_alphas_opt, gt_masks)
-                results['loss_rendering_opt'] = loss_mse_rendering_opt
-                loss_splatter_cache = loss_splatter_cache + self.opt.lambda_rendering * loss_mse_rendering_opt
-                if self.opt.verbose_main:
-                    print(f"loss rendering - splatter cache - (with alpha):{loss_mse_rendering_opt}")
-            elif self.opt.lambda_alpha > 0:
-                loss_mse_alpha_opt = F.mse_loss(pred_alphas_opt, gt_masks)
-                results['loss_alpha_opt'] = loss_mse_alpha_opt
-                loss_splatter_cache = loss_splatter_cache + self.opt.lambda_alpha * loss_mse_alpha_opt
-                if self.opt.verbose_main:
-                    print(f"loss alpha - splatter cache - :{loss_mse_alpha_opt}")
+        #     if self.opt.lambda_rendering > 0: # FIXME: currently using the same set of rendering loss for code and splatter cache
+        #         loss_mse_rendering_opt = F.mse_loss(pred_images_opt, gt_images) + F.mse_loss(pred_alphas_opt, gt_masks)
+        #         results['loss_rendering_opt'] = loss_mse_rendering_opt
+        #         loss_splatter_cache = loss_splatter_cache + self.opt.lambda_rendering * loss_mse_rendering_opt
+        #         if self.opt.verbose_main:
+        #             print(f"loss rendering - splatter cache - (with alpha):{loss_mse_rendering_opt}")
+        #     elif self.opt.lambda_alpha > 0:
+        #         loss_mse_alpha_opt = F.mse_loss(pred_alphas_opt, gt_masks)
+        #         results['loss_alpha_opt'] = loss_mse_alpha_opt
+        #         loss_splatter_cache = loss_splatter_cache + self.opt.lambda_alpha * loss_mse_alpha_opt
+        #         if self.opt.verbose_main:
+        #             print(f"loss alpha - splatter cache - :{loss_mse_alpha_opt}")
                     
-            if self.opt.lambda_lpips > 0:
-                loss_lpips_opt = self.lpips_loss(
-                    F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-                    F.interpolate(pred_images_opt.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-                ).mean()
-                results['loss_lpips_opt'] = loss_lpips_opt
-                loss_splatter_cache = loss_splatter_cache + self.opt.lambda_lpips * loss_lpips_opt
-                if self.opt.verbose_main:
-                    print(f"loss lpips:{loss_lpips_opt}")
+        #     if self.opt.lambda_lpips > 0:
+        #         loss_lpips_opt = self.lpips_loss(
+        #             F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+        #             F.interpolate(pred_images_opt.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+        #         ).mean()
+        #         results['loss_lpips_opt'] = loss_lpips_opt
+        #         loss_splatter_cache = loss_splatter_cache + self.opt.lambda_lpips * loss_lpips_opt
+        #         if self.opt.verbose_main:
+        #             print(f"loss lpips:{loss_lpips_opt}")
                     
-            results['loss_splatter_cache'] = loss_splatter_cache
-        else:
-            assert False
+        #     results['loss_splatter_cache'] = loss_splatter_cache
+        # else:
+        #     assert False
         
         return results
     
