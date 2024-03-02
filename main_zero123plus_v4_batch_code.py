@@ -27,6 +27,7 @@ import torch.nn.functional as F
 
 import warnings
 from accelerate.utils import broadcast
+import re
 
 
 def main():    
@@ -74,8 +75,27 @@ def main():
     #     print(f"main process time string: {time_str}")
     #     time_tensor = torch.tensor([ord(c) for c in time_str], dtype=torch.int64)
     
-    # time_str = broadcast(time_tensor)
-    time_str = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Check the number of GPUs
+    num_gpus = accelerator.num_processes
+    if accelerator.is_main_process:
+        print(f"Num gpus: {num_gpus}")
+    if num_gpus <= 1:
+        time_str = datetime.now().strftime("%Y%m%d-%H%M%S")
+    else:
+        # Pick output directory.
+        prev_run_dirs = []
+        outdir = opt.workspace
+        if os.path.isdir(outdir):
+            prev_run_dirs = [x for x in os.listdir(outdir) if os.path.isdir(os.path.join(outdir, x))]
+        prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
+        prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
+        cur_run_id = max(prev_run_ids, default=-1) + 1
+        time_str = f'{cur_run_id:05d}'
+        accelerator.wait_for_everyone()
+    
+    # c.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
+    # assert not os.path.exists(c.run_dir)
+
     
     # # gathered_info = accelerator.all_gather(info_to_share)
     # accelerator.wait_for_everyone()
@@ -104,6 +124,10 @@ def main():
         desc += f"-sp_guide_{opt.splatter_guidance_interval}"
     if opt.codes_from_encoder:
         desc += "-codes_from_encoder"
+    else:
+        optimizer_cfg = opt.optimizer.copy()
+        desc += f"-codes_lr{optimizer_cfg['lr']}"
+        
     desc += f"-{opt.decoder_mode}"
     ## the following may not exists, thus directly added to opt.desc if exists
     if len(opt.attr_use_logrithm_loss) > 0:
@@ -126,27 +150,55 @@ def main():
         desc += f'-numV{opt.num_views}'
     
     opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
-    # opt.workspace = accelerator.broadcast(opt.workspace)
     if opt.lr_scheduler == 'Plat':
             opt.workspace += f"{opt.lr_scheduler_patience}"
-            
+    
     if accelerator.is_main_process:
+        assert not os.path.exists(opt.workspace)
         print(f"makdir: {opt.workspace}")
         os.makedirs(opt.workspace, exist_ok=True)
         writer = tensorboard.SummaryWriter(opt.workspace)
+    
+    # real_workspace = sorted(os.listdir(os.path.dirname(opt.workspace)))[-1]
+    # opt.workspace = real_workspace
+    print(f"workspace: {opt.workspace}")
 
-    accelerator.wait_for_everyone()
+    # # broadcast the opt.workspace to all processes
+    # workspace_tensor = torch.tensor(list(opt.workspace.encode()), device="cuda", dtype=torch.uint8)
+    # workspace_info = {'workspace tensor': workspace_tensor}
+
+    # # Broadcast the workspace_info dictionary
+    # workspace_info = broadcast(workspace_info, from_process=0)
+
+    # # Decode the workspace string from the tensor
+    # opt.workspace = bytes(workspace_info['workspace tensor'].tolist()).decode()
+
+    # # Convert workspace string to a tensor
+    # workspace_tensor = torch.tensor(bytearray(opt.workspace, 'utf-8'), dtype=torch.uint8).to("cuda")
+    # # Broadcast the tensor
+    # broadcasted_workspace_tensor = broadcast(workspace_tensor)
+    # # Decode the tensor back to a string
+    # decoded_workspace = broadcasted_workspace_tensor.cpu().numpy().tobytes().decode('utf-8')
+
+    # # Use the decoded workspace
+    # opt.workspace = decoded_workspace
+    # print(f"Decoded workspace: {opt.workspace}")
+    
+    # accelerator.wait_for_everyone() 
     
     opt.code_dir = os.path.join(opt.workspace, 'code_dir')
+    print(f"Codes are saved to:{opt.code_dir}")
+    # st() #TODO: test this in 2 gpus
 
-    src_snapshot_folder = os.path.join(opt.workspace, 'src')
-    ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
-    for folder in ['core', 'scripts', 'zero123plus']:
-        dst_dir = os.path.join(src_snapshot_folder, folder)
-        shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-    for file in ['main_zero123plus_v4_batch_code.py']:
-        dest_file = os.path.join(src_snapshot_folder, file)
-        shutil.copy2(file, dest_file)
+    if accelerator.is_main_process:
+        src_snapshot_folder = os.path.join(opt.workspace, 'src')
+        ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
+        for folder in ['core', 'scripts', 'zero123plus']:
+            dst_dir = os.path.join(src_snapshot_folder, folder)
+            shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
+        for file in ['main_zero123plus_v4_batch_code.py']:
+            dest_file = os.path.join(src_snapshot_folder, file)
+            shutil.copy2(file, dest_file)
         
     # resume
     if opt.resume is not None and not opt.decoder_mode.startswith("v1_fix_rgb"):
@@ -209,11 +261,7 @@ def main():
         model, optimizer, train_dataloader, test_dataloader, scheduler
     )
     
-    # Check the number of GPUs
-    num_gpus = accelerator.num_processes
-    if accelerator.is_main_process:
-        print(f"Num gpus: {num_gpus}")
-    
+   
     # loop
     for epoch in range(opt.num_epochs):
         # train
@@ -230,6 +278,10 @@ def main():
             total_gs_loss_mse_dict = dict()
             for key in gt_attr_keys:
                 total_gs_loss_mse_dict[key] = 0
+        
+        splatter_guidance = (epoch <= opt.splatter_guidance_warmup) or (epoch % opt.splatter_guidance_interval == 0)
+        if splatter_guidance:
+            print(f"splatter_guidance in epoch: {epoch}")
                 
         # for i, data in enumerate(train_dataloader):
         for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
@@ -243,20 +295,15 @@ def main():
                 
                 ## ---- load or init code here ----
                 if num_gpus==1:
-                    codes_before_act_list_grad_, codes, code_optimizers, splatter_image_list_grad, splatter_images, splatter_optimizers = model.load_scenes(opt.code_dir, data)
+                    codes_before_act_list_grad_, codes, code_optimizers = model.load_scenes(opt.code_dir, data)
                 else:
-                    codes_before_act_list_grad_, codes, code_optimizers, splatter_image_list_grad, splatter_images, splatter_optimizers = model.module.load_scenes(opt.code_dir, data)
+                    codes_before_act_list_grad_, codes, code_optimizers = model.module.load_scenes(opt.code_dir, data)
                 for code_optimizer in code_optimizers:
                     code_optimizer.zero_grad()
-                for sp_optimizer in splatter_optimizers:
-                    sp_optimizer.zero_grad()
                 
                 data['codes'] = codes
-                data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
-                ## TODO: set this splatter to "gt" when it comes to the splatter_guidance iterations. But assume only optimization for now
-                splatter_guidance = epoch % opt.splatter_guidance_interval == 0
-                # print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
-                   
+                
+               
                 # ---- finish code init ----
 
                 optimizer.zero_grad()
@@ -266,12 +313,7 @@ def main():
                 out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                 loss = out['loss']
                 psnr = out['psnr']
-                if 'loss_splatter_cache' in out:
-                    loss = loss + out['loss_splatter_cache']
-                    if opt.verbose_main:
-                        print("Backward with the loss_splatter_cache")
-                else:
-                    st()
+               
                 accelerator.backward(loss)
                 # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
@@ -300,36 +342,37 @@ def main():
                 
                 ## 1. do optimization step 
                 # --- for codes ---
-                for code_optimizer in code_optimizers: # NOTE: value changed
-                    code_optimizer.step()
+                if epoch > 0:
+                    for code_optimizer in code_optimizers: # NOTE: value changed
+                        code_optimizer.step()
+                else:  
+                    before_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
                     
-                # --- for splatters --- 
-                for sp_optimizer in splatter_optimizers: # NOTE: value changed
-                    sp_optimizer.step()
-                
-                # before_optimization_params = [codes_before_act.clone().detach() for codes_before_act in splatter_image_list_grad]
-                
-                #### insert optimization step
-                 
-                # after_optimization_params = [codes_before_act.clone().detach() for codes_before_act in splatter_image_list_grad]
-                # parameters_changed = any(
-                #     not torch.equal(before, after) for before, after in zip(before_optimization_params, after_optimization_params)
-                # )
-                # if parameters_changed:
-                #     print("Parameters have changed after optimization step.")
-                # else:
-                #     print("Parameters have not changed after optimization step.")
+                    ### insert optimization step
+                    for code_optimizer in code_optimizers: # NOTE: value changed
+                        code_optimizer.step()
+                    
+                    after_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
+                    parameters_changed = any(
+                        not torch.equal(before, after) for before, after in zip(before_optimization_params, after_optimization_params)
+                    )
+                    if parameters_changed:
+                        print("Parameters have changed after optimization step.")
+                    else:
+                        print("Parameters have not changed after optimization step. Are you sure you do not optimize code?")
+                        st()
                 
                 ## 2. save optimized code and splatter images
                 if num_gpus==1:
                     model.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
-                                  splatter_image_list=splatter_image_list_grad , scene_names=data['scene_name'],
-                                  code_optimizer_list=code_optimizers, splatter_optimizer_list=splatter_optimizers)
+                                  scene_names=data['scene_name'],
+                                  code_optimizer_list=code_optimizers
+                                  )
                 
                 else:
                     model.module.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
-                                  splatter_image_list=splatter_image_list_grad , scene_names=data['scene_name'],
-                                  code_optimizer_list=code_optimizers, splatter_optimizer_list=splatter_optimizers)
+                                  scene_names=data['scene_name'],
+                                  code_optimizer_list=code_optimizers)
                 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
@@ -442,12 +485,11 @@ def main():
 
                     ## ---- load or init code here ----
                     if num_gpus==1:
-                        codes, splatter_images = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                        codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
                     else:
-                        codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
+                        codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                     
                     data['codes'] = codes
-                    data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
                     
                     # ---- finish code init ----
 
@@ -481,22 +523,22 @@ def main():
                         pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                         kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_alpha.jpg', pred_alphas)
 
-                        # add write images for splatter to optimize
-                        pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                        pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt.jpg', pred_images)
+                        # # add write images for splatter to optimize
+                        # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                        # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt.jpg', pred_images)
 
-                        pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                        pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
+                        # pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                        # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                        # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
 
                         if len(opt.plot_attribute_histgram) > 0:
-                            for splatters_pred_key in ['splatters_from_code', 'splatters_to_optimize']:
+                            for splatters_pred_key in ['splatters_from_code']:
                                 if splatters_pred_key == 'splatters_from_code':
                                     splatters = out[splatters_pred_key]
-                                elif splatters_pred_key == 'splatters_to_optimize':
-                                    splatters = data[splatters_pred_key]
-                                    
+                                else:
+                                    raise NotImplementedError
+                                
                                 gaussians = fuse_splatters(splatters)
                                 gt_gaussians = fuse_splatters(data['splatters_output'])
                                 
@@ -582,12 +624,11 @@ def main():
                             
                         ## ---- load or init code here ----
                         if num_gpus==1:
-                            codes, splatter_images = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                            codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
                         else:
-                            codes, splatter_images = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
+                            codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                         
                         data['codes'] = codes
-                        data['splatters_to_optimize'] = splatter_images # NOTE: this is neither pred nor gt
                         
                         # ---- finish code init ----
 
@@ -607,14 +648,14 @@ def main():
                             pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                             kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_alpha.jpg', pred_alphas)
 
-                            # add write images for splatter to optimize
-                            pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                            pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_splatter_opt.jpg', pred_images)
+                            # # add write images for splatter to optimize
+                            # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                            # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_splatter_opt.jpg', pred_images)
 
-                            pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                            pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_splatter_opt_alpha.jpg', pred_alphas)
+                            # pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                            # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                            # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i+j}_train_image_splatter_opt_alpha.jpg', pred_alphas)
 
 
 
