@@ -127,12 +127,12 @@ class ObjaverseDataset(Dataset):
         all_items = [k for k in self.data_path_splatter_gt.keys()]
         num_val = min(50, len(all_items)//2) # when using small dataset to debug
         if self.training:
-            self.items = all_items[:-num_val]
+            self.items = all_items # NOTE: all scenes are used for training and val
             if self.opt.overfit_one_scene:
                 print(f"[WARN]: always fetch the 0th item. For debug use only")
                 self.items = all_items[:1]
         else:
-            self.items = all_items[-num_val:]
+            self.items = all_items
             if self.opt.overfit_one_scene:
                 print(f"[WARN]: always fetch the 0th item. For debug use only")
                 self.items = all_items[:1]
