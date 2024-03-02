@@ -2,10 +2,16 @@ import tyro
 from dataclasses import dataclass, field
 from typing import Tuple, Literal, Dict, Optional, Union
 
+# optimizer_config = {
+#     'type': 'Adam',
+#     'lr': 1e-3,
+#     'weight_decay': 0.05,  # You can adjust this value as needed
+# }
+
 optimizer_config = {
     'type': 'Adam',
-    'lr': 1e-3,
-    'weight_decay': 0.05,  # You can adjust this value as needed
+    'lr': 1e-2,
+    'weight_decay': 0.,  # You can adjust this value as needed
 }
 
 splatter_optimizer_config = {
@@ -90,7 +96,7 @@ class Options:
     eval_iter: int = 100
     save_iter: int = 200
     desc: Optional[str] = None
-    save_train_pred: bool = False
+    # save_train_pred: bool = False
     data_path: Optional[str] = None
     
     ### zero123plus
@@ -163,7 +169,8 @@ class Options:
     splatter_optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: splatter_optimizer_config)
     code_init_from_0123_encoder: bool = True
     use_tanh_code_activation: bool = False
-    splatter_guidance_interval: int = 2
+    splatter_guidance_interval: int = 10
+    splatter_guidance_warmup: int = 500 
     
     overfit_one_scene: bool = False
     codes_from_encoder: bool = False
