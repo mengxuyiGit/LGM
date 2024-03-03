@@ -119,6 +119,152 @@ def optimizer_set_state(optimizer, state_dict):
               zip(chain.from_iterable((g['params'] for g in saved_groups)),
                   chain.from_iterable((g['params'] for g in groups)))}
 
+class DownsampleModuleOnlyConvAvgPool(nn.Module):
+    def __init__(self, input_channels, output_channels, input_resolution, output_resolution, use_activation_at_downsample=True):
+        super(DownsampleModuleOnlyConvAvgPool, self).__init__()
+
+        # Calculate the number of downsampling operations needed
+
+        layers = []
+        current_channels = input_channels
+        
+        layers.append(nn.Conv2d(current_channels, output_channels, kernel_size=3, stride=2, padding=1))
+           
+        layers.append(nn.AdaptiveAvgPool2d((3*output_resolution, 2*output_resolution)))
+
+        self.downsample_layers = nn.Sequential(*layers)
+    
+    
+    def forward(self, x):
+        return self.downsample_layers(x)
+        # for ly in self.downsample_layers:
+        #     print(f"---{ly._get_name()}---")
+        #     print(f"input size:{x.shape}")
+        #     x = ly(x)
+        #     print(f"output size:{x.shape}")
+        # st()
+        # return x
+        
+        
+        
+class DownsampleModule(nn.Module):
+    def __init__(self, input_channels, output_channels, input_resolution, output_resolution, use_activation_at_downsample=True):
+        super(DownsampleModule, self).__init__()
+
+        # Calculate the number of downsampling operations needed
+        num_downsamples = int(torch.log2(torch.tensor(input_resolution / output_resolution)))
+
+        layers = []
+        current_channels = input_channels
+        num_groups = input_channels
+        
+        # for _ in range(num_downsamples - 1):  # We leave one less downsample to use adaptive pooling later
+        for _ in range(num_downsamples):
+            layers.append(nn.Conv2d(current_channels, current_channels * 2, kernel_size=3, stride=2, padding=1))
+            current_channels *= 2
+            # layers.append(nn.BatchNorm2d(current_channels * 2))
+            # layers.append(nn.ReLU(inplace=True))
+            layers.append(nn.GroupNorm(num_groups, current_channels, eps=1e-06, affine=True))
+            layers.append(nn.SiLU())
+
+        layers.append(nn.Conv2d(current_channels, output_channels, kernel_size=3, stride=1, padding=1))
+      
+        if use_activation_at_downsample:
+            # layers.append(nn.BatchNorm2d(output_channels))
+            # layers.append(nn.ReLU(inplace=True))
+            layers.append(nn.GroupNorm(num_groups, output_channels, eps=1e-06, affine=True))
+            layers.append(nn.SiLU())
+        
+        # layers.append(nn.AdaptiveAvgPool2d((output_resolution, output_resolution)))
+        layers.append(nn.AdaptiveAvgPool2d((3*output_resolution, 2*output_resolution)))
+
+        self.downsample_layers = nn.Sequential(*layers)
+        
+        # ## v2
+        # # Define the layers for downsampling
+        # layers = [
+        #     # First downsampling
+        #     nn.Conv2d(input_channels, input_channels, kernel_size=3, stride=2, padding=1),
+        #     nn.ReLU(),
+        #     # # Second downsampling
+        #     # nn.Conv2d(input_channels, input_channels, kernel_size=3, stride=2, padding=1),
+        #     # nn.ReLU(),
+        #     # Adaptive pooling to reach the exact output size
+        #     nn.AdaptiveAvgPool2d((output_resolution, output_resolution))
+        # ]
+        
+        # # Combine all layers into a Sequential model
+        # self.downsample_layers = nn.Sequential(*layers)
+        
+        
+        ## ---- v3 -------
+        #  # Initialize module list
+        # modules = []
+        # current_resolution = input_resolution
+        # current_channels = input_channels
+
+        # # Define the number of groups for GroupNorm, it must be a divisor of the number of channels
+        # # We are choosing 32 because it's commonly used in practice and assuming the channels will be divisible by 32
+        # num_groups = input_channels
+
+        # # Adjust the number of channels to be divisible by the number of groups
+        # if current_channels % num_groups != 0:
+        #     adjusted_channels = (current_channels // num_groups + 1) * num_groups
+        #     modules.append(nn.Conv2d(current_channels, adjusted_channels, kernel_size=1))
+        #     modules.append(nn.GroupNorm(num_groups, adjusted_channels, eps=1e-06, affine=True))
+        #     modules.append(nn.SiLU())
+        #     current_channels = adjusted_channels
+
+        # # Add downsampling layers
+        # next_resolution = current_resolution
+        # while next_resolution > output_resolution:
+        #     current_resolution = next_resolution
+            
+        #     # Define a block with Conv2D, GroupNorm and SiLU (Swish) activation
+        #     modules.append(nn.Conv2d(current_channels, current_channels * 2, kernel_size=3, stride=2, padding=1))
+        #     modules.append(nn.GroupNorm(num_groups, current_channels * 2, eps=1e-06, affine=True))
+        #     modules.append(nn.SiLU())
+
+        #     # Update current resolution and channels
+        #     # Calculate the next resolution, making sure it doesn't go below the target
+        #     next_resolution = max(output_resolution, current_resolution // 2)
+            
+        #     current_channels *= 2
+
+        # # If the number of channels doesn't match the target output_channels, add a 1x1 convolution
+        # if current_channels != output_channels:
+        #     modules.append(nn.Conv2d(current_channels, output_channels, kernel_size=1))
+        #     modules.append(nn.GroupNorm(num_groups, output_channels, eps=1e-06, affine=True))
+        #     modules.append(nn.SiLU())
+    
+        # print(f"current_resolution({current_resolution}) != output_resolution({output_resolution}) : {current_resolution != output_resolution}")
+        # # If the resolution is still not matched (for non-power-of-2 scaling), use adaptive average pooling
+        # if current_resolution != output_resolution:
+        #     print("Init an adaptive pooling layer")
+        #     modules.append(nn.AdaptiveAvgPool2d((output_resolution, output_resolution)))
+
+        # self.downsample_layers = nn.Sequential(*modules)
+
+    def forward(self, x):
+        return self.downsample_layers(x)
+        # for ly in self.downsample_layers:
+        #     print(f"---{ly._get_name()}---")
+        #     print(f"input size:{x.shape}")
+        #     x = ly(x)
+        #     print(f"output size:{x.shape}")
+        # st()
+        # return x
+
+class Interpolate(nn.Module):
+    def __init__(self, size, mode='bilinear', align_corners=False):
+        super(Interpolate, self).__init__()
+        self.size = size
+        self.mode = mode
+        self.align_corners = align_corners if mode in ['linear', 'bilinear', 'bicubic', 'trilinear'] else None
+
+    def forward(self, x):
+        x = F.interpolate(x, size=self.size, mode=self.mode, align_corners=self.align_corners)
+        return x
 
 # From: https://github.com/huggingface/diffusers/blob/v0.26.3/src/diffusers/models/autoencoders/autoencoder_kl.py#L35
 class UNetDecoder(nn.Module):
@@ -126,6 +272,48 @@ class UNetDecoder(nn.Module):
         super(UNetDecoder, self).__init__()
         self.vae = vae
         self.decoder = vae.decoder
+
+        if opt.decode_splatter_to_128:
+            
+            # 1. no additional downsample layers
+            if opt.decoder_upblocks_interpolate_mode is not None:
+
+                if opt.decoder_upblocks_interpolate_mode == "last_layer":
+                    self.decoder.up_blocks[-1].upsamplers = nn.ModuleList([]) 
+                    self.decoder.up_blocks[-1].upsamplers.append(Interpolate(size=(128*3, 128*2), mode="nearest"))
+
+                else:
+                    find_interpolate_index={
+                        "interpolate_upsample": 1,
+                        "interpolate_downsample": 2,
+                    }
+                    interpolate_block_ind = find_interpolate_index[opt.decoder_upblocks_interpolate_mode]
+                    for i, up_block in enumerate(self.decoder.up_blocks):
+                        if i > interpolate_block_ind:
+                            up_block.upsamplers = nn.ModuleList([]) 
+                        elif i == interpolate_block_ind:
+                            if opt.replace_interpolate_with_avgpool:
+                                up_block.upsamplers = nn.ModuleList([nn.AdaptiveAvgPool2d((3*128, 2*128))]) 
+                            else:
+                                up_block.upsamplers = nn.ModuleList([Interpolate(size=(128*3, 128*2), mode="nearest")]) 
+                            
+            
+                self.downsample_module = lambda x: x
+                
+            # 2-4. use additional downsample layers, not good
+            elif opt.downsample_mode == "DownsampleModule":
+                self.downsample_module = DownsampleModule(input_channels=14, output_channels=14, input_resolution=320, output_resolution=128,
+                                                use_activation_at_downsample=opt.use_activation_at_downsample)
+            elif opt.downsample_mode == "AvgPool":
+                self.downsample_module = nn.AdaptiveAvgPool2d((3*128, 2*128))
+            elif opt.downsample_mode == "ConvAvgPool":
+                self.downsample_module = DownsampleModuleOnlyConvAvgPool(input_channels=14, output_channels=14, input_resolution=320, output_resolution=128,
+                                                use_activation_at_downsample=opt.use_activation_at_downsample)
+            else:
+                assert NotImplementedError
+        else:
+            self.downsample_module = lambda x: x
+        
         
         if opt.decoder_mode in ["v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
             self.decoder = self.decoder.requires_grad_(False).eval()
@@ -144,6 +332,9 @@ class UNetDecoder(nn.Module):
             others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
             print(f"UNet Decoder others requires grad: {others_requires_grad}")
             # st()
+        
+       
+        
     
     def forward(self, z):
         sample = self.vae.post_quant_conv(z)
@@ -153,14 +344,24 @@ class UNetDecoder(nn.Module):
         sample = self.decoder.mid_block(sample, latent_embeds)
         sample = sample.to(upscale_dtype)
         # up
-        for up_block in self.decoder.up_blocks:
+        for i, up_block in enumerate(self.decoder.up_blocks):
+            # print(f"{i}th upblock input: {sample.shape}")
             sample = up_block(sample, latent_embeds)
-
+        
+        # print(f"{i}th upblock output: {sample.shape}")
+        # st()
+        
         sample = self.decoder.conv_norm_out(sample)
         sample = self.decoder.conv_act(sample)
         rgb = self.decoder.conv_out(sample)
         others = self.others(sample)
-        return torch.cat([others, rgb], dim=1)
+        
+        splatters_320 = torch.cat([others, rgb], dim=1)
+        splatters_128 = self.downsample_module(splatters_320)
+        # print(f"splatters_320:{splatters_320.shape}")
+        # print(f"splatters_128:{splatters_128.shape}")
+        # st()
+        return splatters_128
         # return rgb
         
         
@@ -375,72 +576,6 @@ class Zero123PlusGaussianCode(nn.Module):
         else:
             splatter_optimizer = optimizer_class([splatter_image], **optimizer_cfg)
         return splatter_optimizer
-
-    def load_scenes_w_splatters(self, code_dir, data, eval_mode=False):
-        code_list_ = []
-        optimizer_state_list = []
-        splatter_image_list = []
-        splatter_optimizer_state_list = []
-      
-        device = data['cond'].device
-        
-        for i, scene_name in enumerate(data['scene_name']):
-            cache_file = os.path.join(code_dir, scene_name + '.pth')
-            if os.path.exists(cache_file):
-                if self.opt.verbose_main:
-                    print(f"Load scene: {scene_name}")
-                out = torch.load(cache_file, map_location='cpu')
-                assert out['scene_name'] == scene_name
-
-                code_ = out['param']['code_']
-                code_list_.append(code_.requires_grad_(True))
-
-                if not eval_mode:
-                    optimizer_state = out['optimizer']
-                    optimizer_state_list.append(optimizer_state)
-
-                splatter_image = out['param']['splatter_image_cache']
-                splatter_image_list.append(splatter_image.requires_grad_(True))
-                
-                if not eval_mode:
-                    splatter_optimizer_state = out['splatter_optimizer']
-                    splatter_optimizer_state_list.append(splatter_optimizer_state)
-            
-            else:
-                # do init
-                if self.opt.verbose_main: 
-                    print(f"Init scene: {scene_name}")
-                if self.opt.code_init_from_0123_encoder: # data['cond']: [B, 320, 320, 3]
-                    code_ = self.get_init_code_from_0123_encoder(data['input'][i])
-                else:
-                    code_ = self.get_init_code_() # torch.Size([4, 120, 80])
-                code_list_.append(code_.requires_grad_(True))
-                
-                splatter_low_res_gt = data['splatters_output'][i] #NOTE: assume these splatter are after activation
-                splatter_image = F.interpolate(splatter_low_res_gt, self.splatter_size[-2:])
-                splatter_image_list.append(splatter_image.requires_grad_(True))
-        
-        # --- code ---
-        codes_ = torch.stack(code_list_, dim=0).to(device)
-        codes = self.code_activation(codes_)
-        
-        # --- splatter --- #NOTE: assume these splatters are after activation
-        splatter_images = torch.stack(splatter_image_list, dim=0).to(device)
-        
-        if eval_mode:
-            return codes, splatter_images
-        
-        # --- code optimizers ---
-        code_optimizers = self.build_optimizer(code_list_)
-        for ind, optimizer_state_single in enumerate(optimizer_state_list):
-            optimizer_set_state(code_optimizers[ind], optimizer_state_single)
-        
-        # --- splatter optimizers ---
-        splatter_optimizers = self.build_splatter_optimizer(splatter_image_list)
-        for ind, splatter_optimizer_state_single in enumerate(splatter_optimizer_state_list):
-            optimizer_set_state(splatter_optimizers[ind], splatter_optimizer_state_single)
-        
-        return code_list_, codes, code_optimizers, splatter_image_list, splatter_images, splatter_optimizers
     
     def load_scenes(self, code_dir, data, eval_mode=False):
         code_list_ = []
@@ -450,6 +585,13 @@ class Zero123PlusGaussianCode(nn.Module):
         
         for i, scene_name in enumerate(data['scene_name']):
             cache_file = os.path.join(code_dir, scene_name + '.pth')
+            
+            cache_file_from_resume = ""
+            if self.opt.resume is not None:
+                resume_dir = os.path.dirname(self.opt.resume)
+                resume_code_dir = os.path.join(resume_dir, "code_dir")
+                cache_file_from_resume = os.path.join(resume_code_dir, scene_name + '.pth')
+                
             if os.path.exists(cache_file):
                 if self.opt.verbose_main:
                     print(f"Load scene: {scene_name}")
@@ -462,7 +604,18 @@ class Zero123PlusGaussianCode(nn.Module):
                 if not eval_mode:
                     optimizer_state = out['optimizer']
                     optimizer_state_list.append(optimizer_state)
-            
+            elif os.path.exists(cache_file_from_resume):
+                if self.opt.verbose_main:
+                    print(f"Load scene from resume: {scene_name}")
+                out = torch.load(cache_file_from_resume, map_location='cpu')
+                assert out['scene_name'] == scene_name
+
+                code_ = out['param']['code_']
+                code_list_.append(code_.requires_grad_(True))
+
+                if not eval_mode:
+                    optimizer_state = out['optimizer']
+                    optimizer_state_list.append(optimizer_state)
             else:
                 # do init
                 if self.opt.verbose_main: 
@@ -472,7 +625,7 @@ class Zero123PlusGaussianCode(nn.Module):
                 else:
                     code_ = self.get_init_code_() # torch.Size([4, 120, 80])
                 code_list_.append(code_.requires_grad_(True))
-            
+    
         # --- code ---
         codes_ = torch.stack(code_list_, dim=0).to(device)
         codes = self.code_activation(codes_)
@@ -502,28 +655,6 @@ class Zero123PlusGaussianCode(nn.Module):
                     code_=codes_.data[scene_id].cpu(), # with "_" is already before activation
                     ),
                 optimizer=code_optimizer_list[scene_id].state_dict(),
-                )
-
-            torch.save(results, os.path.join(save_dir, scene_name_single) + '.pth')
-    
-    def save_scenes_w_splatters(self, save_dir, code_list_, splatter_image_list, scene_names, code_optimizer_list, splatter_optimizer_list):
-        os.makedirs(save_dir, exist_ok=True)
-
-        # codes_ = self.code_activation_inverse(codes) #NOTE: no need for inverse activation, because the passed in code_list_ is already before activation
-        codes_ = torch.stack(code_list_, dim=0)
-        splatter_images = torch.stack(splatter_image_list, dim=0)
-
-        for scene_id, scene_name_single in enumerate(scene_names):
-            if self.opt.verbose_main:
-                print(f"Save scene: {scene_name_single}")
-            results = dict(
-                scene_name=scene_name_single,
-                param=dict(
-                    code_=codes_.data[scene_id].cpu(), # with "_" is already before activation
-                    splatter_image_cache=splatter_images.data[scene_id].cpu()
-                    ),
-                optimizer=code_optimizer_list[scene_id].state_dict(),
-                splatter_optimizer=splatter_optimizer_list[scene_id].state_dict(),
                 )
 
             torch.save(results, os.path.join(save_dir, scene_name_single) + '.pth')
@@ -723,9 +854,14 @@ class Zero123PlusGaussianCode(nn.Module):
             
             # print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
             # gt_splatters =  data['splatters_to_optimize'] # [1, 6, 14, 128, 128]
-            gt_splatters_low_res =  data['splatters_output']
-            gt_splatters =  torch.stack([F.interpolate(sp, self.splatter_size[-2:]) for sp in gt_splatters_low_res], dim=0)
-
+            
+            if self.opt.decode_splatter_to_128:
+                gt_splatters =  data['splatters_output']
+            else:
+                gt_splatters_low_res =  data['splatters_output']
+                gt_splatters =  torch.stack([F.interpolate(sp, self.splatter_size[-2:]) for sp in gt_splatters_low_res], dim=0)
+            # print(f"gt splatter size:{gt_splatters.shape}")
+           
             # NOTE: discard the below of downsampling pred, but use upsampling gt
             # if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
             #     print("pred_splatters:", pred_splatters.shape)
