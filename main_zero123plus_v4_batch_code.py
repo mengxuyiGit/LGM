@@ -193,9 +193,9 @@ def main():
     
     # accelerator.wait_for_everyone() 
     
-    opt.code_dir = os.path.join(opt.workspace, 'code_dir')
-    print(f"Codes are saved to:{opt.code_dir}")
-    # st() #TODO: test this in 2 gpus
+    if not opt.codes_from_encoder:
+        opt.code_dir = os.path.join(opt.workspace, 'code_dir')
+        print(f"Codes are saved to:{opt.code_dir}")
 
     if accelerator.is_main_process:
         src_snapshot_folder = os.path.join(opt.workspace, 'src')
@@ -299,20 +299,19 @@ def main():
                 print(f"data['input']:{data['input'].shape}")
                 
             with accelerator.accumulate(model):
-                
-                ## ---- load or init code here ----
-                if num_gpus==1:
-                    codes_before_act_list_grad_, codes, code_optimizers = model.load_scenes(opt.code_dir, data)
-                else:
-                    codes_before_act_list_grad_, codes, code_optimizers = model.module.load_scenes(opt.code_dir, data)
-                for code_optimizer in code_optimizers:
-                    # print("code_optimizer.zero_grad()")
-                    code_optimizer.zero_grad()
-                
-                data['codes'] = codes
-                
+                if not opt.codes_from_encoder:
+                    ## ---- load or init code here ----
+                    if num_gpus==1:
+                        codes_before_act_list_grad_, codes, code_optimizers = model.load_scenes(opt.code_dir, data)
+                    else:
+                        codes_before_act_list_grad_, codes, code_optimizers = model.module.load_scenes(opt.code_dir, data)
+                    for code_optimizer in code_optimizers:
+                        # print("code_optimizer.zero_grad()")
+                        code_optimizer.zero_grad()
+                    
+                    data['codes'] = codes
                
-                # ---- finish code init ----
+                    # ---- finish code init ----
 
                 optimizer.zero_grad()
 
@@ -347,40 +346,42 @@ def main():
                     scheduler.step()
                 
                 ## optimize and save code here
+                if not opt.codes_from_encoder:
+                    ## 1. do optimization step 
+                    # --- for codes ---
+                    if epoch > 0:
+                        for code_optimizer in code_optimizers: # NOTE: value changed
+                            code_optimizer.step()
+                    else:  
+                        before_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
+                        
+                        ### insert optimization step
+                        for code_optimizer in code_optimizers: # NOTE: value changed
+                            code_optimizer.step()
+                        
+                        after_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
+                        parameters_changed = any(
+                            not torch.equal(before, after) for before, after in zip(before_optimization_params, after_optimization_params)
+                        )
+                        if parameters_changed:
+                            print("Parameters have changed after optimization step.")
+                        else:
+                            print("Parameters have not changed after optimization step. Are you sure you do not optimize code?")
+                            st()
                 
-                ## 1. do optimization step 
-                # --- for codes ---
-                if epoch > 0:
-                    for code_optimizer in code_optimizers: # NOTE: value changed
-                        code_optimizer.step()
-                else:  
-                    before_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
+                    ## 2. save optimized code and splatter images
+                    if num_gpus==1:
+                        model.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
+                                    scene_names=data['scene_name'],
+                                    code_optimizer_list=code_optimizers
+                                    )
                     
-                    ### insert optimization step
-                    for code_optimizer in code_optimizers: # NOTE: value changed
-                        code_optimizer.step()
-                    
-                    after_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
-                    parameters_changed = any(
-                        not torch.equal(before, after) for before, after in zip(before_optimization_params, after_optimization_params)
-                    )
-                    if parameters_changed:
-                        print("Parameters have changed after optimization step.")
                     else:
-                        print("Parameters have not changed after optimization step. Are you sure you do not optimize code?")
-                        st()
-                
-                ## 2. save optimized code and splatter images
-                if num_gpus==1:
-                    model.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
-                                  scene_names=data['scene_name'],
-                                  code_optimizer_list=code_optimizers
-                                  )
-                
-                else:
-                    model.module.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
-                                  scene_names=data['scene_name'],
-                                  code_optimizer_list=code_optimizers)
+                        model.module.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
+                                    scene_names=data['scene_name'],
+                                    code_optimizer_list=code_optimizers)
+                    
+                    # --- finish saving the code ----
                 
                 total_loss += loss.detach()
                 total_psnr += psnr.detach()
@@ -490,16 +491,16 @@ def main():
                 
                 print(f"Save to run dir: {opt.workspace}")
                 for i, data in enumerate(test_dataloader):
-
-                    ## ---- load or init code here ----
-                    if num_gpus==1:
-                        codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
-                    else:
-                        codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
-                    
-                    data['codes'] = codes
-                    
-                    # ---- finish code init ----
+                    if not opt.codes_from_encoder:
+                        ## ---- load or init code here ----
+                        if num_gpus==1:
+                            codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                        else:
+                            codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
+                        
+                        data['codes'] = codes
+                        
+                        # ---- finish code init ----
 
                     out = model(data)
         
@@ -629,16 +630,17 @@ def main():
                     for j, data in enumerate(train_dataloader):
                         if j > opt.save_train_pred:
                             break
+                        
+                        if not opt.codes_from_encoder:
+                            ## ---- load or init code here ----
+                            if num_gpus==1:
+                                codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                            else:
+                                codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                             
-                        ## ---- load or init code here ----
-                        if num_gpus==1:
-                            codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
-                        else:
-                            codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
-                        
-                        data['codes'] = codes
-                        
-                        # ---- finish code init ----
+                            data['codes'] = codes
+                            
+                            # ---- finish code init ----
 
                         out = model(data)
         

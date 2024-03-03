@@ -672,8 +672,9 @@ class Zero123PlusGaussianCode(nn.Module):
 
         # init code
         if latents == None:
-            # if self.opt.verbose_main:
-            print(f"get latent from encoding images: {images.shape}")
+            assert self.opt.codes_from_encoder
+            if self.opt.verbose_main:
+                print(f"get latent from encoding images: {images.shape}")
             latents = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
         
         if self.opt.skip_predict_x0:
