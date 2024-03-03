@@ -129,6 +129,13 @@ def main():
         desc += f"-codes_lr{optimizer_cfg['lr']}"
         
     desc += f"-{opt.decoder_mode}"
+    if opt.decode_splatter_to_128:
+        desc += "-pred128"
+        if opt.decoder_upblocks_interpolate_mode is not None:
+            desc += f"_{opt.decoder_upblocks_interpolate_mode}"
+            if opt.decoder_upblocks_interpolate_mode!="last_layer" and opt.replace_interpolate_with_avgpool:
+                desc += "_avgpool"
+        
     ## the following may not exists, thus directly added to opt.desc if exists
     if len(opt.attr_use_logrithm_loss) > 0:
         loss_special = '-logrithm'
@@ -279,7 +286,7 @@ def main():
             for key in gt_attr_keys:
                 total_gs_loss_mse_dict[key] = 0
         
-        splatter_guidance = (epoch <= opt.splatter_guidance_warmup) or (epoch % opt.splatter_guidance_interval == 0)
+        splatter_guidance = (opt.lambda_splatter > 0) and (epoch <= opt.splatter_guidance_warmup) or (epoch % opt.splatter_guidance_interval == 0)
         if splatter_guidance:
             print(f"splatter_guidance in epoch: {epoch}")
                 
@@ -299,6 +306,7 @@ def main():
                 else:
                     codes_before_act_list_grad_, codes, code_optimizers = model.module.load_scenes(opt.code_dir, data)
                 for code_optimizer in code_optimizers:
+                    # print("code_optimizer.zero_grad()")
                     code_optimizer.zero_grad()
                 
                 data['codes'] = codes

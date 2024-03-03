@@ -174,6 +174,11 @@ class Options:
     
     overfit_one_scene: bool = False
     codes_from_encoder: bool = False
+    decode_splatter_to_128: bool = False
+    use_activation_at_downsample: bool = False
+    downsample_mode: str = "DownsampleModule" # "AvgPool" "ConvAvgPool"
+    decoder_upblocks_interpolate_mode: Optional[str] = None # "interpolate_upsample" "interpolate_downsample"
+    replace_interpolate_with_avgpool: bool = False
     
 
 # all the default settings
