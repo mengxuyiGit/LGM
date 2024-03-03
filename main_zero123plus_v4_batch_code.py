@@ -519,18 +519,19 @@ def main():
             
                     
                     # save some images
-                    if accelerator.is_main_process:
+                    # if accelerator.is_main_process:
+                    if True:
                         gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_gt.jpg', gt_images)
+                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
 
                         pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                         pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_pred.jpg', pred_images)
+                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
 
                         pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                         pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_alpha.jpg', pred_alphas)
+                        kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
 
                         # # add write images for splatter to optimize
                         # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
@@ -588,7 +589,7 @@ def main():
                                     plt.legend()
 
                                     # Save the plot as an image file (e.g., PNG)
-                                    name = f'histogram_epoch{epoch}_batch{i}_{splatters_pred_key}_{attr}'
+                                    name = f'histogram_batch{accelerator.process_index}_{i}_{splatters_pred_key}_{attr}'
                                     if attr == "scale":
                                         name += f"_{opt.scale_act}_bias{opt.scale_act_bias}"
                                     
@@ -596,7 +597,7 @@ def main():
                                         name += "normed_on_gt"
                                         
                                     plt.title(f'{name}')
-                                    plt.savefig(f'{opt.workspace}/eval_epoch_{epoch}/{i}_{name}.jpg')
+                                    plt.savefig(f'{opt.workspace}/eval_epoch_{epoch}/{name}.jpg')
                                 
                                     # Clear the figure
                                     plt.clf()
