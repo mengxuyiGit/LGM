@@ -474,8 +474,17 @@ def main():
         # checkpoint
         # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
         if epoch > 0 and epoch % opt.save_iter == 0:
+            # update new ckpt
             accelerator.wait_for_everyone()
+            print("Saving new ckpt ...")
             accelerator.save_model(model, opt.workspace)
+            print("Saved new ckpt !!!")
+            
+            # save a copy 
+            accelerator.wait_for_everyone()
+            print("Saving a COPY of new ckpt ...")
+            accelerator.save_model(model, os.path.join(opt.workspace, f"eval_epoch_{epoch}"))
+            print("Saved a COPY of new ckpt !!!")
 
         if epoch % opt.eval_iter == 0: 
             # eval
