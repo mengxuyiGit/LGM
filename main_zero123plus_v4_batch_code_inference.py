@@ -320,10 +320,14 @@ def main():
                 print("---------- Begin original inference ---------------")
                         
                 # Load the pipeline
-                pipeline = DiffusionPipeline.from_pretrained(
+                pipeline_0123 = DiffusionPipeline.from_pretrained(
                     "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
                     torch_dtype=torch.float32
                 )
+                pipeline_0123.to('cuda:0')
+                
+                pipeline = model.pipe
+                # st()
 
                 # Feel free to tune the scheduler!
                 # `timestep_spacing` parameter is not supported in older versions of `diffusers`    
@@ -391,7 +395,8 @@ def main():
                     #
                     #####  # check latents
                     latents1 = unscale_latents(latents)
-                    image = pipeline.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+                    # image = pipeline_0123.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+                    image = pipeline_0123.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
                     image = unscale_image(image)
 
                     latents_init1 = unscale_latents(latents_init)
