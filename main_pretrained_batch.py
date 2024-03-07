@@ -186,8 +186,22 @@ def main():
     
     scene_dirs = scene_dirs[opt.scene_start_index: opt.scene_end_index]
 
+    
+    # target_scenes = None
+    # inference_lgm = True
+    # if inference_lgm:
+    #     target_scenes = ['02b0456362f9442da46d39fb34b3ee5b','0351407fb56e41a8ab47d7db899644c5', '0513a48c96a046ea891c8a5fc6daee73',
+    #                  '06001514dd764a008874cfa092198a8d', '06f56ee0e1374ac9947c2ce556b318bd',
+    #                  '06fa08b3b2834d26b3deee112eda2919']
+    #     print("You are infernece LGM on some specific scenes")
+
+
     for i, scene_path in enumerate(scene_dirs):
         scene_name = scene_path.split('/')[-2] if scene_path.endswith('/') else scene_path.split('/')[-1]
+        # if (target_scenes is not None) and (scene_name in target_scenes):
+        #     print(f"scene {scene_name} in target")
+        # else:
+        #     continue
         
         if opt.verbose:
             print(f"Processing scene {i}: {scene_name}")
