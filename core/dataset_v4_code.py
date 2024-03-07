@@ -65,12 +65,13 @@ def load_ply(path, compatible=True):
 
 class ObjaverseDataset(Dataset):
 
-    def __init__(self, opt: Options, training=True):
+    def __init__(self, opt: Options, training=True, prepare_white_bg=False):
         
         self.opt = opt
         if self.opt.model_type == 'LGM':
             self.opt.bg = 1.0
         self.training = training
+        self.prepare_white_bg = prepare_white_bg
 
       
         # # TODO: load the list of objects for training
@@ -129,13 +130,17 @@ class ObjaverseDataset(Dataset):
         if self.training:
             self.items = all_items # NOTE: all scenes are used for training and val
             if self.opt.overfit_one_scene:
-                print(f"[WARN]: always fetch the 0th item. For debug use only")
-                self.items = all_items[:1]
+                # print(f"[WARN]: always fetch the 0th item. For debug use only")
+                # self.items = all_items[:1]
+                print(f"[WARN]: always fetch the 1th item. For debug use only")
+                self.items = all_items[1:2]
         else:
             self.items = all_items
             if self.opt.overfit_one_scene:
-                print(f"[WARN]: always fetch the 0th item. For debug use only")
-                self.items = all_items[:1]
+                # print(f"[WARN]: always fetch the 0th item. For debug use only")
+                # self.items = all_items[:1]
+                print(f"[WARN]: always fetch the 1th item. For debug use only")
+                self.items = all_items[1:2]
        
         
         # naive split
@@ -172,6 +177,7 @@ class ObjaverseDataset(Dataset):
 
         # load num_views images
         images = []
+        images_white = []
         masks = []
         cam_poses = []
         
@@ -184,7 +190,10 @@ class ObjaverseDataset(Dataset):
         # else:
         #     # fixed views
         #     vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
-        vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
+        if self.training:
+            vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(56).tolist()
+        else:
+            vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 56).tolist()
 
         cond_path = os.path.join(uid, f'000.png')
         from PIL import Image
@@ -251,15 +260,21 @@ class ObjaverseDataset(Dataset):
           
             image = image.permute(2, 0, 1) # [4, 512, 512]
             mask = image[3:4] # [1, 512, 512]
+            
+            if self.prepare_white_bg:
+                image_white = image[:3] * mask + (1 - mask) * 1.0
+                image_white = image_white[[2,1,0]].contiguous() # bgr to rgb
+                images_white.append(image_white)
+            
             image = image[:3] * mask + (1 - mask) * self.opt.bg # [3, 512, 512], to white bg
             image = image[[2,1,0]].contiguous() # bgr to rgb
-
             images.append(image)
+            
             masks.append(mask.squeeze(0))
             cam_poses.append(c2w)
 
             vid_cnt += 1
-            if vid_cnt == self.opt.num_views:
+            if self.training and (vid_cnt == self.opt.num_views):
                 break
 
         if vid_cnt < self.opt.num_views:
@@ -267,10 +282,14 @@ class ObjaverseDataset(Dataset):
             print(f'[WARN] dataset {uid}: not enough valid views, only {vid_cnt} views found!')
             n = self.opt.num_views - vid_cnt
             images = images + [images[-1]] * n
+            if self.prepare_white_bg:
+                images_white = images_white + [images_white[-1]] * n
             masks = masks + [masks[-1]] * n
             cam_poses = cam_poses + [cam_poses[-1]] * n
           
         images = torch.stack(images, dim=0) # [V, C, H, W]
+        if self.prepare_white_bg:
+            images_white = torch.stack(images_white, dim=0) # [V, C, H, W]
         masks = torch.stack(masks, dim=0) # [V, H, W]
         cam_poses = torch.stack(cam_poses, dim=0) # [V, 4, 4]
 
@@ -279,6 +298,8 @@ class ObjaverseDataset(Dataset):
         cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
 
         images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
+        # if self.prepare_white_bg:
+        #     images_input_white = F.interpolate(images_white[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         cam_poses_input = cam_poses[:self.opt.num_input_views].clone()
 
         # data augmentation
@@ -296,6 +317,8 @@ class ObjaverseDataset(Dataset):
 
         # resize render ground-truth images, range still in [0, 1]
         results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        if self.prepare_white_bg:
+            results['images_output_white'] = F.interpolate(images_white, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         if self.opt.verbose:
             print(f"images_input:{images_input.shape}") # [20, 3, input_size, input_size] input_size=128
             print("images_output", results['images_output'].shape) # [20, 3, 512, 512]
@@ -314,6 +337,7 @@ class ObjaverseDataset(Dataset):
             results['input'] = final_input
         else:
             results['input'] = images_input
+            # results['input_white'] = images_input_white
             
             
             lgm_images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(256, 256), mode='bilinear', align_corners=False) # [V, C, H, W]
