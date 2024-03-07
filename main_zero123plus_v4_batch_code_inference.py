@@ -56,6 +56,27 @@ def unscale_image(image):
     image = image / 0.5 * 0.8
     return image
 
+def scale_image(image):
+    image = image * 0.5 / 0.8
+    return image
+
+def scale_latents(latents):
+    latents = (latents - 0.22) * 0.75
+    return latents
+
+def normalize_to_target(source_tensor, target_tensor):
+    # Calculate mean and standard deviation of source tensor
+    source_mean = torch.mean(source_tensor)
+    source_std = torch.std(source_tensor)
+
+    # Calculate mean and standard deviation of target tensor
+    target_mean = torch.mean(target_tensor)
+    target_std = torch.std(target_tensor)
+
+    # Normalize source tensor to target distribution
+    normalized_tensor = (source_tensor - source_mean) / source_std * target_std + target_mean
+
+    return normalized_tensor
 
 def main():    
     import sys
@@ -230,7 +251,7 @@ def main():
         for folder in ['core', 'scripts', 'zero123plus']:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-        for file in ['main_zero123plus_v4_batch_code.py']:
+        for file in ['main_zero123plus_v4_batch_code_inference.py']:
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
@@ -265,7 +286,7 @@ def main():
         drop_last=False,
     )
 
-    test_dataset = Dataset(opt, training=False)
+    test_dataset = Dataset(opt, training=False, prepare_white_bg=True)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=opt.batch_size,
@@ -347,7 +368,7 @@ def main():
 
                 
                 name = path.split('/')[-2]
-                name += f"_0123plus_float32"
+                # name += f"_0123plus_float32"
                 os.makedirs(os.path.join(output_path, name), exist_ok=True)
                 pipeline.prepare()
                 guidance_scale = 4.0
@@ -366,7 +387,9 @@ def main():
                 latents_init = latents.clone().detach()
 
                 with torch.no_grad():
-                    
+                    # timesteps = [1]
+                    # print(timesteps)
+                    # st()
                     for i, t in enumerate(timesteps):
                         latent_model_input = torch.cat([latents] * 2)
                         latent_model_input = pipeline.scheduler.scale_model_input(latent_model_input, t)
@@ -392,7 +415,8 @@ def main():
                     # --------- 
                     print("Codes from diffusion (moved)")
                     data['codes'] = latents # torch.Size([1, 4, 120, 80])
-                    #
+                    print(f"code-diffusion: max={latents.max()} min={latents.min()} mean={latents.mean()}")
+            
                     #####  # check latents
                     latents1 = unscale_latents(latents)
                     # image = pipeline_0123.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
@@ -403,17 +427,30 @@ def main():
                     image_init = pipeline.vae.decode(latents_init1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
                     image_init = unscale_image(image_init)
 
-                mv_image = einops.rearrange((image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c (h2 h) (w2 w)-> (h2 w2) h w c', h2=3, w2=2).astype(np.uint8) 
-                for i, image in enumerate(mv_image):
+                save_single_frames = False
+                
+                if save_single_frames:
+                    mv_image = einops.rearrange((image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c (h2 h) (w2 w)-> (h2 w2) h w c', h2=3, w2=2).astype(np.uint8) 
+                    for i, image in enumerate(mv_image):
+                        image = rembg.remove(image).astype(np.float32) / 255.0
+                        if image.shape[-1] == 4:
+                            image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
+                        Image.fromarray((image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}/{i:03d}.png'))
+                else:
+                    mv_image = einops.rearrange((image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c h w-> h w c').astype(np.uint8) 
+                    image = mv_image
                     image = rembg.remove(image).astype(np.float32) / 255.0
+            
                     if image.shape[-1] == 4:
-                        image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
-                    Image.fromarray((image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}/{i:03d}.png'))
+                        alpha_image = np.repeat((1 - image[..., 3:4]), repeats=3, axis=-1) # .astype(np.uint8).astype(np.float32)
+                        # image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
+                        image = image[..., :3] *(1 - alpha_image) + alpha_image
                 
-                
+                        Image.fromarray((alpha_image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}_alpha.png'))
+                    Image.fromarray((image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}.png'))
+
                 print("---------- the above is original inference ---------------")
                 # continue
-                # st()
                 
                 # debug_latent = True
                 # if debug_latent:
@@ -492,20 +529,28 @@ def main():
                             
                 #             Image.fromarray((image * 255).astype(np.uint8)).save(f'{directory}/{j:03d}.png')
         
-            elif not opt.codes_from_encoder:
+            # elif not opt.codes_from_encoder:
+            elif opt.codes_from_cache: # NOTE: make this more explicit
                 ## ---- load or init code here ----
+                
                 if num_gpus==1:
                     codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
                 else:
                     codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
                 
                 data['codes'] = codes # torch.Size([1, 4, 120, 80])
+                st()
+                print(f"code-optimized: max={codes.max()} min={codes.min()} mean={codes.mean()}")
                 
                 # ---- finish code init ----
-            else:
+            elif opt.codes_from_encoder:
                 print("codes_from_encoder, are you sure?")
-                st()
+                # codes = model.encode_image(data['input'])
+                # print(f"code-encoder: max={codes.max()} min={codes.min()} mean={codes.mean()}")
 
+            else:
+                raise ValueError("Not a valid source of latent")
+            
             out = model(data)
 
             psnr = out['psnr']
@@ -537,7 +582,16 @@ def main():
                 pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                 pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                 kiui.write_image(f'{directory}/image_alpha.jpg', pred_alphas)
+                
+                ## save white images
+                pred_images_white = pred_images * pred_alphas + 1 * (1 - pred_alphas)
+                kiui.write_image(f'{directory}/image_pred_white.jpg', pred_images_white)
 
+                gt_images_white = data['images_output_white'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                gt_images_white = gt_images_white.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images_white.shape[1] * gt_images_white.shape[3], 3) # [B*output_size, V*output_size, 3]
+                kiui.write_image(f'{directory}/image_gt_white.jpg', gt_images_white)
+                
+        
                 # # add write images for splatter to optimize
                 # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                 # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)

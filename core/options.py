@@ -179,6 +179,11 @@ class Options:
     downsample_mode: str = "DownsampleModule" # "AvgPool" "ConvAvgPool"
     decoder_upblocks_interpolate_mode: Optional[str] = None # "interpolate_upsample" "interpolate_downsample"
     replace_interpolate_with_avgpool: bool = False
+    codes_from_diffusion: bool = False
+    resume_unet: Optional[str] = None
+
+    random_init_unet: bool = False
+    codes_from_cache: bool = False # used to get cache latent stats distribution
     
 
 # all the default settings
