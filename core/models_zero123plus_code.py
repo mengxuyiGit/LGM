@@ -484,6 +484,9 @@ class Zero123PlusGaussianCode(nn.Module):
         # st() # image: torch.Size([1, 3, 768, 512])
 
         if is_zero123plus:
+            # NOTE: encode input image (before scale) should be in [-1, 1] while our image is in [0,1]
+            image = image * 2 - 1
+            
             image = scale_image(image)
             image = self.vae.encode(image).latent_dist.sample() * self.vae.config.scaling_factor
             image = scale_latents(image)
@@ -591,7 +594,6 @@ class Zero123PlusGaussianCode(nn.Module):
                 resume_dir = os.path.dirname(self.opt.resume)
                 resume_code_dir = os.path.join(resume_dir, "code_dir")
                 cache_file_from_resume = os.path.join(resume_code_dir, scene_name + '.pth')
-                
             if os.path.exists(cache_file):
                 if self.opt.verbose_main:
                     print(f"Load scene: {scene_name}")
@@ -625,7 +627,6 @@ class Zero123PlusGaussianCode(nn.Module):
                 else:
                     code_ = self.get_init_code_() # torch.Size([4, 120, 80])
                 code_list_.append(code_.requires_grad_(True))
-    
         # --- code ---
         codes_ = torch.stack(code_list_, dim=0).to(device)
         codes = self.code_activation(codes_)
@@ -676,6 +677,7 @@ class Zero123PlusGaussianCode(nn.Module):
             if self.opt.verbose_main:
                 print(f"get latent from encoding images: {images.shape}")
             latents = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
+            # print(f"code-encoder: max={latents.max()} min={latents.min()} mean={latents.mean()}")
         
         if self.opt.skip_predict_x0:
             x = self.decode_latents(latents)
@@ -830,7 +832,7 @@ class Zero123PlusGaussianCode(nn.Module):
         loss = 0
        
         images = data['input'] # [B, 6, 9, h, W], input features: splatter images
-        cond = data['cond'] # [B, H, W, 3], condition image
+        cond = data['cond'] # [B, H, W, 3], condition image: [1, 320, 320, 3]
         
         # 1. optimize the splatters from the code
         if self.opt.codes_from_encoder:
