@@ -51,12 +51,12 @@ def main():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    # ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
     accelerator = Accelerator(
         mixed_precision=opt.mixed_precision,
         gradient_accumulation_steps=opt.gradient_accumulation_steps,
-        kwargs_handlers=[ddp_kwargs],
+        # kwargs_handlers=[ddp_kwargs],
     )
 
     # model
@@ -534,11 +534,15 @@ def main():
             accelerator.wait_for_everyone()
             accelerator.save_model(model, opt.workspace)
             
-            # save a copy 
-            accelerator.wait_for_everyone()
-            print("Saving a COPY of new ckpt ...")
-            accelerator.save_model(model, os.path.join(opt.workspace, f"eval_epoch_{epoch}"))
-            print("Saved a COPY of new ckpt !!!")
+            # # save a copy 
+            # accelerator.wait_for_everyone()
+            # print("Saving a COPY of new ckpt ...")
+            # eval_folder = os.path.join(opt.workspace, f"eval_epoch_{epoch}")
+            # if accelerator.is_main_process:
+            #     if not os.path.exists(eval_folder):
+            #         os.makedirs(eval_folder, exists_ok=True)
+            # accelerator.save_model(model, eval_folder)
+            # print("Saved a COPY of new ckpt !!!")
 
         if epoch % opt.eval_iter == 0: 
             # eval
