@@ -50,12 +50,12 @@ def main():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    # ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
     accelerator = Accelerator(
         mixed_precision=opt.mixed_precision,
         gradient_accumulation_steps=opt.gradient_accumulation_steps,
-        kwargs_handlers=[ddp_kwargs],
+        # kwargs_handlers=[ddp_kwargs],
     )
 
     # model
@@ -317,7 +317,8 @@ def main():
 
                 step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
-                out = model(data, step_ratio, splatter_guidance=splatter_guidance)
+                
+                out = model(data, step_ratio, splatter_guidance=splatter_guidance, epoch=epoch)
                 loss = out['loss']
                 psnr = out['psnr']
                
@@ -480,11 +481,12 @@ def main():
             accelerator.save_model(model, opt.workspace)
             print("Saved new ckpt !!!")
             
-            # save a copy 
-            accelerator.wait_for_everyone()
-            print("Saving a COPY of new ckpt ...")
-            accelerator.save_model(model, os.path.join(opt.workspace, f"eval_epoch_{epoch}"))
-            print("Saved a COPY of new ckpt !!!")
+            if opt.save_ckpt_copies:
+                # save a copy 
+                accelerator.wait_for_everyone()
+                print("Saving a COPY of new ckpt ...")
+                accelerator.save_model(model, os.path.join(opt.workspace, f"eval_epoch_{epoch}"))
+                print("Saved a COPY of new ckpt !!!")
 
         if epoch % opt.eval_iter == 0: 
             # eval

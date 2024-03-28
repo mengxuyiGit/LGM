@@ -6,6 +6,7 @@ import torch
 from core.options import AllConfigs
 from core.models_zero123plus import Zero123PlusGaussian, gt_attr_keys, start_indices, end_indices, fuse_splatters
 from core.models_zero123plus_code import Zero123PlusGaussianCode
+from core.models_zero123plus_code_unet_lora import Zero123PlusGaussianCodeUnetLora
 
 from core.models_fix_pretrained import LGM
 
@@ -36,6 +37,8 @@ from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
 
 import einops
 import rembg
+import requests
+
 def to_rgb_image(maybe_rgba: Image.Image):
     if maybe_rgba.mode == 'RGB':
         return maybe_rgba
@@ -114,14 +117,9 @@ def main():
         model = Zero123PlusGaussianCode(opt)
         from core.dataset_v4_code import ObjaverseDataset as Dataset
     
-    elif opt.model_type == 'LGM':
-        model = LGM(opt)
-    # model = SingleSplatterImage(opt)
-    # opt.workspace += datetime.now().strftime("%Y%m%d-%H%M%S")
-    # if accelerator.is_main_process:
-    #     time_str = datetime.now().strftime("%Y%m%d-%H%M%S")
-    #     print(f"main process time string: {time_str}")
-    #     time_tensor = torch.tensor([ord(c) for c in time_str], dtype=torch.int64)
+    elif opt.model_type == 'Zero123PlusGaussianCodeUnetLora':
+        model = Zero123PlusGaussianCodeUnetLora(opt)
+        from core.dataset_v4_code import ObjaverseDataset as Dataset
     
     # Check the number of GPUs
     num_gpus = accelerator.num_processes
@@ -168,45 +166,21 @@ def main():
         loss_str+=f'_lpips{opt.lambda_lpips}'
    
     desc = opt.desc
-    if opt.splatter_guidance_interval > 0:
-        desc += f"-sp_guide_{opt.splatter_guidance_interval}"
     if opt.codes_from_encoder:
         desc += "-codes_from_encoder"
-    else:
-        optimizer_cfg = opt.optimizer.copy()
-        desc += f"-codes_lr{optimizer_cfg['lr']}"
-        
-    desc += f"-{opt.decoder_mode}"
-    if opt.decode_splatter_to_128:
-        desc += "-pred128"
-        if opt.decoder_upblocks_interpolate_mode is not None:
-            desc += f"_{opt.decoder_upblocks_interpolate_mode}"
-            if opt.decoder_upblocks_interpolate_mode!="last_layer" and opt.replace_interpolate_with_avgpool:
-                desc += "_avgpool"
-        
-    ## the following may not exists, thus directly added to opt.desc if exists
-    if len(opt.attr_use_logrithm_loss) > 0:
-        loss_special = '-logrithm'
-        for key in opt.attr_use_logrithm_loss:
-            loss_special += f"_{key}"
-        desc += loss_special
+    elif opt.codes_from_diffusion:
+        desc += "-codes_from_diffusion"
+    elif opt.codes_from_cache:
+        desc += "-codes_from_cache"
     
-    if len(opt.normalize_scale_using_gt) > 0:
-        loss_special = '-norm'
-        for key in opt.normalize_scale_using_gt:
-            loss_special += f"_{key}"
-        desc += loss_special
+    assert (opt.one_step_diffusion is None) or (opt.lipschitz_mode is None)
+    if opt.one_step_diffusion is not None:
+        desc += f"_ONE_STEP_T={opt.one_step_diffusion}"
+    if opt.lipschitz_mode is not None:
+        desc += f"_lipschitz_mode={opt.lipschitz_mode}_coeff={opt.lipschitz_coefficient}"
         
-    if opt.train_unet:
-        desc += '-train_unet'
-    if opt.skip_predict_x0:
-        desc += '-skip_predict_x0'
-    if opt.num_views != 20:
-        desc += f'-numV{opt.num_views}'
-    
+        
     opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
-    if opt.lr_scheduler == 'Plat':
-            opt.workspace += f"{opt.lr_scheduler_patience}"
     
     if accelerator.is_main_process:
         assert not os.path.exists(opt.workspace)
@@ -241,9 +215,16 @@ def main():
     
     # accelerator.wait_for_everyone() 
     
-    if not opt.codes_from_encoder:
-        opt.code_dir = os.path.join(opt.workspace, 'code_dir')
-        print(f"Codes are saved to:{opt.code_dir}")
+    if opt.codes_from_cache:
+        if opt.code_cache_dir is not None:
+            code_cache_dir = opt.code_cache_dir
+        else:
+            resume_dir = os.path.dirname(opt.resume)
+            if "epoch" in os.path.basename(resume_dir):
+                resume_dir = os.path.dirname(resume_dir)
+            code_cache_dir = os.path.join(resume_dir, "code_dir")
+            assert os.isdir(code_cache_dir)
+        print(f"Codes cache are loaded from:{code_cache_dir}")
 
     if accelerator.is_main_process:
         src_snapshot_folder = os.path.join(opt.workspace, 'src')
@@ -256,24 +237,43 @@ def main():
             shutil.copy2(file, dest_file)
         
     # resume
-    assert opt.resume is not None
-    print(f"Resume from ckpt: {opt.resume}")
-    if opt.resume.endswith('safetensors'):
-        ckpt = load_file(opt.resume, device='cpu')
-    else:
-        ckpt = torch.load(opt.resume, map_location='cpu')
-    
-    # tolerant load (only load matching shapes)
-    # model.load_state_dict(ckpt, strict=False)
-    state_dict = model.state_dict()
-    for k, v in ckpt.items():
-        if k in state_dict: 
-            if state_dict[k].shape == v.shape:
-                state_dict[k].copy_(v)
-            else:
-                accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+    resume = False
+    if resume:
+        assert opt.resume is not None ## only for decoder
+        print(f"Resume from ckpt: {opt.resume}")
+        if opt.resume.endswith('safetensors'):
+            ckpt = load_file(opt.resume, device='cpu')
         else:
-            accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
+            ckpt = torch.load(opt.resume, map_location='cpu')
+        
+        # tolerant load (only load matching shapes)
+        # model.load_state_dict(ckpt, strict=False)
+        state_dict = model.state_dict()
+        for k, v in ckpt.items():
+            # if "lora" in k:
+            #     print(f"not loading: {k}")
+            #     # continue
+            if k in state_dict: 
+                if state_dict[k].shape == v.shape:
+                    state_dict[k].copy_(v)
+                else:
+                    accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+            else:
+                accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
+            
+            # del state_dict[k]
+        
+        # non_loaded_params = [name for name, _ in state_dict.items() if 'lora' not in name]
+        # print(non_loaded_params)
+        # print("non_loaded_params that are not in ckpt")
+        # decoder_params = [name for name, _ in ckpt.items() if 'decoder' in name]
+        # print(decoder_params)
+        # print("decoder_params")
+        # st()
+    
+    # ## also load pretrained unet
+    # if opt.resume_unet is not 
+        
 
     # No need to copy the code_dir: handled by load_scenes already.
     train_dataset = Dataset(opt, training=True)
@@ -327,52 +327,85 @@ def main():
         total_loss_rendering = 0 #torch.tensor([0])
         total_loss_alpha = 0
         total_loss_lpips = 0
+
+        
+        if opt.codes_from_diffusion:
+                    
+            # Load the pipeline
+            pipeline_0123 = DiffusionPipeline.from_pretrained(
+                "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
+                torch_dtype=torch.float32
+            )
+            pipeline_0123.to('cuda:0')
+            
+            pipeline = model.pipe
+            # pipeline = pipeline_0123
+            # print("pipeline 0123")
+            print(pipeline.unet) # check whether lora is here
+            # st()
+
+            # Feel free to tune the scheduler!
+            # `timestep_spacing` parameter is not supported in older versions of `diffusers`    
+            # so there may be performance degradations
+            # We recommend using `diffusers==0.20.2`
+            pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
+                pipeline.scheduler.config, timestep_spacing='trailing'
+            )
+            # pipeline.scheduler = DDIMScheduler.from_config(
+            #     pipeline.scheduler.config
+            # )
+            pipeline.to('cuda:0')
+            
+            output_path = f"{opt.workspace}/zero123plus/outputs_v3_inference_my_decoder"
+            
+            pipeline.prepare()
+            guidance_scale = 4.0
+
+
+        gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
+        start_indices = [0, 3, 4, 7, 11]
+        end_indices = [3, 4, 7, 11, 14]
+
+        attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
+        attr_map.update({
+            'scale-x': (4,5),
+            'scale-y': (5,6),
+            'scale-z': (6,7),
+            "z-depth": (2,3),
+            "xy-offset": (0,2),
+        })
         
         print(f"Save to run dir: {opt.workspace}")
         for i, data in enumerate(test_dataloader):
+            if i > 40:
+                exit(0)
+            
+                
             scene_name = data["scene_name"][0]
+            if i < 5 or scene_name == "0a9b36d36e904aee8b51e978a7c0acfd":
+                # st()
+                pass
+            else:
+                continue
             
             directory = f'{opt.workspace}/eval_ckpt/{accelerator.process_index}_{i}_{scene_name}'
             if not os.path.exists(directory):
                 os.makedirs(directory)
             
+
             if opt.codes_from_diffusion:
                 
                 print("---------- Begin original inference ---------------")
                         
-                # Load the pipeline
-                pipeline_0123 = DiffusionPipeline.from_pretrained(
-                    "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
-                    torch_dtype=torch.float32
-                )
-                pipeline_0123.to('cuda:0')
-                
-                pipeline = model.pipe
-                # st()
-
-                # Feel free to tune the scheduler!
-                # `timestep_spacing` parameter is not supported in older versions of `diffusers`    
-                # so there may be performance degradations
-                # We recommend using `diffusers==0.20.2`
-                pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
-                    pipeline.scheduler.config, timestep_spacing='trailing'
-                )
-                # pipeline.scheduler = DDIMScheduler.from_config(
-                #     pipeline.scheduler.config
-                # )
-                pipeline.to('cuda:0')
-
                 path =f'/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/{scene_name}/000.png'
             
-                output_path = f"{opt.workspace}/zero123plus/outputs_v3_inference_my_decoder"
-
-                
                 name = path.split('/')[-2]
                 # name += f"_0123plus_float32"
+                name = f"{i}_{name}"
                 os.makedirs(os.path.join(output_path, name), exist_ok=True)
-                pipeline.prepare()
-                guidance_scale = 4.0
+
                 img = to_rgb_image(Image.open(path))
+                # img = to_rgb_image(Image.open(requests.get("https://d.skis.ltd/nrp/sample-data/lysol.png", stream=True).raw))
                 
                 img.save(os.path.join(output_path, f'{name}/cond.png'))
                 cond = [img]
@@ -381,16 +414,117 @@ def main():
                 prompt_embeds, cak = pipeline.prepare_conditions(cond, guidance_scale=4.0)
                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
                 pipeline.scheduler.set_timesteps(75, device='cuda:0')
+                # if opt.one_step_diffusion is not None:
+                #     pipeline.scheduler.set_timesteps(opt.one_step_diffusion, device='cuda:0')
+                    
                 timesteps = pipeline.scheduler.timesteps
             
-                latents = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float32)
+                latents  = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float32)
                 latents_init = latents.clone().detach()
 
                 with torch.no_grad():
-                    # timesteps = [1]
-                    # print(timesteps)
-                    # st()
+                    # if opt.one_step_diffusion is not None:
+                       
+                    #     text_embeddings = prompt_embeds
+                    #     t = torch.tensor([opt.one_step_diffusion]).to(timesteps.device)
+                    #     print("ONE STEP DIFFUSION timestep =",t)
+                    #     # st()
+                    #     x = model.predict_x0(
+                    #         latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
+                    #         cross_attention_kwargs=cak, scheduler=pipeline.scheduler, model='zero123plus')
+                    #     latents = x
+                        
+                    #     timesteps = [] # skip the step-by-step inference
+
+                    
+                    lipschitz_analysis_zero123p = False
+
+                    if opt.lipschitz_mode is not None and lipschitz_analysis_zero123p:
+                        # get gt latents from encoder
+                        # make input 6 views into a 3x2 grid
+                        images = einops.rearrange(data['input'], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+                        latents = model.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
+
+                        # add noise 
+                        if opt.lipschitz_mode == "gaussian_noise":
+                            noise = torch.randn_like(latents, device=latents.device)
+                        elif opt.lipschitz_mode == "constant":
+                            print(f"Adding constant lipschitz noise of scale {opt.lipschitz_coefficient}")
+                            noise = torch.ones_like(latents, device=latents.device)
+                        else:
+                            raise ValueError ("invalid mode type for lipschitz analysis")
+
+                        codes_gt = latents.clone()
+                        latents += noise * opt.lipschitz_coefficient
+                        latent_loss = F.mse_loss(latents, codes_gt)
+                        print(f"latent loss = {latent_loss}") 
+
+                        timesteps = [] # skip the step-by-step inference
+                    
+                    encode_splatter = True
+                    if encode_splatter:
+
+                        # reshape splatter 
+                         # make input 6 views into a 3x2 grid
+                        splatters_mv = einops.rearrange(data["splatters_output"], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+                        # vae.encode
+
+                        ## RGB
+                        # splatter_rgb = splatters_mv[:,11:14,...]
+                        # image = splatter_rgb * 2 - 1 # [map to range [-1,1]]
+                       
+
+                        # # Opacity
+                        # splatter_opacity = splatters_mv[:,3:4,...].repeat(1, 3, 1, 1) # [0,1]
+                        # image = splatter_opacity * 2 - 1 # [map to range [-1,1]]
+
+                        # gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
+                        # start_indices = [0, 3, 4, 7, 11]
+                        # end_indices = [3, 4, 7, 11, 14]
+                        
+                        attr_to_encode = "z-depth"
+                        start_i, end_i = attr_map[attr_to_encode]          
+
+                        splatter_attr = splatters_mv[:,start_i:end_i,...]
+                        if end_i - start_i == 1:
+                            splatter_attr = splatter_attr.repeat(1, 3, 1, 1) # [0,1]
+                        elif end_i - start_i == 3:
+                            pass
+                        elif attr_to_encode == "xy-offset":
+                            # st()
+                            ## normalize to [0,1]
+                            splatter_attr = (splatter_attr - splatter_attr.min()) / (splatter_attr.max() - splatter_attr.min())
+                            ## cat one more dim
+                            splatter_attr = torch.cat((splatter_attr, 0.5 * torch.ones_like(splatter_attr[:,0:1,...])), dim=1)
+                        else:
+                            raise ValueError(f"The dimension of {attr_to_encode} is problematic to encode")
+                        
+                        print(f"Attr {attr_to_encode}: min={splatter_attr.min()} max={splatter_attr.max()}")
+                        if "scale" in attr_to_encode:
+                            splatter_attr *= 20
+                            splatter_attr = splatter_attr.clip(0,1)
+                            print(f"New range of {attr_to_encode}: min={splatter_attr.min()} max={splatter_attr.max()}")
+                        elif attr_to_encode == "z-depth":
+                            splatter_attr = (splatter_attr - splatter_attr.min()) / (splatter_attr.max() - splatter_attr.min())
+                            # splatter_attr = splatter_attr.clip(0,1)
+                        # st()
+
+                        sp_image = splatter_attr * 2 - 1 # [map to range [-1,1]]
+                        
+                        # Save image
+                        mv_image = einops.rearrange((sp_image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c h w-> h w c').astype(np.uint8) 
+                        Image.fromarray(mv_image).save(os.path.join(output_path, f'{name}/{attr_to_encode}_to_encode.png'))
+                        
+                        # encode
+                        sp_image = scale_image(sp_image)
+                        sp_image = pipeline.vae.encode(sp_image).latent_dist.sample() * pipeline.vae.config.scaling_factor
+                        latents = scale_latents(sp_image)
+
+                        timesteps = [] # skip the step-by-step inference
+                    
                     for i, t in enumerate(timesteps):
+                        print(f"enumerate(timesteps) t={t}")
+                        st()
                         latent_model_input = torch.cat([latents] * 2)
                         latent_model_input = pipeline.scheduler.scale_model_input(latent_model_input, t)
 
@@ -419,7 +553,31 @@ def main():
             
                     #####  # check latents
                     latents1 = unscale_latents(latents)
-                    # image = pipeline_0123.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+                   
+                    # ### lgm deocder 
+                    # z = latents1 / model.decoder.vae.config.scaling_factor
+                    
+                    # ud = model.decoder
+                    # sample = ud.vae.post_quant_conv(z)
+                    # latent_embeds = None
+                    # sample = ud.decoder.conv_in(sample)
+                    # upscale_dtype = next(iter(ud.decoder.up_blocks.parameters())).dtype
+                    # sample = ud.decoder.mid_block(sample, latent_embeds)
+                    # sample = sample.to(upscale_dtype)
+                    # # up
+                    # for i, up_block in enumerate(ud.decoder.up_blocks):
+                    #     # print(f"{i}th upblock input: {sample.shape}")
+                    #     sample = up_block(sample, latent_embeds)
+                    
+                    # # print(f"{i}th upblock output: {sample.shape}")
+                    # # st()
+                    
+                    # sample = ud.decoder.conv_norm_out(sample) 
+                    # sample = ud.decoder.conv_act(sample)
+                    # image = ud.decoder.conv_out(sample)
+                    
+                    # ### --- [end] ---
+                    
                     image = pipeline_0123.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
                     image = unscale_image(image)
 
@@ -439,18 +597,33 @@ def main():
                 else:
                     mv_image = einops.rearrange((image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c h w-> h w c').astype(np.uint8) 
                     image = mv_image
-                    image = rembg.remove(image).astype(np.float32) / 255.0
-            
-                    if image.shape[-1] == 4:
-                        alpha_image = np.repeat((1 - image[..., 3:4]), repeats=3, axis=-1) # .astype(np.uint8).astype(np.float32)
-                        # image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
-                        image = image[..., :3] *(1 - alpha_image) + alpha_image
+
+                    white_bg = False
+                    if white_bg:
+                        image = rembg.remove(image).astype(np.float32) / 255.0
                 
-                        Image.fromarray((alpha_image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}_alpha.png'))
-                    Image.fromarray((image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}.png'))
+                        if image.shape[-1] == 4:
+                            alpha_image = np.repeat((1 - image[..., 3:4]), repeats=3, axis=-1) # .astype(np.uint8).astype(np.float32)
+                            # image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
+                            image = image[..., :3] *(1 - alpha_image) + alpha_image
+                    
+                            Image.fromarray((alpha_image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}/alpha.png'))
+                        Image.fromarray((image * 255).astype(np.uint8)).save(os.path.join(output_path, f'{name}/pred.png'))
+
+                        gt_white_images = einops.rearrange(data['input_white'], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+                        gt_image = einops.rearrange((gt_white_images[0].clip(-1,1)).cpu().numpy()*255, 'c h w-> h w c').astype(np.uint8) 
+                        Image.fromarray(gt_image).save(os.path.join(output_path, f'{name}/gt_white.png'))
+                    else:
+                        Image.fromarray(image).save(os.path.join(output_path, f'{name}/pred.png'))
+
+                        gt_white_images = einops.rearrange(data['input'], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+                        gt_image = einops.rearrange((gt_white_images[0].clip(-1,1)).cpu().numpy()*255, 'c h w-> h w c').astype(np.uint8) 
+                        Image.fromarray(gt_image).save(os.path.join(output_path, f'{name}/gt.png'))
+
 
                 print("---------- the above is original inference ---------------")
-                # continue
+                
+                continue
                 
                 # debug_latent = True
                 # if debug_latent:
@@ -534,12 +707,61 @@ def main():
                 ## ---- load or init code here ----
                 
                 if num_gpus==1:
-                    codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
+                    codes = model.load_scenes(code_cache_dir, data, eval_mode=True)
                 else:
-                    codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
+                    codes = model.module.load_scenes(code_cache_dir, data, eval_mode=True)
+                
+                assert not (opt.one_step_diffusion is not None) and (opt.lipschitz_mode is not None)
+
+                if opt.lipschitz_mode is not None:
+                    if opt.lipschitz_mode == "gaussian_noise":
+                        noise = torch.randn_like(codes, device=codes.device)
+                    elif opt.lipschitz_mode == "constant":
+                        print(f"Adding constant lipschitz noise of scale {opt.lipschitz_coefficient}")
+                        noise = torch.ones_like(codes, device=codes.device)
+                    else:
+                        raise ValueError ("invalid mode type for lipschitz analysis")
+
+                    # num_levels = 100
+                    # disturb_level = torch.linspace(num_levels)/num_levels
+                    codes_gt = codes.clone()
+                    codes += noise * opt.lipschitz_coefficient
+                    latent_loss = F.mse_loss(codes, codes_gt)
+                    print(f"latent loss = {latent_loss}")
+                    
+                    
+
+                if opt.one_step_diffusion is not None: 
+                    t = torch.tensor([opt.one_step_diffusion]).to(codes.device)
+                    
+                    noise = torch.randn_like(codes, device=codes.device)
+                    noisy_latents = model.pipe.scheduler.add_noise(codes, noise, t)
+
+                    # get cond embed
+                    path =f'/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/{scene_name}/000.png'
+                    output_path = f"{opt.workspace}/zero123plus/codes_from_cache"
+                    name = path.split('/')[-2]
+                    os.makedirs(os.path.join(output_path, name), exist_ok=True)
+                    # model.pipe.prepare()
+                    guidance_scale = 4.0
+                    img = to_rgb_image(Image.open(path))
+                    img.save(os.path.join(output_path, f'{name}/cond.png'))
+                    cond = [img]
+                    print(img)
+                    text_embeddings, cak = model.pipe.prepare_conditions(cond, guidance_scale=4.0)
+                    # -------
+           
+                    print("ONE STEP DIFFUSION timestep =",t)
+                    # st()
+                    codes = model.predict_x0(
+                        noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
+                        cross_attention_kwargs=cak, scheduler=model.pipe.scheduler, model='zero123plus')
+                   
+                
                 
                 data['codes'] = codes # torch.Size([1, 4, 120, 80])
-                st()
+                # st()
+                
                 print(f"code-optimized: max={codes.max()} min={codes.min()} mean={codes.mean()}")
                 
                 # ---- finish code init ----

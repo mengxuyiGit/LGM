@@ -534,15 +534,15 @@ def main():
             accelerator.wait_for_everyone()
             accelerator.save_model(model, opt.workspace)
             
-            # # save a copy 
-            # accelerator.wait_for_everyone()
-            # print("Saving a COPY of new ckpt ...")
-            # eval_folder = os.path.join(opt.workspace, f"eval_epoch_{epoch}")
-            # if accelerator.is_main_process:
-            #     if not os.path.exists(eval_folder):
-            #         os.makedirs(eval_folder, exists_ok=True)
-            # accelerator.save_model(model, eval_folder)
-            # print("Saved a COPY of new ckpt !!!")
+            # save a copy 
+            accelerator.wait_for_everyone()
+            print("Saving a COPY of new ckpt ...")
+            eval_folder = os.path.join(opt.workspace, f"eval_epoch_{epoch}")
+            if accelerator.is_main_process:
+                if not os.path.exists(eval_folder):
+                    os.makedirs(eval_folder, exist_ok=True)
+            accelerator.save_model(model, eval_folder)
+            print("Saved a COPY of new ckpt !!!")
 
         if epoch % opt.eval_iter == 0: 
             # eval

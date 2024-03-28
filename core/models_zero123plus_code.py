@@ -395,6 +395,7 @@ class Zero123PlusGaussianCode(nn.Module):
         if opt.train_unet:
             print("Unet is trainable")
             self.unet = self.pipe.unet.requires_grad_(True).train()
+            st()
         else:
             self.unet = self.pipe.unet.eval().requires_grad_(False)
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
@@ -581,22 +582,35 @@ class Zero123PlusGaussianCode(nn.Module):
         return splatter_optimizer
     
     def load_scenes(self, code_dir, data, eval_mode=False):
+        st()
         code_list_ = []
         optimizer_state_list = []
     
         device = data['cond'].device
+
+        if self.opt.resume is not None:
+            resume_dir = os.path.dirname(self.opt.resume)
+            if "epoch" in os.path.basename(resume_dir):
+                # print(os.path.dirname(resume_dir))
+                resume_dir = os.path.dirname(resume_dir)
+                # print("Code resume dir changed to:", resume_dir)
+            resume_code_dir = os.path.join(resume_dir, "code_dir")
         
         for i, scene_name in enumerate(data['scene_name']):
             cache_file = os.path.join(code_dir, scene_name + '.pth')
             
             cache_file_from_resume = ""
             if self.opt.resume is not None:
-                resume_dir = os.path.dirname(self.opt.resume)
-                resume_code_dir = os.path.join(resume_dir, "code_dir")
+                # resume_dir = os.path.dirname(self.opt.resume)
+                # if "epoch" in os.path.basename(resume_dir):
+                #     # print(os.path.dirname(resume_dir))
+                #     resume_dir = os.path.dirname(resume_dir)
+                #     # print("Code resume dir changed to:", resume_dir)
+                # resume_code_dir = os.path.join(resume_dir, "code_dir")
                 cache_file_from_resume = os.path.join(resume_code_dir, scene_name + '.pth')
             if os.path.exists(cache_file):
-                if self.opt.verbose_main:
-                    print(f"Load scene: {scene_name}")
+                # if self.opt.verbose_main:
+                print(f"Load scene: {scene_name}")
                 out = torch.load(cache_file, map_location='cpu')
                 assert out['scene_name'] == scene_name
 
@@ -661,7 +675,7 @@ class Zero123PlusGaussianCode(nn.Module):
             torch.save(results, os.path.join(save_dir, scene_name_single) + '.pth')
 
     
-    def forward_splatters_with_activation(self, images, cond, latents=None):
+    def forward_splatters_with_activation(self, images, cond, latents=None, epoch=None):
         B, V, C, H, W = images.shape
         # print(f"images.shape in forward+spaltter:{images.shape}") # SAME as the input_size
         with torch.no_grad():
@@ -679,25 +693,32 @@ class Zero123PlusGaussianCode(nn.Module):
             latents = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
             # print(f"code-encoder: max={latents.max()} min={latents.min()} mean={latents.mean()}")
         
-        if self.opt.skip_predict_x0:
+       
+
+        if (epoch is not None) and (epoch % self.opt.mix_diffusion_interval==0): # for skip_predict_x0 iters we skip, and this particular epoch we do not skip
+            print(f"epoch{epoch} is using mix_diffusion_interval")
+        
+            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents.device)
+        
+            noise = torch.randn_like(latents, device=latents.device)
+            noisy_latents = self.pipe.scheduler.add_noise(latents, noise, t)
+            
+            
+            x = self.predict_x0(
+                noisy_latents, text_embeddings, t=t, guidance_scale=1.0, 
+                cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+            print(f"pred x0: {x.shape} at t={t}, latents:{latents.shape}")
+
+            x = self.decode_latents(x) # (B, 14, H, W)
+
+        # if self.opt.skip_predict_x0:
+        else: # either epoch is None (eval) or we are in the skip iters
             x = self.decode_latents(latents)
 
             # # print("self.decode_latents output", x.shape)
             # if self.opt.downsample_after_decode_latents:
             #     ## output is 320x320, we use downsample to supervise the gaussian
             #     x = F.interpolate(x, size=(384, 256), mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
-
-        else:
-            t = torch.tensor([10] * B, device=latents.device)
-            latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
-            x = self.predict_x0(
-                latents, text_embeddings, t=10, guidance_scale=1.0, 
-                cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-            # x = torch.randn([B, 4, 96, 64], device=images.device)
-            print(f"pred x0: {x.shape}, latents:{latents.shape}")
-            x = self.decode_latents(x) # (B, 14, H, W)
-
-            st()
 
         x = x.permute(0, 2, 3, 1)
         
@@ -825,7 +846,7 @@ class Zero123PlusGaussianCode(nn.Module):
         return attr_weighted_loss_dict
         
         
-    def forward(self, data, step_ratio=1, splatter_guidance=False):
+    def forward(self, data, step_ratio=1, splatter_guidance=False, epoch=None):
         # Gaussian shape: (B*6, 14, H, W)
         
         results = {}
@@ -845,7 +866,7 @@ class Zero123PlusGaussianCode(nn.Module):
                 pass
                 # print("has code")
             
-        pred_splatters = self.forward_splatters_with_activation(images, cond, latents=codes) # [B, N, 14] # (B, 6, 14, H, W)
+        pred_splatters = self.forward_splatters_with_activation(images, cond, latents=codes, epoch=epoch) # [B, N, 14] # (B, 6, 14, H, W)
         
         results['splatters_from_code'] = pred_splatters # [1, 6, 14, 256, 256]
         if self.opt.verbose_main:
