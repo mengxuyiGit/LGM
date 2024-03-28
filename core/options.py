@@ -177,13 +177,22 @@ class Options:
     decode_splatter_to_128: bool = False
     use_activation_at_downsample: bool = False
     downsample_mode: str = "DownsampleModule" # "AvgPool" "ConvAvgPool"
-    decoder_upblocks_interpolate_mode: Optional[str] = None # "interpolate_upsample" "interpolate_downsample"
+    decoder_upblocks_interpolate_mode:str = "last_layer" # "interpolate_upsample" "interpolate_downsample"
     replace_interpolate_with_avgpool: bool = False
     codes_from_diffusion: bool = False
     resume_unet: Optional[str] = None
 
     random_init_unet: bool = False
     codes_from_cache: bool = False # used to get cache latent stats distribution
+    one_step_diffusion: Optional[int] = None
+    code_cache_dir: Optional[str] = None
+    lora_rank: int = 8
+    render_input_views: bool = False
+    lipschitz_coefficient: Optional[float] = None
+    lipschitz_mode: Optional[str] = None # gaussian_noise, constant
+    scheduler_type: Optional[str] = None
+    save_ckpt_copies: bool = False
+    mix_diffusion_interval: int = 10
     
 
 # all the default settings

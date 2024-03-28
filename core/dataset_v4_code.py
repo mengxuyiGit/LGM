@@ -298,8 +298,8 @@ class ObjaverseDataset(Dataset):
         cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
 
         images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
-        # if self.prepare_white_bg:
-        #     images_input_white = F.interpolate(images_white[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
+        if self.prepare_white_bg:
+            images_input_white = F.interpolate(images_white[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         cam_poses_input = cam_poses[:self.opt.num_input_views].clone()
 
         # data augmentation
@@ -316,13 +316,23 @@ class ObjaverseDataset(Dataset):
             images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
         # resize render ground-truth images, range still in [0, 1]
+        render_input_views = self.opt.render_input_views
+        
         results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        
         if self.prepare_white_bg:
             results['images_output_white'] = F.interpolate(images_white, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         if self.opt.verbose:
             print(f"images_input:{images_input.shape}") # [20, 3, input_size, input_size] input_size=128
             print("images_output", results['images_output'].shape) # [20, 3, 512, 512]
+        
         results['masks_output'] = F.interpolate(masks.unsqueeze(1), size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
+        if not render_input_views:
+            results['images_output'] = results['images_output'][self.opt.num_input_views:]
+            results['masks_output'] = results['masks_output'][self.opt.num_input_views:]
+        
+        # print(f"images_output.shape:{results['images_output'].shape}")
+            
 
         # build rays for input views
         if self.opt.model_type == 'LGM':
@@ -360,11 +370,17 @@ class ObjaverseDataset(Dataset):
         # cameras needed by gaussian rasterizer
         cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
         cam_view_proj = cam_view @ self.proj_matrix # [V, 4, 4]
-        cam_pos = - cam_poses[:, :3, 3] # [V, 3]
         
-        results['cam_view'] = cam_view
-        results['cam_view_proj'] = cam_view_proj
-        results['cam_pos'] = cam_pos
+        cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+        if render_input_views:
+            results['cam_view'] = cam_view
+            results['cam_view_proj'] = cam_view_proj
+            results['cam_pos'] = cam_pos
+
+        else:
+            results['cam_view'] = cam_view[self.opt.num_input_views:]
+            results['cam_view_proj'] = cam_view_proj[self.opt.num_input_views:]
+            results['cam_pos'] = cam_pos[self.opt.num_input_views:]
 
         results['scene_name'] = scene_name
         # print(f"returning scene_name:{scene_name}")
