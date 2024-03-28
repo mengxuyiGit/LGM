@@ -1,11 +1,6 @@
 
-## Large Multi-View Gaussian Model
+## Zero-1-to-G: Single Stage 3D Generation with Splatter Images
 
-This is the official implementation of *LGM: Large Multi-View Gaussian Model for High-Resolution 3D Content Creation*.
-
-### [Project Page](https://me.kiui.moe/lgm/) | [Arxiv](https://arxiv.org/abs/2402.05054) | [Weights](https://huggingface.co/ashawkey/LGM) | <a href="https://huggingface.co/spaces/ashawkey/LGM"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Gradio%20Demo-Huggingface-orange"></a>
-
-https://github.com/3DTopia/LGM/assets/25863658/cf64e489-29f3-4935-adba-e393a24c26e8
 
 ### Install
 
@@ -26,54 +21,64 @@ pip install git+https://github.com/NVlabs/nvdiffrast
 pip install -r requirements.txt
 ```
 
-### Pretrained Weights
-
-Our pretrained weight can be downloaded from [huggingface](https://huggingface.co/ashawkey/LGM).
-
-For example, to download the fp16 model for inference:
+### Training
+First, please specify the path to your training data, which consists of splatter image gt and the multiview rendering gt:
 ```bash
-mkdir pretrained && cd pretrained
-wget https://huggingface.co/ashawkey/LGM/resolve/main/model_fp16.safetensors
-cd ..
+DATA_DIR_BATCH_RENDERING='/path/to/your/rendering' # which contains the folders named by scene name
+DATA_DIR_BATCH_SPLATTER_GT_ROOT='/path/to/your/rendering/splatter_gt' 
 ```
 
-For [MVDream](https://github.com/bytedance/MVDream) and [ImageDream](https://github.com/bytedance/ImageDream), we use a [diffusers implementation](https://github.com/ashawkey/mvdream_diffusers).
-Their weights will be downloaded automatically.
+Then begin DDP training using python. Please adjust `acc_configs/gpu4.yaml` according to your available training GPUs.
+```bash
+### stage 1: train an auto-decoder to decode latent code to splatter image space
+
+accelerate launch --main_process_port 29510 --config_file acc_configs/gpu4.yaml main_zero123plus_v4_batch_code.py big --workspace runs/zerp123plus_batch/workspace_ablation \
+    --lr 1e-4 --num_epochs 20001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+    --prob_cam_jitter 0 --prob_grid_distortion 0 --input_size 320 --num_input_views 6 --num_views 26 \
+    --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+    --desc 'ablation_2dot1_fixed_encode_range_4gpus-mix_diffusion_interval_10-resume20240315' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+    --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+    --model_type Zero123PlusGaussianCode \
+    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+    --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder --mix_diffusion_interval 10
+
+
+### stage 2: finetune diffusion UNet to adapt to the splatter image decoder
+### please specify the ckpt of trained auto-decoder using "--resume"
+
+accelerate launch --config_file acc_configs/gpu4.yaml main_zero123plus_v4_batch_code_unet.py big --workspace runs/zerp123plus_batch/workspace_ablation \
+    --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
+    --lr 2e-6 --min_lr_scheduled 1e-10 --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+    --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+    --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 0 \
+    --desc 'ablation4_unet_fixed_encode_range-4gpus-resumeunet20240320_ep140' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+    --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+    --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCodeUnet \
+    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+    --decoder_upblocks_interpolate_mode "last_layer" \
+    --resume "path/to/your/trained/auto-decoder"
+```
+where different training settings is provided in the script.
 
 ### Inference
 
-Inference takes about 10GB GPU memory (loading all imagedream, mvdream, and our LGM).
-
 ```bash
-### gradio app for both text/image to 3D
-python app.py big --resume pretrained/model_fp16.safetensors
+### inference on the trained ckpt, which is specified by argument --resume.
 
-### test
-# --workspace: folder to save output (*.ply and *.mp4)
-# --test_path: path to a folder containing images, or a single image
-python infer.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test --test_path data_test 
-
-### local gui to visualize saved ply
-python gui.py big --output_size 800 --test_path workspace_test/saved.ply
-
-### mesh conversion
-python convert.py big --test_path workspace_test/saved.ply
-```
-
-For more options, please check [options](./core/options.py).
-
-### Training
-
-**NOTE**: 
-Since the dataset used in our training is based on AWS, it cannot be directly used for training in a new environment.
-We provide the necessary training code framework, please check and modify the [dataset](./core/provider_objaverse.py) implementation!
-
-```bash
-# debug training
-accelerate launch --config_file acc_configs/gpu1.yaml main.py big --workspace workspace_debug
-
-# training (use slurm for multi-nodes training)
-accelerate launch --config_file acc_configs/gpu8.yaml main.py big --workspace workspace
+accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference.py big --workspace runs/zerp123plus_batch/workspace_debug \
+    --lr 2e-4 --num_epochs 10001 --eval_iter 10 --save_iter 10 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+    --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+    --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 0 \
+    --desc 'debug_encode_splatter' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+    --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+    --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+    --decoder_upblocks_interpolate_mode "last_layer" \
+    --codes_from_diffusion \
+    --resume "path/to/your/finetuned-unet"
 ```
 
 ### Acknowledgement
@@ -84,14 +89,4 @@ This work is built on many amazing research works and open-source projects, than
 - [nvdiffrast](https://github.com/NVlabs/nvdiffrast)
 - [dearpygui](https://github.com/hoffstadt/DearPyGui)
 - [tyro](https://github.com/brentyi/tyro)
-
-### Citation
-
-```
-@article{tang2024lgm,
-  title={LGM: Large Multi-View Gaussian Model for High-Resolution 3D Content Creation},
-  author={Tang, Jiaxiang and Chen, Zhaoxi and Chen, Xiaokang and Wang, Tengfei and Zeng, Gang and Liu, Ziwei},
-  journal={arXiv preprint arXiv:2402.05054},
-  year={2024}
-}
-```
+- [lgm](https://github.com/3DTopia/LGM)
