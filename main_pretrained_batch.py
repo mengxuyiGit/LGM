@@ -37,6 +37,9 @@ def main():
     )
 
     # model
+    # if opt.use_splatter_with_depth_offset:
+    from core.models_fix_pretrained_depth_offset import LGM
+
     model = LGM(opt)
     if opt.fix_pretrained:
         model.eval()
@@ -148,12 +151,26 @@ def main():
 
             src_snapshot_folder = os.path.join(run_dir, 'src')
         
-        # copy important files to outdir
-        ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
+        # # copy important files to outdir
+
+        # ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
+
+        files_to_copy = ['core/provider_objaverse.py', 
+                          'core/models_fix_pretrained.py', 'core/models_fix_pretrained_depth_offset.py',
+                          'core/gs.py']
+        
+        files_to_copy += ['scripts/examples.sh']
+
+        ignore_func = lambda d, files: [f for f in files if os.path.join(d,f) not in files_to_copy]
         for folder in ['core', 'scripts']:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-        for file in ['main_pretrained_batch.py']:
+        
+        files_to_copy = ['main_pretrained_batch.py']
+        # if not os.path.exists(src_snapshot_folder):
+        #     os.makedirs(src_snapshot_folder)
+                          
+        for file in files_to_copy:
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
@@ -232,6 +249,7 @@ def main():
             continue
         
         # training 
+        print("scene path for dataset : ", scene_path)
         train_dataset = Dataset(opt, name=scene_path, training=True)
         train_dataloader = torch.utils.data.DataLoader(
             train_dataset,
@@ -486,7 +504,7 @@ def main():
             # print(f"-------5. epoch end(after save_model):{time.time()-last_time}---------")
             # last_time = time.time()
 
-            if epoch % opt.eval_iter == 0:
+            if epoch % opt.eval_iter == 0 or epoch == opt.num_epochs - 1:
                 # eval
                 with torch.no_grad():
                 
@@ -506,6 +524,8 @@ def main():
                         
                         # save some images
                         if accelerator.is_main_process and (epoch % opt.save_iter == 0 or epoch==opt.num_epochs-1):
+                            print(f"psnr is: {psnr}")
+
                             gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                             gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                             kiui.write_image(f'{scene_workspace}/eval_gt_images_{epoch}_{i}.jpg', gt_images)
@@ -524,7 +544,24 @@ def main():
                                 os.makedirs(os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}'))
                             
                             ## save spaltter imgs: model.splatter_out
-                            splatter_out_save_batch = model.get_activated_splatter_out()
+                            if opt.use_splatter_with_depth_offset:
+                                splatter_out_save_batch = model.get_activated_splatter_out(data)
+
+                                if opt.save_raw_tensor_splatter:
+                                    raw_splatter_out_save_batch = model.get_raw_splatter_out() # torch.Size([1, 6, 15, 128, 128])
+                                
+                                    # savevis(depth) # should be resonable depth
+                                    # savevis(xyz_offset) # should be all zeros
+                                    
+                                    # save raw tensor
+                                    raw_tensor_path = os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}', 'raw_splatter_out_tensor.pt')
+                                    torch.save(raw_splatter_out_save_batch, raw_tensor_path)
+                                    # # Load the tensor from the file
+                                    # loaded_tensor = torch.load('saved_tensor.pt')
+
+                            # print(loaded_tensor)
+                            else:
+                                splatter_out_save_batch = model.get_activated_splatter_out()
                             for splatter_out_save in splatter_out_save_batch:
                                 for j, _sp_im in enumerate(splatter_out_save):
                                     model.gs.save_ply(_sp_im[None], os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}', f'splatter_{j}' + '.ply')) # print(_sp_im[None].shape) # [1, splatter_res**2, 14]
@@ -533,6 +570,7 @@ def main():
                                     # gaussians_loaded = model.gs.load_ply(load_path)
                                     # st() # then peroform einops, and check
                             ## save fused gaussian
+                            ## NOTE: no matter the splatter is using depth + offset or XYZ, this gaussian is always xyz (because it is used for forward rendering)
                             model.gs.save_ply(out['gaussians'].detach(), os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}', 'fused' + '.ply')) # out['gaussians'].shape: [B, Npts, 14]
                             
 
@@ -557,7 +595,8 @@ def main():
                         else:
                             not_improved += 1
             
-                        if not_improved >= opt.early_stopping_patience:
+                        # if not_improved >= opt.early_stopping_patience:
+                        if not_improved >= opt.early_stopping_patience and best_val_psnr > 22:
                             print("Validation PSNR hasn't improved for several evaluations. Early stopping.")
 
                             ## save results
@@ -575,7 +614,28 @@ def main():
                                     os.makedirs(os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}_es'))
                                 
                                 ## save spaltter imgs: model.splatter_out
-                                splatter_out_save_batch = model.get_activated_splatter_out()
+                                if opt.use_splatter_with_depth_offset:
+                                  
+                                    if opt.save_raw_tensor_splatter:
+                                        raw_splatter_out_save_batch = model.get_raw_splatter_out()
+                                        # savevis(depth) # should be resonable depth
+                                        # savevis(xyz_offset) # should be all zeros
+                                        
+                                        # save raw tensor
+                                        raw_tensor_path = os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}_es', 'raw_splatter_out_tensor.pt')
+                                        torch.save(raw_splatter_out_save_batch, raw_tensor_path)
+                                        # # Load the tensor from the file
+                                        # loaded_tensor = torch.load('saved_tensor.pt')
+
+                                        # print(loaded_tensor)
+
+
+                                    splatter_out_save_batch = model.get_activated_splatter_out(data)
+
+                                    
+                                else:
+                                    splatter_out_save_batch = model.get_activated_splatter_out()
+
                                 for splatter_out_save in splatter_out_save_batch:
                                     for j, _sp_im in enumerate(splatter_out_save):
                                         model.gs.save_ply(_sp_im[None], os.path.join(scene_workspace, f'eval_pred_gs_{epoch}_{i}_es', f'splatter_{j}' + '.ply')) # print(_sp_im[None].shape) # [1, splatter_res**2, 14]

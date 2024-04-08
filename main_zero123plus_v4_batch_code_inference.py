@@ -39,6 +39,8 @@ import einops
 import rembg
 import requests
 
+from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
+
 def to_rgb_image(maybe_rgba: Image.Image):
     if maybe_rgba.mode == 'RGB':
         return maybe_rgba
@@ -80,6 +82,13 @@ def normalize_to_target(source_tensor, target_tensor):
     normalized_tensor = (source_tensor - source_mean) / source_std * target_std + target_mean
 
     return normalized_tensor
+
+def fuse_splatters(splatters):
+    # fuse splatters
+    B, V, C, H, W = splatters.shape
+
+    x = splatters.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
+    return x
 
 def main():    
     import sys
@@ -166,12 +175,15 @@ def main():
         loss_str+=f'_lpips{opt.lambda_lpips}'
    
     desc = opt.desc
+    if opt.vae_on_splatter_image:
+        desc += "-vae_on_splatter_image"
     if opt.codes_from_encoder:
         desc += "-codes_from_encoder"
     elif opt.codes_from_diffusion:
         desc += "-codes_from_diffusion"
     elif opt.codes_from_cache:
         desc += "-codes_from_cache"
+    
     
     assert (opt.one_step_diffusion is None) or (opt.lipschitz_mode is None)
     if opt.one_step_diffusion is not None:
@@ -195,7 +207,6 @@ def main():
     # # broadcast the opt.workspace to all processes
     # workspace_tensor = torch.tensor(list(opt.workspace.encode()), device="cuda", dtype=torch.uint8)
     # workspace_info = {'workspace tensor': workspace_tensor}
-
     # # Broadcast the workspace_info dictionary
     # workspace_info = broadcast(workspace_info, from_process=0)
 
@@ -229,7 +240,8 @@ def main():
     if accelerator.is_main_process:
         src_snapshot_folder = os.path.join(opt.workspace, 'src')
         ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
-        for folder in ['core', 'scripts', 'zero123plus']:
+        # for folder in ['core', 'scripts', 'zero123plus']:
+        for folder in ['core', 'scripts']:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
         for file in ['main_zero123plus_v4_batch_code_inference.py']:
@@ -237,7 +249,7 @@ def main():
             shutil.copy2(file, dest_file)
         
     # resume
-    resume = False
+    resume = not opt.vae_on_splatter_image
     if resume:
         assert opt.resume is not None ## only for decoder
         print(f"Resume from ckpt: {opt.resume}")
@@ -329,7 +341,7 @@ def main():
         total_loss_lpips = 0
 
         
-        if opt.codes_from_diffusion:
+        if opt.codes_from_diffusion or opt.vae_on_splatter_image:
                     
             # Load the pipeline
             pipeline_0123 = DiffusionPipeline.from_pretrained(
@@ -367,13 +379,37 @@ def main():
         end_indices = [3, 4, 7, 11, 14]
 
         attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
-        attr_map.update({
-            'scale-x': (4,5),
-            'scale-y': (5,6),
-            'scale-z': (6,7),
-            "z-depth": (2,3),
-            "xy-offset": (0,2),
-        })
+
+        group_scale = True
+        if not group_scale:
+            attr_map.update({
+                'scale-x': (4,5),
+                'scale-y': (5,6),
+                'scale-z': (6,7),
+                "z-depth": (2,3),
+                "xy-offset": (0,2), # TODO: actually can directly take xyz during real training. Now for vis purpose only
+            })
+
+            attr_cannot_be_encoded = ["scale", "pos"]
+            for key in attr_cannot_be_encoded:
+                del attr_map[key]
+        else:
+            # attr_map.update({
+                # 'scale-x': (4,5),
+                # 'scale-y': (5,6),
+                # 'scale-z': (6,7),
+                # "z-depth": (2,3),
+                # "xy-offset": (0,2), # TODO: actually can directly take xyz during real training. Now for vis purpose only
+            # })
+
+            # attr_cannot_be_encoded = ["pos"]
+            # for key in attr_cannot_be_encoded:
+            #     del attr_map[key]
+            pass
+
+        # assert # TODO: add check to cover each channel exactly once
+        print(f"Please confirm this attr to encode:\n{attr_map}")
+        # st()
         
         print(f"Save to run dir: {opt.workspace}")
         for i, data in enumerate(test_dataloader):
@@ -383,7 +419,6 @@ def main():
                 
             scene_name = data["scene_name"][0]
             if i < 5 or scene_name == "0a9b36d36e904aee8b51e978a7c0acfd":
-                # st()
                 pass
             else:
                 continue
@@ -393,20 +428,264 @@ def main():
                 os.makedirs(directory)
             
 
-            if opt.codes_from_diffusion:
+            if opt.vae_on_splatter_image:
+
+                print("---------- Begin vae_on_splatter_image ---------------")
+                        
+                path =f'/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/{scene_name}/000.png'
+            
+                name = path.split('/')[-2]
+                name = f"{i}_{name}"
+                os.makedirs(os.path.join(output_path, name), exist_ok=True)
+
+                img = to_rgb_image(Image.open(path))
+                
+                img.save(os.path.join(output_path, f'{name}/cond.png'))
+            
+
+                with torch.no_grad():
+            
+                    # reshape splatter 
+                    # make input 6 views into a 3x2 grid
+                    splatters_mv = einops.rearrange(data["splatters_output"], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+                    # vae.encode
+
+                    decoded_attr_image_dict = {}
+
+                    for attr_to_encode, (start_i, end_i) in attr_map.items():
+
+                       
+                        splatter_attr = splatters_mv[:,start_i:end_i,...]
+                        print(f"Attr {attr_to_encode}: min={splatter_attr.min()} max={splatter_attr.max()}")
+
+                        # if attr_to_encode == "rotation":
+                        # if True:
+                        # if attr_to_encode not in ["rgbs", "opacity", "z-depth"]: # passed "xy-offset"
+                        # if attr_to_encode not in ["xy-offset"]: # passed  , "z-depth"
+                        # if attr_to_encode not in ["z-depth"]: # passed 
+                        if attr_to_encode not in ["rotation"]: # passed 
+                        # if  "scale" not in attr_to_encode: # passed
+                            # print(f"Using attr : {attr_to_encode}")
+                            decoded_attr_image_dict[attr_to_encode] =  splatter_attr # TODO: currently skip the encoding and decoding of rotation for simplicity
+                            continue
+                        else:
+                            print(f"Diffusing attr : {attr_to_encode}")
+                        
+                        sp_min, sp_max = None, None
+
+                        # process the channels
+                        if end_i - start_i == 1:
+                            print(f"repeat attr {attr_to_encode} for 3 times")
+                            splatter_attr = splatter_attr.repeat(1, 3, 1, 1) # [0,1]
+                        elif end_i - start_i == 3:
+                            pass
+                        elif attr_to_encode == "xy-offset":
+                            # ## normalize to [0,1]
+                            # sp_min, sp_max =  -1., 1.
+                            # splatter_attr = (splatter_attr - sp_min) / (sp_max - sp_min)
+                            ## cat one more dim
+                            splatter_attr = torch.cat((splatter_attr, 0.5 * torch.ones_like(splatter_attr[:,0:1,...])), dim=1)
+                        elif attr_to_encode == "rotation":
+                            # st() # assert 4 is on the last dim
+                            # quaternion to axis angle
+                            quat = einops.rearrange(splatter_attr, 'b c h w -> b h w c')
+                            axis_angle = quaternion_to_axis_angle(quat)
+                            splatter_attr = einops.rearrange(axis_angle, 'b h w c -> b c h w')
+                            # st()
+
+                        else:
+                            raise ValueError(f"The dimension of {attr_to_encode} is problematic to encode")
+                        
+                        if "scale" in attr_to_encode:
+                            # use log scale
+                            splatter_attr = torch.log(splatter_attr)
+                            
+                            print(f"{attr_to_encode} log min={splatter_attr.min()} max={splatter_attr.max()}")
+                            sp_min, sp_max =  -10., -2.
+                            splatter_attr = (splatter_attr - sp_min) / (sp_max - sp_min) # [0,1]
+                            splatter_attr = splatter_attr.clip(0,1)
+
+                        elif attr_to_encode in ["z-depth", "xy-offset", "pos"] :
+                            # sp_min, sp_max =  splatter_attr.min(), splatter_attr.max()
+                            # sp_min, sp_max =  -1., 1.
+                            sp_min, sp_max =  -0.7, 0.7
+                            splatter_attr = (splatter_attr - sp_min) / (sp_max - sp_min)
+                            # splatter_attr = splatter_attr.clip(0,1) 
+                        
+                       
+                        print(f"Normed attr {attr_to_encode}: min={splatter_attr.min()} max={splatter_attr.max()}")
+                        
+
+                        sp_image = splatter_attr * 2 - 1 # [map to range [-1,1]]
+                        print(f"Normed attr [-1, 1] {attr_to_encode}: min={sp_image.min()} max={sp_image.max()}")
+                        
+                        # Save image before encoding
+                        mv_image = einops.rearrange((sp_image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c h w-> h w c').astype(np.uint8) 
+                        Image.fromarray(mv_image).save(os.path.join(output_path, f'{name}/{attr_to_encode}_to_encode.png'))
+                        
+                        # encode: splatter attr -> latent 
+                        # sp_image_original = sp_image.clone()
+                        sp_image = scale_image(sp_image)
+                        sp_image = pipeline.vae.encode(sp_image).latent_dist.sample() * pipeline.vae.config.scaling_factor
+                        latents = scale_latents(sp_image)
+
+                        #  decode: latents -> platter attr
+                        latents1 = unscale_latents(latents)
+                        image = pipeline_0123.vae.decode(latents1 / pipeline.vae.config.scaling_factor, return_dict=False)[0]
+                        image = unscale_image(image)
+
+
+                        # save decoded image
+                        mv_image_numpy = einops.rearrange((image[0].clip(-1,1)+1).cpu().numpy()*127.5, 'c h w-> h w c').astype(np.uint8) 
+                        Image.fromarray(mv_image_numpy).save(os.path.join(output_path, f'{name}/{attr_to_encode}_pred.png'))
+
+                        # scale back to original range
+                        mv_image = image # [b c h w], in [-1,1]
+                        
+                        # if attr_to_encode in[ "z-depth", "xy-offset"]:
+                        #     sp_image_o = mv_image
+                        #     # st() # NOTE: try clip z-depth? No need, they are already within the range
+                        # else:
+                        sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
+
+                        print(f"Decoded attr [-1,1] {attr_to_encode}: min={mv_image.min()} max={mv_image.max()}")
+                        print(f"Decoded attr [0,1] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
+
+                        if "scale" in attr_to_encode:
+                            # v2
+                            sp_image_o = sp_image_o.clip(0,1) 
+                            sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+                            
+                            print(f"Decoded attr not clip [0,1] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
+                            sp_image_o = torch.exp(sp_image_o)
+                            print(sp_min, sp_max)
+                            print(f"Decoded attr [unscaled] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
+
+                        # elif attr_to_encode == "z-depth":
+                            # sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+                        
+                        elif attr_to_encode in[ "z-depth", "xy-offset", "pos"]:
+                            sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+
+                        if attr_to_encode == "xy-offset": 
+                            sp_image_o = sp_image_o[:,:2] # FIXME: ...,2??
+                        
+                        if attr_to_encode == "rotation": 
+                          
+                            ag = einops.rearrange(sp_image_o, 'b c h w -> b h w c')
+                            quaternion = axis_angle_to_quaternion(ag)
+                            sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')
+                            # st()
+                        
+                        if end_i - start_i == 1:
+                            # print(torch.allclose(torch.mean(sp_image_o, dim=1, keepdim=True), sp_image_o))
+                            # st()
+                            print(f"Decoded attr [unscaled, before mean] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
+                            sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
+                        
+                            # sp_image_o = torch.median(sp_image_o, dim=1, keepdim=True).values # 
+                            # sp_image_o = torch.max(sp_image_o, dim=1, keepdim=True).values # .
+                            # st()
+                            print(f"Decoded attr [unscaled, after median] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
+                        
+                        # save in the dict
+                        decoded_attr_image_dict.update({attr_to_encode:sp_image_o})
+
+
+                        print(f"Decoded attr [unscaled] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
+                        # st()
+                    # save gt 6 input views
+                    gt_white_images = einops.rearrange(data['input'], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+                    gt_image = einops.rearrange((gt_white_images[0].clip(-1,1)).cpu().numpy()*255, 'c h w-> h w c').astype(np.uint8) 
+                    Image.fromarray(gt_image).save(os.path.join(output_path, f'{name}/gt.png'))
+
+                    ## render splatter 
+                    render_splatter_images = True
+                    if not render_splatter_images:
+                        continue
+
+                    # reshape to original splatter image shape for splatter rendering
+                    ## cat all attrs
+                    if not group_scale:
+                        ordered_attr_list = ["xy-offset", "z-depth", # 0-3
+                                            'opacity', # 3-4
+                                            'scale-x', 'scale-y', 'scale-z', # 4-7
+                                            "rotation", # 7-11
+                                            "rgbs", # 11-14
+                                            ] # must be an ordered list according to the channels
+                    else:
+                        ordered_attr_list = ["pos", # 0-3
+                                            'opacity', # 3-4
+                                            'scale', # 4-7
+                                            "rotation", # 7-11
+                                            "rgbs", # 11-14
+                                            ] # must be an ordered list according to the channels
+                    attr_image_list = [decoded_attr_image_dict[attr] for attr in ordered_attr_list ]
+                    # [print(t.shape) for t in attr_image_list]
+                    splatter_mv = torch.cat(attr_image_list, dim=1)
+
+                    ## reshape 
+                    splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) 
+
+                    
+                    # gs.render:
+                    ## decoded image
+                    gaussians = fuse_splatters(splatters_to_render)
+                    bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
+                    gs_results = model.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+                    
+                    # save gs.rendered images
+                    # st()
+                    pred_images = gs_results['image'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                    pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                    kiui.write_image(os.path.join(output_path, f'{name}/gs_render_rgb.png'), pred_images)
+        
+
+                    pred_alphas = gs_results['alpha'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                    pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                    kiui.write_image(os.path.join(output_path, f'{name}/gs_render_alpha.png'), pred_alphas)
+
+                    ## gt splatter image
+                    gaussians = fuse_splatters(data["splatters_output"])
+                    bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
+                    gs_results = model.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+                    
+                    # save gs.rendered images
+                    # st()
+                    pred_images = gs_results['image'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                    pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                    kiui.write_image(os.path.join(output_path, f'{name}/gs_render_rgb_gt.png'), pred_images)
+        
+
+                    pred_alphas = gs_results['alpha'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                    pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                    kiui.write_image(os.path.join(output_path, f'{name}/gs_render_alpha_gt.png'), pred_alphas)
+
+
+                    # skip the remaining inference: trained decoder from codes
+                    continue
+                    
+
+
+            elif opt.codes_from_diffusion:
                 
                 print("---------- Begin original inference ---------------")
                         
                 path =f'/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/{scene_name}/000.png'
             
                 name = path.split('/')[-2]
-                # name += f"_0123plus_float32"
+               
+                inference_on_unseen = True
+                if inference_on_unseen: 
+                    img = to_rgb_image(Image.open(requests.get("https://d.skis.ltd/nrp/sample-data/lysol.png", stream=True).raw))
+                    name = "lysol"
+                else:
+                    img = to_rgb_image(Image.open(path)) 
+                
+                
                 name = f"{i}_{name}"
                 os.makedirs(os.path.join(output_path, name), exist_ok=True)
 
-                img = to_rgb_image(Image.open(path))
-                # img = to_rgb_image(Image.open(requests.get("https://d.skis.ltd/nrp/sample-data/lysol.png", stream=True).raw))
-                
                 img.save(os.path.join(output_path, f'{name}/cond.png'))
                 cond = [img]
                 print(img)
@@ -461,7 +740,7 @@ def main():
 
                         timesteps = [] # skip the step-by-step inference
                     
-                    encode_splatter = True
+                    encode_splatter = False
                     if encode_splatter:
 
                         # reshape splatter 
@@ -507,6 +786,7 @@ def main():
                         elif attr_to_encode == "z-depth":
                             splatter_attr = (splatter_attr - splatter_attr.min()) / (splatter_attr.max() - splatter_attr.min())
                             # splatter_attr = splatter_attr.clip(0,1)
+                           
                         # st()
 
                         sp_image = splatter_attr * 2 - 1 # [map to range [-1,1]]
@@ -524,7 +804,7 @@ def main():
                     
                     for i, t in enumerate(timesteps):
                         print(f"enumerate(timesteps) t={t}")
-                        st()
+                        # st()
                         latent_model_input = torch.cat([latents] * 2)
                         latent_model_input = pipeline.scheduler.scale_model_input(latent_model_input, t)
 
@@ -623,7 +903,7 @@ def main():
 
                 print("---------- the above is original inference ---------------")
                 
-                continue
+                # continue
                 
                 # debug_latent = True
                 # if debug_latent:

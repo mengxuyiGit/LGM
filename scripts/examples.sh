@@ -39,13 +39,33 @@ DATA_DIR_BATCH_SUBSET="/home/xuyimeng/Data/lrm-zero123/assets/9000-9999-subset"
 #     --scene_start_index 650 --scene_end_index 750 --early_stopping \
 #     --resume_workspace 'runs/LGM_optimize_splatter/workspace_debug_batch_subset_es/00006-batch-es10-Plat-patience_2-factor_0.5-eval_5-adamW-subset_650_750_splat128-inV6-lossV20-lr0.003'
 
-#### [MAR 05] Fast fitting - Batch process
-accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big \
-    --workspace runs/LGM_optimize_splatter/inference \
-    --resume pretrained/model_fp16.safetensors --num_epochs 1 --fix_pretrained --prob_cam_jitter 0 \
-    --lr 0.003 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 2 \
-    --eval_iter 5 --save_iter 500 --desc 'batch' --data_path ${DATA_DIR_BATCH} \
-    --scene_start_index 0 --scene_end_index -1 --early_stopping 
+# #### [MAR 05] Fast fitting - Batch process
+# accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big \
+#     --workspace runs/LGM_optimize_splatter/inference \
+#     --resume pretrained/model_fp16.safetensors --num_epochs 1 --fix_pretrained --prob_cam_jitter 0 \
+#     --lr 0.003 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 2 \
+#     --eval_iter 5 --save_iter 500 --desc 'batch' --data_path ${DATA_DIR_BATCH} \
+#     --scene_start_index 0 --scene_end_index -1 --early_stopping 
+
+# #### [MAR 29] Change the splatter rep to be depth and offset. Fast fitting - Batch process
+# accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big \
+#     --workspace runs/LGM_optimize_splatter/debug \
+#     --resume pretrained/model_fp16.safetensors --num_epochs 1 --fix_pretrained --prob_cam_jitter 0 \
+#     --lr 0.003 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 2 \
+#     --eval_iter 5 --save_iter 500 --desc 'depth_offset' --data_path ${DATA_DIR_BATCH} \
+#     --scene_start_index 0 --scene_end_index -1 --early_stopping \
+#     --use_splatter_with_depth_offset
+
+
+#### [MAR 29] Change the splatter rep to be depth and offset. Fast fitting - Batch process
+accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big --workspace runs/LGM_optimize_splatter/debug2 \
+    --desc 'apr-6-fix-depth-render' \
+    --resume pretrained/model_fp16.safetensors --num_epochs 2000 --fix_pretrained --prob_cam_jitter 0 \
+    --lr 0.006 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 20 \
+    --eval_iter 5 --save_iter 200 --desc 'depth_offset' --data_path ${DATA_DIR_BATCH} \
+    --scene_start_index 0 --scene_end_index -1 --early_stopping \
+    --use_splatter_with_depth_offset --always_zero_xy_offset --save_raw_tensor_splatter
+    # --zero_init_xy_offset
 
 
 # #### [FEB 19] Fast fitting - Batch process - compare: bad optimizer

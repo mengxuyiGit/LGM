@@ -212,10 +212,13 @@ class ObjaverseDataset(Dataset):
 
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+
+        # should use the same world coord as gs renderer to convert depth into world_xyz
+        results['c2w_colmap'] = cam_poses[:self.opt.num_input_views].clone() 
         
         # cameras needed by gaussian rasterizer
-        cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
-        cam_view_proj = cam_view @ self.proj_matrix # [V, 4, 4]
+        cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4], w2c
+        cam_view_proj = cam_view @ self.proj_matrix # [V, 4, 4], w2pix
         cam_pos = - cam_poses[:, :3, 3] # [V, 3]
         
         results['cam_view'] = cam_view
