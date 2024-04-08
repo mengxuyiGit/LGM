@@ -193,6 +193,15 @@ class Options:
     scheduler_type: Optional[str] = None
     save_ckpt_copies: bool = False
     mix_diffusion_interval: int = 10
+
+    vae_on_splatter_image: bool = False
+
+    ## change the splatter rep
+    use_splatter_with_depth_offset: bool = False
+    zero_init_xy_offset: bool = False
+    always_zero_xy_offset: bool = False
+    
+    save_raw_tensor_splatter: bool = False
     
 
 # all the default settings
