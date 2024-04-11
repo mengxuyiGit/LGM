@@ -332,9 +332,9 @@ class ObjaverseDataset(Dataset):
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
         
         # cameras needed by gaussian rasterizer
-        cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
-        cam_view_proj = cam_view @ self.proj_matrix # [V, 4, 4]
-        cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+        cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4] # {c_1}2c
+        cam_view_proj = cam_view @ self.proj_matrix # [V, 4, 4] # {c_1}2c_pix
+        cam_pos = - cam_poses[:, :3, 3] # [V, 3] #c pose under c_1
         
         results['cam_view'] = cam_view
         results['cam_view_proj'] = cam_view_proj

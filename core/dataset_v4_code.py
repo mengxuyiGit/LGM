@@ -294,8 +294,8 @@ class ObjaverseDataset(Dataset):
         cam_poses = torch.stack(cam_poses, dim=0) # [V, 4, 4]
 
         # normalized camera feats as in paper (transform the first pose to a fixed position)
-        transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
-        cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+        transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0]) # w2c_1
+        cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4], c2c_1
 
         images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         if self.prepare_white_bg:
