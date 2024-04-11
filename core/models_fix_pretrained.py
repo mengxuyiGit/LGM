@@ -251,8 +251,10 @@ class LGM(nn.Module):
         # results['gaussians'] = gaussians #FIXME: WHY do this? results is overwritten
 
         # random bg for training
-        if self.training:
+        if self.training and not torch.all(gt_masks==1):
+            st() # This should not st() for srn data, which has all 1 as mask
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
+            # bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) # NOTE: this is for shapenet cars, which do not have a gt mask
         else:
             bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
 
@@ -278,17 +280,26 @@ class LGM(nn.Module):
         gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
         
 
-        loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
+        if not torch.all(gt_masks==1):
+            loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks) # NOTE: THIS IS disabled for srn_cars, which do not have a valid mask
+        else:
+            loss_mse = F.mse_loss(pred_images, gt_images)
+
         loss = loss + loss_mse
         
+        
         # print('train vids',[t.item() for t in data['vids']])
-        if (opt is not None) and opt.save_train_pred and epoch > 0:
-            
-
+        if (opt is not None) and (epoch % opt.save_train_pred)==0 and epoch > 0:
+        # if (opt is not None) and epoch:
+        
             ### ----------- debug-------------
             gt_images_save = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
             gt_images_save = gt_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images_save.shape[1] * gt_images_save.shape[3], 3) # [B*output_size, V*output_size, 3]
             kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images_save)
+
+            # gt_masks_save = data['masks_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+            # gt_masks_save = gt_masks_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks_save.shape[1] * gt_masks_save.shape[3], 1) # [B*output_size, V*output_size, 3]
+            # kiui.write_image(f'{opt.workspace}/train_gt_masks_{epoch}_{i}.jpg', gt_masks_save)
 
             pred_images_save = results['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
             pred_images_save = pred_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images_save.shape[1] * pred_images_save.shape[3], 3)
