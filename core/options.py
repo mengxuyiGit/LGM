@@ -40,7 +40,7 @@ class Options:
 
     ### dataset
     # data mode (only support s3 now)
-    data_mode: Literal['s3'] = 's3'
+    data_mode: Literal['s3', 'srn_cars'] = 's3'
     # fovy of the dataset
     fovy: float = 49.1
     # camera near plane
@@ -110,6 +110,7 @@ class Options:
     lambda_splatter: float = 1.0
     # use_splatter_loss: bool = False
     lambda_alpha: float = 1.0
+    lambda_kl: float = 1e-6
 
     train_unet: bool = False
     discard_small_opacities: bool = False
