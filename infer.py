@@ -111,7 +111,8 @@ def process(opt: Options, path):
             _im_name = os.path.join(opt.workspace, f'{name}_mvimage_{i}.png')
             image.save(_im_name)
         # st()
-        
+    
+    st()
         
         
 
@@ -177,5 +178,6 @@ if os.path.isdir(opt.test_path):
     file_paths = glob.glob(os.path.join(opt.test_path, "*"))
 else:
     file_paths = [opt.test_path]
-for path in file_paths:
+# for path in file_paths:
+for path in ['workspace_test/0123/cond.png']:
     process(opt, path)

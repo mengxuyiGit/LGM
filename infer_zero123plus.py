@@ -157,7 +157,9 @@ def process(opt: Options, path):
     elevations, azimuths = [-pose['elevation'] for pose in poses], [pose['azimuth'] for pose in poses]
     
     # get imgs from pipeline
-    cond = Image.open(f'{path}/{0:03d}.png')
+    # cond = Image.open(f'{path}/{0:03d}.png')
+    # cond = Image.open(f'srn_car_white_truck.png')
+    cond = Image.open(f'srn_car_yellow_front.png')
     cond.save(f"{opt.workspace}/cond.png")
     # local_image_path='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd/000.png'
     # cond = Image.open(local_image_path)
@@ -189,6 +191,11 @@ def process(opt: Options, path):
         mv_image = einops.rearrange(image, 'h (b w) c -> b h w c', b=6)
         kiui.write_image(f"{opt.workspace}/mv_image.png", einops.rearrange(mv_image, 'b h w c -> h (b w) c'))
 
+        # elevations = [30, -20, 30, -20, 30, -20]
+        # azimuths = [30, 90, 150, 210, 270, 330]
+
+        elevations = [-30, 20, -30, 20, -30, 20]
+        azimuths = [316, 16, 76, 136, 196, 256]
 
     else:
         ## directly read
@@ -209,7 +216,9 @@ def process(opt: Options, path):
     #     rays_embeddings = model.prepare_default_rays(device, elevations[:6], azimuths[:6])
     #     input_image = TF.normalize(input_image, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
     #     input_image = torch.cat([input_image, rays_embeddings], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
+    
     rays_embeddings = prepare_default_rays(device, elevations[:6], azimuths[:6])
+    # st()
     input_image = torch.cat([input_image, rays_embeddings], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
     
 
