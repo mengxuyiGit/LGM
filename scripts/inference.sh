@@ -5,9 +5,9 @@ DATA_DIR_BATCH_SPLATTER_GT_ROOT='/home/xuyimeng/Repo/LGM/runs/splatter_gt'
 #     --test_path ${DATA_DIR_BATCH_RENDERING}/ffb0d644238b4c679658aa0ee46ac6da
 
 
-python infer_zero123plus.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test/0123/srn_car_yellow_front \
-    --test_path ${DATA_DIR_BATCH_RENDERING}/ffb0d644238b4c679658aa0ee46ac6da \
-    --num_input_views 6 --model_type LGM
+# python infer_zero123plus.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test/0123/srn_car_yellow_front \
+#     --test_path ${DATA_DIR_BATCH_RENDERING}/ffb0d644238b4c679658aa0ee46ac6da \
+#     --num_input_views 6 --model_type LGM
 
 
 # python infer_cw.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test/cw \
