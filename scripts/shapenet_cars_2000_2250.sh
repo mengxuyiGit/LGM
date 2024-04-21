@@ -17,14 +17,13 @@ DATA_DIR_BATCH_SRN_CARS="/home/xuyimeng/Data/SRN/srn_cars/cars_train"
 #     --resume_workspace 'runs/LGM_optimize_splatter/workspace_debug_batch_subset_es/00006-batch-es10-Plat-patience_2-factor_0.5-eval_5-adamW-subset_650_750_splat128-inV6-lossV20-lr0.003'
 
 # #### [MAR 05] Fast fitting - Batch process
-# export CUDA_VISIBLE_DEVICES=1
 accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch_srn_cars.py big --workspace runs/LGM_optimize_splatter/shapenet_fit_batch \
     --desc 'debug_srn_cars' --data_path ${DATA_DIR_BATCH_SRN_CARS} \
     --resume pretrained/model_fp16.safetensors --num_epochs 300 --fix_pretrained --prob_cam_jitter 0 \
     --lr 0.006 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 10 \
     --eval_iter 150 --save_iter 500 --fovy 52 \
-    --scene_start_index 0 --scene_end_index 250 --early_stopping --overfit_one_scene \
-    --resume_workspace 'runs/LGM_optimize_splatter/shapenet_fit_batch/00000-debug_srn_cars-es10-Plat-patience_10-factor_0.5-eval_150-adamW-subset_0_250_splat128-inV6-lossV20-lr0.006/cars_train'
+    --scene_start_index 2000 --scene_end_index 2250 --early_stopping \
+    --resume_workspace 'runs/LGM_optimize_splatter/shapenet_fit_batch/00008-debug_srn_cars-es10-Plat-patience_10-factor_0.5-eval_150-adamW-subset_2000_2250_splat128-inV6-lossV20-lr0.006'
 
 
 # export CUDA_VISIBLE_DEVICES=1

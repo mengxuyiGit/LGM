@@ -267,6 +267,129 @@ class LGM(nn.Module):
         return depth, xyz_offset
     
 
+    def get_organized_depth_offset_and_x_from_x(self, x, data):
+
+        B, V, C, H, W = x.shape
+
+        new_x = x.clone()
+
+        # w2c 
+        w2c = torch.empty_like(data['c2w_colmap'])
+
+        B_cam, V_cam, _, _ = data['c2w_colmap'].shape  # Get the batch size and number of views
+        assert B_cam==B and V_cam==V
+        # Iterate over each sample in the batch and each view
+        for b in range(B_cam):
+            for v in range(V_cam):
+                # Invert each matrix individually
+                w2c[b, v] = data['c2w_colmap'][b, v].inverse()
+
+        # If you need to transpose the last two dimensions, you can do it after the loop
+        w2c = w2c.transpose(-2, -1)  # Transpose the last two dimensions
+        w2c = einops.rearrange(w2c, 'b v row col -> (b v) row col') # [B*V, 4, 4]
+
+
+        world_xyz = einops.rearrange(x[:, :, :3, ...], 'b v c h w -> (b v) (h w) c')
+        world_xyz_homo = torch.cat([world_xyz, torch.ones_like(world_xyz[...,0:1])], dim=-1)
+
+        cam_xyz_homo = torch.bmm(world_xyz_homo, w2c)
+        cam_xyz = cam_xyz_homo[...,:3] / cam_xyz_homo[...,3:]
+
+        # st()
+        ## reorganize splatter image 
+        # Apply perspective division
+        # cam_xyz[..., :2]: -0.6~+0.6, cam_xyz[..., 2:]: 0.99 ~ 1.98
+        projected_coords = cam_xyz[..., :2] / cam_xyz[..., 2:] # projected_coords: -0.5 ~ +0.5
+        
+        # TODO: check whether the input range should be in [-1,1] or [-0.5,0.5]
+        projected_coords = (projected_coords + 1) * torch.tensor([W,H], device=cam_xyz.device)[None, None, :] / 2 
+
+        MAX_DEPTH = cam_xyz[..., 2:].max() * 2
+        organized_depth = torch.full((projected_coords.shape[0], H, W), MAX_DEPTH, dtype=x.dtype, device=x.device) # [bv, H, W]
+
+        for _bv in range(projected_coords.shape[0]):
+            for i in range(projected_coords.shape[1]):
+                u, v = projected_coords[_bv, i].round().int()
+
+                if 0 <= u < W and 0 <= v < H:
+                    # depth = (2 * self.z_far * self.z_near) / (self.z_far + self.z_near - projected_coords[i, 2] * (self.z_far - self.z_near))
+                    organized_depth[_bv, v, u] = min(cam_xyz[_bv, i, 2], organized_depth[_bv, v, u])
+                    # TODO: also reorganize everything else in x. Now we only visualize depth to see the effect
+
+        
+        # st() # should acquire an organized depth map in the shape of [_bv, H, W]
+        organized_depth = organized_depth.unsqueeze(-1) # add a C dim at last
+
+        organized_depth_to_vis = einops.rearrange(organized_depth, "n h w c ->  h (n w) c", h=H, w=W)
+        organized_depth_to_vis = (organized_depth_to_vis - organized_depth_to_vis.min()) / MAX_DEPTH
+        kiui.write_image("organized_depth.png", organized_depth_to_vis.to(torch.float16))
+        
+
+
+
+        # # def depth_of_object(self):
+        # # Transform object coordinates to camera coordinates
+        # object_coords_homogeneous = torch.cat((self.verts, torch.ones((self.verts.shape[0], 1), dtype=torch.float32, device='cuda')), dim=1)
+
+        # # # Apply perspective projection
+        # object_coords_camera = torch.matmul(object_coords_homogeneous, self.viewpoint_camera2.full_proj_transform)
+
+        # # Apply perspective division
+        # projected_coords = object_coords_camera[:, :2] / object_coords_camera[:, 2:]
+
+        # Normalize points to image coordinates
+        # projected_coords = (projected_coords + 1) * torch.tensor([self.viewpoint_camera2.image_width, self.viewpoint_camera2.image_height], device='cuda')[None, :] / 2
+
+        # Initialize depth image with maximum depth value
+        # depth_image = torch.full((self.viewpoint_camera2.image_height, self.viewpoint_camera2.image_width), self.z_far, dtype=torch.float32, device='cuda')
+        # Calculate depth for each projected point and update depth image
+        # for i in range(self.verts.shape[0]):
+        #     u, v = projected_coords[i, :2].round().int()
+        #     if 0 <= u < self.viewpoint_camera2.image_width and 0 <= v < self.viewpoint_camera2.image_height:
+        #         # depth = (2 * self.z_far * self.z_near) / (self.z_far + self.z_near - projected_coords[i, 2] * (self.z_far - self.z_near))
+        #         depth_image[v, u] = min(object_coords_camera[i, 2], depth_image[v, u])
+        # self.depth_image = depth_image.reshape(-1, 1)
+
+
+
+        # cam xyz -> cam view depth + cam view offset
+        # depth: not z, but the absolute number of rays
+
+        # offset: cam_xyz - depth * ray_dirs 
+        # NOTE: self.ray_dirs is not normalized
+        
+        
+        cam_xyz_dists_sq = torch.sum(cam_xyz**2, dim=-1, keepdim=True)
+        # print("cam_xyz_dists_sq.shape", cam_xyz_dists_sq.shape)
+    
+        cam_xyz_dists = cam_xyz_dists_sq.sqrt()
+        batch_ray_dists = einops.rearrange(self.ray_dists, 'b c h w -> b (h w) c').repeat(B*V, 1, 1)
+        # print(batch_ray_dists.shape)
+        
+        depth = cam_xyz_dists / batch_ray_dists # expect [bv hw 1]
+        
+        unorganized_depth_to_vis = einops.rearrange(depth, 'n (h w) c -> h (n w) c', h=H, w=W)
+        unorganized_depth_to_vis = (unorganized_depth_to_vis - unorganized_depth_to_vis.min()) / unorganized_depth_to_vis.max()
+        kiui.write_image("unorganized_depth.png", unorganized_depth_to_vis.to(torch.float16))
+
+        st()
+
+
+        batch_ray_dirs = einops.rearrange(self.ray_dirs, 'b c h w -> b (h w) c').repeat(B*V, 1, 1)
+        cam_xyz_from_depth = batch_ray_dirs * depth # expect [bv hw 3]
+
+        xyz_offset = cam_xyz - cam_xyz_from_depth
+
+        # the return should be in shape of x
+        depth = einops.rearrange(depth, '(b v) (h w) c -> b v c h w', b=B, v=V, h=H, w=W)
+        xyz_offset = einops.rearrange(xyz_offset, '(b v) (h w) c -> b v c h w', b=B, v=V, h=H, w=W)
+
+        assert new_x.shape == x.shape
+        assert not torch.allclose(new_x, x) # new_x and x should not be the same tensor
+
+        return depth, xyz_offset, new_x 
+    
+
     def get_world_xyz_from_depth_offset(self, depth_activated, xyz_offset, data):
 
         B, V, C, H, W = depth_activated.shape
@@ -278,7 +401,7 @@ class LGM(nn.Module):
 
         # cam view depth + cam view offset -> cam xyz 
 
-        cam_xyz2 = batch_ray_dirs * depth + xyz_offset
+        cam_xyz2 = batch_ray_dirs.to(depth.device) * depth + xyz_offset
         
         # c2w 
         cam_xyz_homo2 = torch.cat([cam_xyz2, torch.ones_like(cam_xyz2[...,-1:])], dim=-1)
@@ -456,14 +579,21 @@ class LGM(nn.Module):
             elif self.opt.use_splatter_with_depth_offset:
                
                 assert data is not None, "Require the data['c2w'] to convert depth to xyz"
-                depth, xyz_offset = self.get_depth_offset_from_x(x, data=data)
-               
+                if self.opt.reorganize_splatter_init:
+                    depth, xyz_offset, x = self.get_organized_depth_offset_and_x_from_x(x, data=data)
+                    # NOTE: the x has to be reorganized to be consistent with the depth and offset
+                
+                else:
+                    depth, xyz_offset = self.get_depth_offset_from_x(x, data=data)
+                
+                
                 if self.opt.always_zero_xy_offset:
                     xyz_offset = torch.zeros_like(xyz_offset)
-            
+                
                 # NOTE: depth is at the last dim
                 # NOTE: this depth should not be activated
                 x = torch.cat([xyz_offset, x[:,:,3:,...], depth], dim=2)
+
 
             
             self.splatter_out = nn.Parameter(x) # now the parameters are depth and offset

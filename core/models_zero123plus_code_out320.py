@@ -16,8 +16,6 @@ from ipdb import set_trace as st
 import matplotlib.pyplot as plt
 import os
 
-from core.distribution import DiagonalGaussianDistribution
-
 
 
 gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
@@ -121,36 +119,8 @@ def optimizer_set_state(optimizer, state_dict):
               zip(chain.from_iterable((g['params'] for g in saved_groups)),
                   chain.from_iterable((g['params'] for g in groups)))}
 
-class DownsampleModuleOnlyConvAvgPool(nn.Module):
-    def __init__(self, input_channels, output_channels, input_resolution, output_resolution, use_activation_at_downsample=True):
-        super(DownsampleModuleOnlyConvAvgPool, self).__init__()
-
-        # Calculate the number of downsampling operations needed
-
-        layers = []
-        current_channels = input_channels
-        
-        layers.append(nn.Conv2d(current_channels, output_channels, kernel_size=3, stride=2, padding=1))
-           
-        layers.append(nn.AdaptiveAvgPool2d((3*output_resolution, 2*output_resolution)))
-
-        self.downsample_layers = nn.Sequential(*layers)
-    
-    
-    def forward(self, x):
-        return self.downsample_layers(x)
-        # for ly in self.downsample_layers:
-        #     print(f"---{ly._get_name()}---")
-        #     print(f"input size:{x.shape}")
-        #     x = ly(x)
-        #     print(f"output size:{x.shape}")
-        # st()
-        # return x
-        
-        
-        
 class DownsampleModule(nn.Module):
-    def __init__(self, input_channels, output_channels, input_resolution, output_resolution, use_activation_at_downsample=True):
+    def __init__(self, input_channels, output_channels, input_resolution, output_resolution):
         super(DownsampleModule, self).__init__()
 
         # Calculate the number of downsampling operations needed
@@ -158,115 +128,21 @@ class DownsampleModule(nn.Module):
 
         layers = []
         current_channels = input_channels
-        num_groups = input_channels
-        
-        # for _ in range(num_downsamples - 1):  # We leave one less downsample to use adaptive pooling later
-        for _ in range(num_downsamples):
+        for _ in range(num_downsamples - 1):  # We leave one less downsample to use adaptive pooling later
             layers.append(nn.Conv2d(current_channels, current_channels * 2, kernel_size=3, stride=2, padding=1))
+            layers.append(nn.BatchNorm2d(current_channels * 2))
+            layers.append(nn.ReLU(inplace=True))
             current_channels *= 2
-            # layers.append(nn.BatchNorm2d(current_channels * 2))
-            # layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.GroupNorm(num_groups, current_channels, eps=1e-06, affine=True))
-            layers.append(nn.SiLU())
 
         layers.append(nn.Conv2d(current_channels, output_channels, kernel_size=3, stride=1, padding=1))
-      
-        if use_activation_at_downsample:
-            # layers.append(nn.BatchNorm2d(output_channels))
-            # layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.GroupNorm(num_groups, output_channels, eps=1e-06, affine=True))
-            layers.append(nn.SiLU())
-        
-        # layers.append(nn.AdaptiveAvgPool2d((output_resolution, output_resolution)))
-        layers.append(nn.AdaptiveAvgPool2d((3*output_resolution, 2*output_resolution)))
+        layers.append(nn.BatchNorm2d(output_channels))
+        layers.append(nn.ReLU(inplace=True))
+        layers.append(nn.AdaptiveAvgPool2d((output_resolution, output_resolution)))
 
         self.downsample_layers = nn.Sequential(*layers)
-        
-        # ## v2
-        # # Define the layers for downsampling
-        # layers = [
-        #     # First downsampling
-        #     nn.Conv2d(input_channels, input_channels, kernel_size=3, stride=2, padding=1),
-        #     nn.ReLU(),
-        #     # # Second downsampling
-        #     # nn.Conv2d(input_channels, input_channels, kernel_size=3, stride=2, padding=1),
-        #     # nn.ReLU(),
-        #     # Adaptive pooling to reach the exact output size
-        #     nn.AdaptiveAvgPool2d((output_resolution, output_resolution))
-        # ]
-        
-        # # Combine all layers into a Sequential model
-        # self.downsample_layers = nn.Sequential(*layers)
-        
-        
-        ## ---- v3 -------
-        #  # Initialize module list
-        # modules = []
-        # current_resolution = input_resolution
-        # current_channels = input_channels
-
-        # # Define the number of groups for GroupNorm, it must be a divisor of the number of channels
-        # # We are choosing 32 because it's commonly used in practice and assuming the channels will be divisible by 32
-        # num_groups = input_channels
-
-        # # Adjust the number of channels to be divisible by the number of groups
-        # if current_channels % num_groups != 0:
-        #     adjusted_channels = (current_channels // num_groups + 1) * num_groups
-        #     modules.append(nn.Conv2d(current_channels, adjusted_channels, kernel_size=1))
-        #     modules.append(nn.GroupNorm(num_groups, adjusted_channels, eps=1e-06, affine=True))
-        #     modules.append(nn.SiLU())
-        #     current_channels = adjusted_channels
-
-        # # Add downsampling layers
-        # next_resolution = current_resolution
-        # while next_resolution > output_resolution:
-        #     current_resolution = next_resolution
-            
-        #     # Define a block with Conv2D, GroupNorm and SiLU (Swish) activation
-        #     modules.append(nn.Conv2d(current_channels, current_channels * 2, kernel_size=3, stride=2, padding=1))
-        #     modules.append(nn.GroupNorm(num_groups, current_channels * 2, eps=1e-06, affine=True))
-        #     modules.append(nn.SiLU())
-
-        #     # Update current resolution and channels
-        #     # Calculate the next resolution, making sure it doesn't go below the target
-        #     next_resolution = max(output_resolution, current_resolution // 2)
-            
-        #     current_channels *= 2
-
-        # # If the number of channels doesn't match the target output_channels, add a 1x1 convolution
-        # if current_channels != output_channels:
-        #     modules.append(nn.Conv2d(current_channels, output_channels, kernel_size=1))
-        #     modules.append(nn.GroupNorm(num_groups, output_channels, eps=1e-06, affine=True))
-        #     modules.append(nn.SiLU())
-    
-        # print(f"current_resolution({current_resolution}) != output_resolution({output_resolution}) : {current_resolution != output_resolution}")
-        # # If the resolution is still not matched (for non-power-of-2 scaling), use adaptive average pooling
-        # if current_resolution != output_resolution:
-        #     print("Init an adaptive pooling layer")
-        #     modules.append(nn.AdaptiveAvgPool2d((output_resolution, output_resolution)))
-
-        # self.downsample_layers = nn.Sequential(*modules)
 
     def forward(self, x):
         return self.downsample_layers(x)
-        # for ly in self.downsample_layers:
-        #     print(f"---{ly._get_name()}---")
-        #     print(f"input size:{x.shape}")
-        #     x = ly(x)
-        #     print(f"output size:{x.shape}")
-        # st()
-        # return x
-
-class Interpolate(nn.Module):
-    def __init__(self, size, mode='bilinear', align_corners=False):
-        super(Interpolate, self).__init__()
-        self.size = size
-        self.mode = mode
-        self.align_corners = align_corners if mode in ['linear', 'bilinear', 'bicubic', 'trilinear'] else None
-
-    def forward(self, x):
-        x = F.interpolate(x, size=self.size, mode=self.mode, align_corners=self.align_corners)
-        return x
 
 # From: https://github.com/huggingface/diffusers/blob/v0.26.3/src/diffusers/models/autoencoders/autoencoder_kl.py#L35
 class UNetDecoder(nn.Module):
@@ -274,48 +150,6 @@ class UNetDecoder(nn.Module):
         super(UNetDecoder, self).__init__()
         self.vae = vae
         self.decoder = vae.decoder
-
-        if opt.decode_splatter_to_128:
-            
-            # 1. no additional downsample layers
-            if opt.decoder_upblocks_interpolate_mode is not None:
-
-                if opt.decoder_upblocks_interpolate_mode == "last_layer":
-                    self.decoder.up_blocks[-1].upsamplers = nn.ModuleList([]) 
-                    self.decoder.up_blocks[-1].upsamplers.append(Interpolate(size=(128*3, 128*2), mode="nearest"))
-
-                else:
-                    find_interpolate_index={
-                        "interpolate_upsample": 1,
-                        "interpolate_downsample": 2,
-                    }
-                    interpolate_block_ind = find_interpolate_index[opt.decoder_upblocks_interpolate_mode]
-                    for i, up_block in enumerate(self.decoder.up_blocks):
-                        if i > interpolate_block_ind:
-                            up_block.upsamplers = nn.ModuleList([]) 
-                        elif i == interpolate_block_ind:
-                            if opt.replace_interpolate_with_avgpool:
-                                up_block.upsamplers = nn.ModuleList([nn.AdaptiveAvgPool2d((3*128, 2*128))]) 
-                            else:
-                                up_block.upsamplers = nn.ModuleList([Interpolate(size=(128*3, 128*2), mode="nearest")]) 
-                            
-            
-                self.downsample_module = lambda x: x
-                
-            # 2-4. use additional downsample layers, not good
-            elif opt.downsample_mode == "DownsampleModule":
-                self.downsample_module = DownsampleModule(input_channels=14, output_channels=14, input_resolution=320, output_resolution=128,
-                                                use_activation_at_downsample=opt.use_activation_at_downsample)
-            elif opt.downsample_mode == "AvgPool":
-                self.downsample_module = nn.AdaptiveAvgPool2d((3*128, 2*128))
-            elif opt.downsample_mode == "ConvAvgPool":
-                self.downsample_module = DownsampleModuleOnlyConvAvgPool(input_channels=14, output_channels=14, input_resolution=320, output_resolution=128,
-                                                use_activation_at_downsample=opt.use_activation_at_downsample)
-            else:
-                assert NotImplementedError
-        else:
-            self.downsample_module = lambda x: x
-        
         
         if opt.decoder_mode in ["v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
             self.decoder = self.decoder.requires_grad_(False).eval()
@@ -334,9 +168,6 @@ class UNetDecoder(nn.Module):
             others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
             print(f"UNet Decoder others requires grad: {others_requires_grad}")
             # st()
-        
-       
-        
     
     def forward(self, z):
         sample = self.vae.post_quant_conv(z)
@@ -346,28 +177,18 @@ class UNetDecoder(nn.Module):
         sample = self.decoder.mid_block(sample, latent_embeds)
         sample = sample.to(upscale_dtype)
         # up
-        for i, up_block in enumerate(self.decoder.up_blocks):
-            # print(f"{i}th upblock input: {sample.shape}")
+        for up_block in self.decoder.up_blocks:
             sample = up_block(sample, latent_embeds)
-        
-        # print(f"{i}th upblock output: {sample.shape}")
-        # st()
-        
+
         sample = self.decoder.conv_norm_out(sample)
         sample = self.decoder.conv_act(sample)
         rgb = self.decoder.conv_out(sample)
         others = self.others(sample)
-        
-        splatters_320 = torch.cat([others, rgb], dim=1)
-        splatters_128 = self.downsample_module(splatters_320)
-        # print(f"splatters_320:{splatters_320.shape}")
-        # print(f"splatters_128:{splatters_128.shape}")
-        # st()
-        return splatters_128
+        return torch.cat([others, rgb], dim=1)
         # return rgb
         
         
-class Zero123PlusGaussianVaeKL(nn.Module):
+class Zero123PlusGaussianCode(nn.Module):
     def __init__(
         self,
         opt: Options,
@@ -391,11 +212,14 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         # )
 
         self.pipe.prepare() 
-        # self.vae = self.pipe.vae.requires_grad_(False).eval()
-        self.vae = self.pipe.vae.requires_grad_(True).train()
+        self.vae = self.pipe.vae.requires_grad_(False).eval()
         # self.vae.decoder.requires_grad_(True).train() #NOTE: this is done in the Unet Decoder
 
-        self.unet = self.pipe.unet.eval().requires_grad_(False)
+        if opt.train_unet:
+            print("Unet is trainable")
+            self.unet = self.pipe.unet.requires_grad_(True).train()
+        else:
+            self.unet = self.pipe.unet.eval().requires_grad_(False)
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
 
         if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
@@ -483,19 +307,12 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         # st() # image: torch.Size([1, 3, 768, 512])
 
         if is_zero123plus:
-            # NOTE: encode input image (before scale) should be in [-1, 1] while our image is in [0,1]
-            image = image * 2 - 1
-            
             image = scale_image(image)
-
-            posterior = self.vae.encode(image).latent_dist # self.vae.encode(image) -> AutoencoderKLOutput(latent_dist=<diffusers.models.vae.DiagonalGaussianDistribution object at 0x7faec822e0e0>)
-            image = posterior.sample() * self.vae.config.scaling_factor # reparameterization
+            image = self.vae.encode(image).latent_dist.sample() * self.vae.config.scaling_factor
             image = scale_latents(image)
-
         else:
             image = self.vae.encode(image, return_dict=False)[0] * self.vae.config.scaling_factor
-
-        return image, posterior
+        return image
 
     def decode_latents(self, latents, is_zero123plus=True):
         if is_zero123plus:
@@ -546,7 +363,20 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         else:
             code_.data[:] = self.code_activation.inverse(self.init_code * self.mean_scale)
         return code_
-
+    
+    def get_init_code_from_0123_encoder(self, images, num_scenes=None, device=None):
+        
+        if num_scenes is None: # images: [6, 3, 320, 320] 
+            images = images[None]
+        assert images.dim() == 5 # to contain the batch dim
+        
+        # make input 6 views into a 3x2 grid
+        images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+        # init code from pretrained zero123++ encoder
+        code_ = self.encode_image(images) # [b, 4, 120, 80]
+        if num_scenes is None:
+            code_ = code_.squeeze(0)
+        return code_
     
     def build_optimizer(self, code_):
         optimizer_cfg = self.opt.optimizer.copy()
@@ -569,37 +399,89 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         else:
             splatter_optimizer = optimizer_class([splatter_image], **optimizer_cfg)
         return splatter_optimizer
+
+    def load_scenes_w_splatters(self, code_dir, data, eval_mode=False):
+        code_list_ = []
+        optimizer_state_list = []
+        splatter_image_list = []
+        splatter_optimizer_state_list = []
+      
+        device = data['cond'].device
+        
+        for i, scene_name in enumerate(data['scene_name']):
+            cache_file = os.path.join(code_dir, scene_name + '.pth')
+            if os.path.exists(cache_file):
+                if self.opt.verbose_main:
+                    print(f"Load scene: {scene_name}")
+                out = torch.load(cache_file, map_location='cpu')
+                assert out['scene_name'] == scene_name
+
+                code_ = out['param']['code_']
+                code_list_.append(code_.requires_grad_(True))
+
+                if not eval_mode:
+                    optimizer_state = out['optimizer']
+                    optimizer_state_list.append(optimizer_state)
+
+                splatter_image = out['param']['splatter_image_cache']
+                splatter_image_list.append(splatter_image.requires_grad_(True))
+                
+                if not eval_mode:
+                    splatter_optimizer_state = out['splatter_optimizer']
+                    splatter_optimizer_state_list.append(splatter_optimizer_state)
+            
+            else:
+                # do init
+                if self.opt.verbose_main: 
+                    print(f"Init scene: {scene_name}")
+                if self.opt.code_init_from_0123_encoder: # data['cond']: [B, 320, 320, 3]
+                    code_ = self.get_init_code_from_0123_encoder(data['input'][i])
+                else:
+                    code_ = self.get_init_code_() # torch.Size([4, 120, 80])
+                code_list_.append(code_.requires_grad_(True))
+                
+                splatter_low_res_gt = data['splatters_output'][i] #NOTE: assume these splatter are after activation
+                splatter_image = F.interpolate(splatter_low_res_gt, self.splatter_size[-2:])
+                splatter_image_list.append(splatter_image.requires_grad_(True))
+        
+        # --- code ---
+        codes_ = torch.stack(code_list_, dim=0).to(device)
+        codes = self.code_activation(codes_)
+        
+        # --- splatter --- #NOTE: assume these splatters are after activation
+        splatter_images = torch.stack(splatter_image_list, dim=0).to(device)
+        
+        if eval_mode:
+            return codes, splatter_images
+        
+        # --- code optimizers ---
+        code_optimizers = self.build_optimizer(code_list_)
+        for ind, optimizer_state_single in enumerate(optimizer_state_list):
+            optimizer_set_state(code_optimizers[ind], optimizer_state_single)
+        
+        # --- splatter optimizers ---
+        splatter_optimizers = self.build_splatter_optimizer(splatter_image_list)
+        for ind, splatter_optimizer_state_single in enumerate(splatter_optimizer_state_list):
+            optimizer_set_state(splatter_optimizers[ind], splatter_optimizer_state_single)
+        
+        return code_list_, codes, code_optimizers, splatter_image_list, splatter_images, splatter_optimizers
     
     def load_scenes(self, code_dir, data, eval_mode=False):
-        st()
         code_list_ = []
         optimizer_state_list = []
     
         device = data['cond'].device
-
-        if self.opt.resume is not None:
-            resume_dir = os.path.dirname(self.opt.resume)
-            if "epoch" in os.path.basename(resume_dir):
-                # print(os.path.dirname(resume_dir))
-                resume_dir = os.path.dirname(resume_dir)
-                # print("Code resume dir changed to:", resume_dir)
-            resume_code_dir = os.path.join(resume_dir, "code_dir")
         
         for i, scene_name in enumerate(data['scene_name']):
             cache_file = os.path.join(code_dir, scene_name + '.pth')
-            
-            cache_file_from_resume = ""
-            if self.opt.resume is not None:
-                # resume_dir = os.path.dirname(self.opt.resume)
-                # if "epoch" in os.path.basename(resume_dir):
-                #     # print(os.path.dirname(resume_dir))
-                #     resume_dir = os.path.dirname(resume_dir)
-                #     # print("Code resume dir changed to:", resume_dir)
-                # resume_code_dir = os.path.join(resume_dir, "code_dir")
-                cache_file_from_resume = os.path.join(resume_code_dir, scene_name + '.pth')
+            resume_dir = os.path.dirname(self.opt.resume)
+   
+            resume_code_dir = os.path.join(resume_dir, "code_dir")
+            cache_file_from_resume = os.path.join(resume_code_dir, scene_name + '.pth')
+   
             if os.path.exists(cache_file):
-                # if self.opt.verbose_main:
-                print(f"Load scene: {scene_name}")
+                if self.opt.verbose_main:
+                    print(f"Load scene: {scene_name}")
                 out = torch.load(cache_file, map_location='cpu')
                 assert out['scene_name'] == scene_name
 
@@ -630,6 +512,7 @@ class Zero123PlusGaussianVaeKL(nn.Module):
                 else:
                     code_ = self.get_init_code_() # torch.Size([4, 120, 80])
                 code_list_.append(code_.requires_grad_(True))
+    
         # --- code ---
         codes_ = torch.stack(code_list_, dim=0).to(device)
         codes = self.code_activation(codes_)
@@ -662,9 +545,31 @@ class Zero123PlusGaussianVaeKL(nn.Module):
                 )
 
             torch.save(results, os.path.join(save_dir, scene_name_single) + '.pth')
+    
+    def save_scenes_w_splatters(self, save_dir, code_list_, splatter_image_list, scene_names, code_optimizer_list, splatter_optimizer_list):
+        os.makedirs(save_dir, exist_ok=True)
+
+        # codes_ = self.code_activation_inverse(codes) #NOTE: no need for inverse activation, because the passed in code_list_ is already before activation
+        codes_ = torch.stack(code_list_, dim=0)
+        splatter_images = torch.stack(splatter_image_list, dim=0)
+
+        for scene_id, scene_name_single in enumerate(scene_names):
+            if self.opt.verbose_main:
+                print(f"Save scene: {scene_name_single}")
+            results = dict(
+                scene_name=scene_name_single,
+                param=dict(
+                    code_=codes_.data[scene_id].cpu(), # with "_" is already before activation
+                    splatter_image_cache=splatter_images.data[scene_id].cpu()
+                    ),
+                optimizer=code_optimizer_list[scene_id].state_dict(),
+                splatter_optimizer=splatter_optimizer_list[scene_id].state_dict(),
+                )
+
+            torch.save(results, os.path.join(save_dir, scene_name_single) + '.pth')
 
     
-    def forward_splatters_with_activation(self, images, cond, latents=None, epoch=None):
+    def forward_splatters_with_activation(self, images, cond, latents=None):
         B, V, C, H, W = images.shape
         # print(f"images.shape in forward+spaltter:{images.shape}") # SAME as the input_size
         with torch.no_grad():
@@ -675,26 +580,37 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
 
         # init code
-        assert self.opt.codes_from_encoder
-        if self.opt.verbose_main:
+        if latents == None:
+            # if self.opt.verbose_main:
             print(f"get latent from encoding images: {images.shape}")
-        latents, posterior = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
-        # print(f"code-encoder: max={latents.max()} min={latents.min()} mean={latents.mean()}")
+            latents = self.encode_image(images) # [B, self.pipe.unet.config.in_channels, 120, 80]
+        
+        if self.opt.skip_predict_x0:
+            x = self.decode_latents(latents)
 
-        x = self.decode_latents(latents)
+            # # print("self.decode_latents output", x.shape)
+            # if self.opt.downsample_after_decode_latents:
+            #     ## output is 320x320, we use downsample to supervise the gaussian
+            #     x = F.interpolate(x, size=(384, 256), mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
 
-        # # print("self.decode_latents output", x.shape)
-        # if self.opt.downsample_after_decode_latents:
-        #     ## output is 320x320, we use downsample to supervise the gaussian
-        #     x = F.interpolate(x, size=(384, 256), mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
+        else:
+            t = torch.tensor([10] * B, device=latents.device)
+            latents = self.pipe.scheduler.add_noise(latents, torch.randn_like(latents, device=latents.device), t)
+            x = self.predict_x0(
+                latents, text_embeddings, t=10, guidance_scale=1.0, 
+                cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+            # x = torch.randn([B, 4, 96, 64], device=images.device)
+            print(f"pred x0: {x.shape}, latents:{latents.shape}")
+            x = self.decode_latents(x) # (B, 14, H, W)
+
+            st()
 
         x = x.permute(0, 2, 3, 1)
         
         pos = self.pos_act(x[..., :3]) # [B, N, 3]
         opacity = self.opacity_act(x[..., 3:4])
         scale = self.scale_act(x[..., 4:7])
-        # rotation = self.rot_act(x[..., 7:11]) # default: norm on dim=1 
-        rotation = self.rot_act(x[..., 7:11], dim=-1) # 
+        rotation = self.rot_act(x[..., 7:11])
         rgbs = self.rgb_act(x[..., 11:])
         
         if self.opt.verbose_main:
@@ -757,7 +673,7 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         splatters = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
         
         splatters = einops.rearrange(splatters, 'b (h2 h) (w2 w) c -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
-        return splatters, posterior
+        return splatters
     
     
     
@@ -815,14 +731,14 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         return attr_weighted_loss_dict
         
         
-    def forward(self, data, step_ratio=1, splatter_guidance=False, epoch=None):
+    def forward(self, data, step_ratio=1, splatter_guidance=False):
         # Gaussian shape: (B*6, 14, H, W)
         
         results = {}
         loss = 0
        
         images = data['input'] # [B, 6, 9, h, W], input features: splatter images
-        cond = data['cond'] # [B, H, W, 3], condition image: [1, 320, 320, 3]
+        cond = data['cond'] # [B, H, W, 3], condition image
         
         # 1. optimize the splatters from the code
         if self.opt.codes_from_encoder:
@@ -835,7 +751,7 @@ class Zero123PlusGaussianVaeKL(nn.Module):
                 pass
                 # print("has code")
             
-        pred_splatters, posterior = self.forward_splatters_with_activation(images, cond, latents=codes, epoch=epoch) # [B, N, 14] # (B, 6, 14, H, W)
+        pred_splatters = self.forward_splatters_with_activation(images, cond, latents=codes) # [B, N, 14] # (B, 6, 14, H, W)
         
         results['splatters_from_code'] = pred_splatters # [1, 6, 14, 256, 256]
         if self.opt.verbose_main:
@@ -847,14 +763,9 @@ class Zero123PlusGaussianVaeKL(nn.Module):
             
             # print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
             # gt_splatters =  data['splatters_to_optimize'] # [1, 6, 14, 128, 128]
-            
-            if self.opt.decode_splatter_to_128:
-                gt_splatters =  data['splatters_output']
-            else:
-                gt_splatters_low_res =  data['splatters_output']
-                gt_splatters =  torch.stack([F.interpolate(sp, self.splatter_size[-2:]) for sp in gt_splatters_low_res], dim=0)
-            # print(f"gt splatter size:{gt_splatters.shape}")
-           
+            gt_splatters_low_res =  data['splatters_output']
+            gt_splatters =  torch.stack([F.interpolate(sp, self.splatter_size[-2:]) for sp in gt_splatters_low_res], dim=0)
+
             # NOTE: discard the below of downsampling pred, but use upsampling gt
             # if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
             #     print("pred_splatters:", pred_splatters.shape)
@@ -877,16 +788,11 @@ class Zero123PlusGaussianVaeKL(nn.Module):
          
         ## ------- splatter -> gaussian ------- 
         gaussians = fuse_splatters(pred_splatters) # this is the gaussian from code
-        # gaussians = fuse_splatters(data['splatters_output']) # this is the gaussian from code
-        # print("render gt splatter image")
-        
         
         if self.training: # random bg for training
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
         else:
-            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
-            if self.opt.data_mode != "srn_cars":
-                bg_color *= 0.5
+            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
         
         if self.opt.render_gt_splatter:
             print("Render GT splatter --> load splatters then fuse")
@@ -955,17 +861,8 @@ class Zero123PlusGaussianVaeKL(nn.Module):
             
             gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
             gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
-            # get gt_mask from gt gaussian rendering
-            if self.opt.data_mode == "srn_cars":
-                gt_masks = self.gs.render(fuse_splatters(data['splatters_output']), data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)['alpha']
 
             gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
-
-            # gt_images_np = gt_masks.detach().cpu().numpy().transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 1) # [B*output_size, V*output_size, 3]
-            # #         kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images)
-            # kiui.write_image("vae_kl_gt_masks.png", gt_images_np)
-            # st()
-
 
             ## ------- end render ----------
             
@@ -980,8 +877,7 @@ class Zero123PlusGaussianVaeKL(nn.Module):
             loss = loss + self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
-        elif self.opt.data_mode != 'srn_cars' and self.opt.lambda_alpha > 0:
-            st()
+        elif self.opt.lambda_alpha > 0:
             loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
             results['loss_alpha'] = loss_mse_alpha
             loss = loss + self.opt.lambda_alpha * loss_mse_alpha
@@ -1009,14 +905,6 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         # ----- rendering [end] -----
         psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
         results['psnr'] = psnr
-
-        # vae loss
-        loss_kl = posterior.kl().squeeze() * self.opt.lambda_kl
-        results['loss_kl'] = loss_kl 
-        
-        loss += loss_kl.item()
-        # print(f"KL loss is :{loss_kl}")
-        
         results['loss'] = loss
         
         # #### 2. loss on the splatters to be optimized

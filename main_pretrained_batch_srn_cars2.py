@@ -133,9 +133,6 @@ def main():
             match = re.match(r'.*?(\d{5})-.*', opt.resume_workspace)
             if match:
                 resume_run_id = match.group(1)
-                print("Current run dir: ", opt.resume_workspace)
-                print("Resume run dir: ", run_dir.replace(f'{cur_run_id:05d}', resume_run_id))
-
                 assert run_dir.replace(f'{cur_run_id:05d}', resume_run_id) == opt.resume_workspace
                 
             else:
@@ -220,7 +217,7 @@ def main():
     #                  '06fa08b3b2834d26b3deee112eda2919']
     #     print("You are infernece LGM on some specific scenes")
 
-    scene_dirs = ["/home/xuyimeng/Repo/eg3d/eg3d/out_lgm"]
+
     for i, scene_path in enumerate(scene_dirs):
         scene_name = scene_path.split('/')[-2] if scene_path.endswith('/') else scene_path.split('/')[-1]
         # if (target_scenes is not None) and (scene_name in target_scenes):
@@ -228,51 +225,51 @@ def main():
         # else:
         #     continue
         
-        # if opt.verbose:
-        #     print(f"Processing scene {i}: {scene_name}")
+        if opt.verbose:
+            print(f"Processing scene {i}: {scene_name}")
         
-        # # create scene_workspace
-        # scene_workspace = os.path.join(run_dir, scene_split, scene_name)
+        # create scene_workspace
+        scene_workspace = os.path.join(run_dir, scene_split, scene_name)
 
         
         
-        # if os.path.exists(scene_workspace):
-        #     if opt.verbose:
-        #         print(f"Already exists {i}th scene: {scene_name}")
+        if os.path.exists(scene_workspace):
+            if opt.verbose:
+                print(f"Already exists {i}th scene: {scene_name}")
 
-        #     scene_finished = False
+            scene_finished = False
            
-        #     for item in os.listdir(scene_workspace):
-        #         if not item.startswith('eval'):
-        #             continue 
+            for item in os.listdir(scene_workspace):
+                if not item.startswith('eval'):
+                    continue 
 
-        #         # print(f"extract first number from item {item}: ",extract_first_number(item))
-        #         if item.startswith('eval_pred_gs_') and item.endswith('_es'):
-        #             if opt.verbose:
-        #                 print(f"Already early stopped.")
-        #             scene_finished = True
-        #             # check whether the early stopping ckpt has been saved
-        #             break
+                # print(f"extract first number from item {item}: ",extract_first_number(item))
+                if item.startswith('eval_pred_gs_') and item.endswith('_es'):
+                    if opt.verbose:
+                        print(f"Already early stopped.")
+                    scene_finished = True
+                    # check whether the early stopping ckpt has been saved
+                    break
 
-        #         elif extract_first_number(item)>=opt.num_epochs-1:# already achieved the max training epochs
-        #             if opt.verbose:
-        #                 print(f"Already achieved the max training epochs.")
-        #             scene_finished = True
-        #             break
+                elif extract_first_number(item)>=opt.num_epochs-1:# already achieved the max training epochs
+                    if opt.verbose:
+                        print(f"Already achieved the max training epochs.")
+                    scene_finished = True
+                    break
 
-        #     if scene_finished:
-        #         print("SCENE finished: ", scene_name)
-        #         continue
+            if scene_finished:
+                print("SCENE finished: ", scene_name)
+                continue
             
         
-        # try:
-        #     os.listdir(scene_path)
-        # except:
-        #     print(f'{i}th scene is not a valid scene folder:{scene_name}')
-        #     continue
+        try:
+            os.listdir(scene_path)
+        except:
+            print(f'{i}th scene is not a valid scene folder:{scene_name}')
+            continue
         
-        # # training 
-        # print("scene path for dataset : ", scene_path)
+        # training 
+        print("scene path for dataset : ", scene_path)
         
         train_dataset = Dataset(opt, name=scene_path, training=True)
         train_dataloader = torch.utils.data.DataLoader(

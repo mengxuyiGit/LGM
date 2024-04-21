@@ -325,7 +325,11 @@ class SrnCarsDataset(Dataset):
         # resize render ground-truth images, range still in [0, 1]
         render_input_views = self.opt.render_input_views
         
-        results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        if images.shape[-1] != self.opt.output_size:
+            print("DOING resizing")
+            results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        else:
+            results['images_output'] = images
         
         if self.prepare_white_bg:
             results['images_output_white'] = F.interpolate(images_white, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
