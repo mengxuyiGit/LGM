@@ -19,6 +19,9 @@ IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 import glob
 import math
 
+from core.eg3d_camera_utils import LookAtPoseSampler #, FOV_to_intrinsics
+from ipdb import set_trace as st
+
 def focal2fov(focal, pixels):
     return 2*math.atan(pixels/(2*focal))
 
@@ -62,8 +65,17 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     P[2, 3] = -(zfar * znear) / (zfar - znear)
     return P
 
+def format_scientific(number):
+    # Convert number to scientific notation
+    number_str = f"{number:.0e}"
+    # Split into base and exponent
+    base, exponent = number_str.split('e')
+    # Remove leading '+' and extra '0' from the exponent if present
+    exponent = exponent.replace('+', '').lstrip('0')
+    return f"{base}e{exponent}"
 
-class SrnCarDataset(Dataset):
+
+class FFHQDataset(Dataset):
 
     def _warn(self):
         raise NotImplementedError('this dataset is just an example and cannot be used directly, you should modify it to your own setting! (search keyword TODO)')
@@ -82,11 +94,18 @@ class SrnCarDataset(Dataset):
             raise NotImplementedError("Please provide a valid data path")
         
         self.items = [name]
-    
+        
+        # fovy_str = f"{opt.angle_y_step:.0e}" 
+        # fovy_str = format_scientific(opt.angle_y_step)
+        # if name.split("out_lgm_")[-1] != fovy_str:
+        if float(name.split("out_lgm_")[-1]) != opt.angle_y_step:
+            print(f"Please provide a data path correspond to the opt.angle_y_step: {opt.angle_y_step}")
+            exit(0)
+
         # load src instrinsic file
         assert len(self.items) == 1
-        intrinsic_file = os.path.join(name, 'intrinsics.txt')
-        fx, fy, cx, cy, height, width = load_intrinsics(intrinsic_file)
+        # intrinsic_file = os.path.join(name, 'intrinsics.txt')
+        # fx, fy, cx, cy, height, width = load_intrinsics(intrinsic_file)
    
        
         # # TODO: convert K to all the following stuff
@@ -100,9 +119,22 @@ class SrnCarDataset(Dataset):
         # self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
         # self.proj_matrix[2, 3] = 1
 
+        # list25 = [0.9084562063217163, -0.057051945477724075, 0.41406819224357605, -1.0428725481033325, 
+        #           0.0, -0.9906408786773682, -0.13649439811706543, 0.3437749147415161, 
+        # 0.4179801344871521, 0.12399918586015701, -0.8999537825584412, 2.4666244983673096, 
+        # 0.0, 0.0, 0.0, 1.0, # extrinsic
+        # 4.465174674987793, 0.0, 0.5, 
+        # 0.0, 4.465174674987793, 0.5, 
+        # 0.0, 0.0, 1.0]
+
         # default camera intrinsics: objaverse
         # print(f"using fovy:{self.opt.fovy}")
+        # self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
+        # focal_length = float(1 / (math.tan(fov_degrees * 3.14159 / 360) * 1.414))
+        # intrinsics = torch.tensor([[focal_length, 0, 0.5], [0, focal_length, 0.5], [0, 0, 1]], device=device)
+
+
         self.proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
         self.proj_matrix[0, 0] = 1 / self.tan_half_fov
         self.proj_matrix[1, 1] = 1 / self.tan_half_fov
@@ -110,12 +142,20 @@ class SrnCarDataset(Dataset):
         self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
         self.proj_matrix[2, 3] = 1
         # print("lgm:",self.proj_matrix)
+        # st()
 
 
         # self.proj_matrix = getProjectionMatrix(self.opt.znear, self.opt.zfar, self.opt.fovy, self.opt.fovy).transpose(0,1)
         # print("3dgs:",self.proj_matrix)
         # st()
 
+        # cam2world_pose = LookAtPoseSampler.sample(3.14/2, 3.14/2, torch.tensor([0, 0, 0.2], device=device), radius=2.7, device=device)
+        cam2world_pose = LookAtPoseSampler.sample(3.14/2, 3.14/2, torch.tensor([0, 0, 0.2]), radius=2.7)
+        # intrinsics = FOV_to_intrinsics(fov_deg, device=device)
+
+        # Generate images.
+        angle_p = -0.2
+        self.angle_list = [(angle_y, angle_p) for angle_y in np.arange(-.4, .4, opt.angle_y_step)]
 
         self.global_cnt = 0
 
@@ -126,7 +166,7 @@ class SrnCarDataset(Dataset):
     def __getitem__(self, idx):
 
         uid = self.items[idx]
-        # print(uid)
+        # print("uid: ",uid)
       
         results = {}
 
@@ -149,7 +189,7 @@ class SrnCarDataset(Dataset):
         # vids = np.arange(0, 7)[:self.opt.num_input_views].tolist()
         
         extension='.png'
-        file_pattern = os.path.join(uid, "rgb", f'*{extension}')
+        file_pattern = os.path.join(uid, f'seed0000_**{extension}')
         files = sorted(glob.glob(file_pattern))
 
         # print(f"uid:{uid}")
@@ -172,13 +212,18 @@ class SrnCarDataset(Dataset):
         # self.global_cnt += 1
         
         ## fix input views
-        fixed_input_views = np.arange(1,7).tolist()
+        # mid = numerical_value - 3 # // 2
+        mid = numerical_value // 2
+        # fixed_input_views = np.arange(1,7).tolist()
+        fixed_input_views = np.arange(mid,mid+3).tolist() + np.arange(mid - 3,mid -1).tolist()
+        print("fixed_input_views: ", fixed_input_views)
         if self.training:
             vids = fixed_input_views[:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
             # vids = np.arange(1, numerical_value+1).tolist()
         else:
-            vids = fixed_input_views[:self.opt.num_input_views] + np.arange(numerical_value+1).tolist() # fixed order
-            # vids = np.arange(1, numerical_value+1).tolist()
+            vids = fixed_input_views[:self.opt.num_input_views] + np.arange(numerical_value+1).tolist()[::3] # fixed order
+            # vids = [] + np.arange(1, numerical_value+1).tolist()[::2]
+            print(vids)
         
         # print(vids)
         final_vids = []
@@ -186,9 +231,10 @@ class SrnCarDataset(Dataset):
         for vid in vids:
             final_vids.append(vid)
             
-            image_path = os.path.join(uid, 'rgb', f'{vid:06d}.png')
-            camera_path = os.path.join(uid, 'pose', f'{vid:06d}.txt')
+            image_path = os.path.join(uid, f'seed0000_{vid:02d}{extension}')
+            # camera_path = os.path.join(uid, 'pose', f'{vid:06d}.txt')
             # print(f"image path: {image_path}; cam path:{camera_path}")
+
 
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
             image = torch.from_numpy(image)
@@ -201,7 +247,15 @@ class SrnCarDataset(Dataset):
             # c2w = torch.from_numpy(c2w)
             
             # for src cars: in opencv
-            c2w = load_pose(camera_path)
+            # c2w = load_pose(camera_path)
+            angle_y, angle_p = self.angle_list[vid]
+            # print(f"vid={vid}, angle_y, angle_p={angle_y, angle_p}")
+           
+            cam_pivot = torch.tensor([0, 0, 0])
+            cam_radius = 2.7
+            cam2world_pose = LookAtPoseSampler.sample(np.pi/2 + angle_y, np.pi/2 + angle_p, cam_pivot, radius=cam_radius)
+            # print(f"cam2world_pose: {cam2world_pose.shape}")
+            c2w = cam2world_pose[0]
 
             ## for our objaverse we do not need this
             # # TODO: you may have a different camera system
@@ -225,7 +279,8 @@ class SrnCarDataset(Dataset):
             # c2w[:3, 3] *= 2 / 1.5
             # c2w[:3, 3] *= 1.69 / 2    
             # c2w[:3, 3] *= 1.3 / 1.5
-            c2w[:3, 3] *= 1.5 / 1.3
+            # c2w[:3, 3] *= 1.5 / 1.3
+            c2w[:3, 3] *= 1.5 / cam_radius
             # print(f"scale the c2w by 1.5 / 1.3")
             # c2w[:3, 3] *= 1.3
 
@@ -237,8 +292,9 @@ class SrnCarDataset(Dataset):
             # print("cam[:3,3] / 0.5")
             
           
+            # print(f"image.shape={image.shape}")
             image = image.permute(2, 0, 1) # [4, 512, 512]
-            mask = image[3:4] # [1, 512, 512]
+            mask = torch.ones_like(image[1:2]) # [1, 512, 512]
             # print("srn image shape",image.shape)
             # print("srn mask",mask)
             image = image[:3] * mask + (1 - mask) # [3, 512, 512], to white bg
@@ -264,7 +320,6 @@ class SrnCarDataset(Dataset):
         images = torch.stack(images, dim=0) # [V, C, H, W]
         masks = torch.stack(masks, dim=0) # [V, H, W]
         cam_poses = torch.stack(cam_poses, dim=0) # [V, 4, 4]
-        print("cam_poses: ", cam_poses.shape)
 
         # normalized camera feats as in paper (transform the first pose to a fixed position)
         # transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
@@ -319,7 +374,6 @@ class SrnCarDataset(Dataset):
         cam_pos = - cam_poses[:, :3, 3] # [V, 3]
         
         results['cam_view'] = cam_view
-        print("cam_view: ",cam_view.shape)
         results['cam_view_proj'] = cam_view_proj
         results['cam_pos'] = cam_pos
 

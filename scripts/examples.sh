@@ -63,19 +63,19 @@ DATA_DIR_BATCH_SUBSET="/home/xuyimeng/Data/lrm-zero123/assets/9000-9999-subset"
 #     --resume pretrained/model_fp16.safetensors --num_epochs 2000 --fix_pretrained --prob_cam_jitter 0 \
 #     --lr 0.006 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 20 \
 #     --eval_iter 5 --save_iter 200 --desc 'depth_offset' --data_path ${DATA_DIR_BATCH} \
-#     --scene_start_index 0 --scene_end_index -1 --early_stopping 
-#     # \
-#     # --use_splatter_with_depth_offset --always_zero_xy_offset --save_raw_tensor_splatter
-#     # --zero_init_xy_offset
+#     --scene_start_index 0 --scene_end_index -1 --early_stopping \
+#     --use_splatter_with_depth_offset --always_zero_xy_offset --save_raw_tensor_splatter \
+#     --zero_init_xy_offset --reorganize_splatter_init
 
-#### [MAR 05] Fast fitting - Batch process
-export CUDA_VISIBLE_DEVICES=1
-accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big --workspace runs/LGM_optimize_splatter/objaverse_fit \
-    --desc 'debug_srn_cars' --data_path ${DATA_DIR_BATCH} \
-    --resume pretrained/model_fp16.safetensors --num_epochs 2000 --fix_pretrained --prob_cam_jitter 0 \
-    --lr 0.006 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 20 \
-    --eval_iter 50 --save_iter 500 \
-    --scene_start_index 0 --scene_end_index 2 --early_stopping 
+# #### [MAR 05] Fast fitting - Batch process
+# export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big --workspace runs/LGM_optimize_splatter/objaverse_fit \
+#     --desc 'debug_srn_cars' --data_path ${DATA_DIR_BATCH} \
+#     --resume pretrained/model_fp16.safetensors --num_epochs 2000 --fix_pretrained --prob_cam_jitter 0 \
+#     --lr 0.006 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 20 \
+#     --eval_iter 50 --save_iter 500 \
+#     --scene_start_index 0 --scene_end_index 2 --early_stopping 
+
 
 
 # #### [FEB 19] Fast fitting - Batch process - compare: bad optimizer

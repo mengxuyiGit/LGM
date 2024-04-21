@@ -59,11 +59,10 @@ class LGM(nn.Module):
         # self.output_parameter = nn.Parameter(torch.randn((your_output_shape_here), requires_grad=True))
         self.splatter_out = nn.Parameter(torch.randn((1, 4, 14, self.opt.splat_size, self.opt.splat_size), requires_grad=True))
         self.splatter_out_is_random=True
-    
+
     def clear_splatter_out(self):
         self.splatter_out_is_random=True
-
-
+    
     def state_dict(self, **kwargs):
         # remove lpips_loss
         state_dict = super().state_dict(**kwargs)
@@ -125,12 +124,11 @@ class LGM(nn.Module):
             
             x = x.reshape(B, 6, 14, self.opt.splat_size, self.opt.splat_size)
             ## assign the pretrained output to spaltter out
-            self.splatter_out = nn.Parameter(x[:,:1,:,::2,::2])
-            # st()
+            self.splatter_out = nn.Parameter(x)
             
             ## toggle the flag
             self.splatter_out_is_random = False
-            print("Only do this once: change random init to pretrained output")
+            print("Only do this once (for each scene): change random init to pretrained output")
 
         assert B==1 #TODO: can we handle multiple optimization in one loop?
         x = self.splatter_out
@@ -252,10 +250,8 @@ class LGM(nn.Module):
         # results['gaussians'] = gaussians #FIXME: WHY do this? results is overwritten
 
         # random bg for training
-        if self.training and not torch.all(data['masks_output']==1):
-            st() # This should not st() for srn data, which has all 1 as mask
+        if self.training:
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
-            # bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) # NOTE: this is for shapenet cars, which do not have a gt mask
         else:
             bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
 
@@ -264,7 +260,6 @@ class LGM(nn.Module):
         # st()
         pred_images = results['image'] # [B, V, C, output_size, output_size]
         pred_alphas = results['alpha'] # [B, V, 1, output_size, output_size]
-        # st()
         
         ## also output gaussians
         results['gaussians'] = gaussians
@@ -282,26 +277,17 @@ class LGM(nn.Module):
         gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
         
 
-        if not torch.all(gt_masks==1):
-            loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks) # NOTE: THIS IS disabled for srn_cars, which do not have a valid mask
-        else:
-            loss_mse = F.mse_loss(pred_images, gt_images)
-
+        loss_mse = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
         loss = loss + loss_mse
         
-        
         # print('train vids',[t.item() for t in data['vids']])
-        if (opt is not None) and (epoch % opt.save_train_pred)==0 and epoch > 0:
-        # if (opt is not None) and epoch:
-        
+        if (opt is not None) and opt.save_train_pred and epoch > 0:
+            
+
             ### ----------- debug-------------
             gt_images_save = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
             gt_images_save = gt_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images_save.shape[1] * gt_images_save.shape[3], 3) # [B*output_size, V*output_size, 3]
             kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images_save)
-
-            # gt_masks_save = data['masks_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-            # gt_masks_save = gt_masks_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks_save.shape[1] * gt_masks_save.shape[3], 1) # [B*output_size, V*output_size, 3]
-            # kiui.write_image(f'{opt.workspace}/train_gt_masks_{epoch}_{i}.jpg', gt_masks_save)
 
             pred_images_save = results['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
             pred_images_save = pred_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images_save.shape[1] * pred_images_save.shape[3], 3)

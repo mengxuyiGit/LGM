@@ -6,6 +6,7 @@ import torch
 from core.options import AllConfigs
 from core.models_zero123plus import Zero123PlusGaussian, gt_attr_keys, start_indices, end_indices, fuse_splatters
 from core.models_zero123plus_code import Zero123PlusGaussianCode
+# from core.models_zero123plus_pos_offset import Zero123PlusGaussianPosOffset
 
 from core.models_fix_pretrained import LGM
 
@@ -50,12 +51,12 @@ def main():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    # ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
     accelerator = Accelerator(
         mixed_precision=opt.mixed_precision,
         gradient_accumulation_steps=opt.gradient_accumulation_steps,
-        # kwargs_handlers=[ddp_kwargs],
+        kwargs_handlers=[ddp_kwargs],
     )
 
     # model
@@ -66,6 +67,9 @@ def main():
         model = Zero123PlusGaussianCode(opt)
         from core.dataset_v4_code import ObjaverseDataset as Dataset
     
+    if opt.data_mode == "srn_cars":
+        from core.dataset_v4_code_srn import SrnCarsDataset as Dataset
+
     elif opt.model_type == 'LGM':
         model = LGM(opt)
     # model = SingleSplatterImage(opt)
@@ -326,7 +330,7 @@ def main():
                 # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
                 # # debug
-                # # Check gradients of the unet parameters
+                # # Check gradients of the unet parameters 
                 # print(f"check unet parameters")
                 # for name, param in model.unet.named_parameters():
                 #     if param.requires_grad and param.grad is not None:
@@ -337,6 +341,7 @@ def main():
                 #     if param.requires_grad and param.grad is not None:
                 #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                 # st()
+                # # should only have grad on decoder: pass
 
                 # gradient clipping
                 if accelerator.sync_gradients:
@@ -501,7 +506,13 @@ def main():
                 total_loss_lpips = 0
                 
                 print(f"Save to run dir: {opt.workspace}")
+                
+                num_samples_to_eval = 100
                 for i, data in enumerate(test_dataloader):
+                    if i > num_samples_to_eval:
+                        print("We only evaluate the first 100 cars")
+                        break
+
                     if not opt.codes_from_encoder:
                         ## ---- load or init code here ----
                         if num_gpus==1:
@@ -618,13 +629,19 @@ def main():
 
                 total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
                 if accelerator.is_main_process:
-                    total_psnr /= len(test_dataloader)
-                    # accelerator.print(f"[eval] epoch: {epoch} psnr: {psnr:.4f}")
-                    total_loss /= len(test_dataloader)
-                    total_loss_splatter /= len(test_dataloader)
-                    total_loss_rendering /= len(test_dataloader)
-                    total_loss_alpha /= len(test_dataloader)
-                    total_loss_lpips /= len(test_dataloader)
+                    # total_psnr /= len(test_dataloader)
+                    # total_loss /= len(test_dataloader)
+                    # total_loss_splatter /= len(test_dataloader)
+                    # total_loss_rendering /= len(test_dataloader)
+                    # total_loss_alpha /= len(test_dataloader)
+                    # total_loss_lpips /= len(test_dataloader)
+
+                    total_psnr /= num_samples_to_eval
+                    total_loss /= num_samples_to_eval
+                    total_loss_splatter /= num_samples_to_eval
+                    total_loss_rendering /= num_samples_to_eval
+                    total_loss_alpha /= num_samples_to_eval
+                    total_loss_lpips /= num_samples_to_eval
                     
                     accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
                     writer.add_scalar('eval/loss', total_loss.item(), epoch)
@@ -654,6 +671,7 @@ def main():
                             
                             # ---- finish code init ----
 
+                        st()
                         out = model(data)
         
                         # save some training images

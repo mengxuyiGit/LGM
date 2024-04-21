@@ -10,7 +10,8 @@ from PIL import Image
 import einops
 
 from core.options import Options
-from core.gs import GaussianRenderer
+# from core.gs import GaussianRenderer
+from core.gs_w_depth import GaussianRenderer
 
 from ipdb import set_trace as st
 import matplotlib.pyplot as plt
@@ -525,6 +526,8 @@ class Zero123PlusGaussianCode(nn.Module):
             guidance_scale=guidance_scale, cross_attention_kwargs=cross_attention_kwargs, 
             scheduler=scheduler, model=model
         )
+        sigma_t = sigma_t.reshape(-1, *[1] * (len(noise_pred.shape)-1))
+        alpha_t = alpha_t.reshape(-1, *[1] * (len(noise_pred.shape)-1))
         return (noisy_latents - noise_pred * sigma_t) / alpha_t
 
     def state_dict(self, **kwargs):
@@ -695,14 +698,16 @@ class Zero123PlusGaussianCode(nn.Module):
         
        
 
-        if (epoch is not None) and (epoch % self.opt.mix_diffusion_interval==0): # for skip_predict_x0 iters we skip, and this particular epoch we do not skip
+        if self.opt.skip_predict_x0:
+            x = self.decode_latents(latents)
+
+        elif (epoch is not None) and (epoch % self.opt.mix_diffusion_interval==0): # for skip_predict_x0 iters we skip, and this particular epoch we do not skip
             print(f"epoch{epoch} is using mix_diffusion_interval")
         
             t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents.device)
         
             noise = torch.randn_like(latents, device=latents.device)
             noisy_latents = self.pipe.scheduler.add_noise(latents, noise, t)
-            
             
             x = self.predict_x0(
                 noisy_latents, text_embeddings, t=t, guidance_scale=1.0, 
@@ -909,10 +914,14 @@ class Zero123PlusGaussianCode(nn.Module):
         ## ------- splatter -> gaussian ------- 
         gaussians = fuse_splatters(pred_splatters) # this is the gaussian from code
         
+       
         if self.training: # random bg for training
-            bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
+            bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device) # we use fake mask for srn cars
         else:
-            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
+            if self.opt.data_mode=="srn_cars":
+                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
+            else:
+                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
         
         if self.opt.render_gt_splatter:
             print("Render GT splatter --> load splatters then fuse")
@@ -980,9 +989,18 @@ class Zero123PlusGaussianCode(nn.Module):
             results['alphas_pred'] = pred_alphas
             
             gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
-            gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+            
+            if self.opt.data_mode == "srn_cars":
+                gt_masks = self.gs.render(fuse_splatters(data['splatters_output']), data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)['alpha']
+                # gt_masks_save = gt_masks.detach().cpu().numpy().transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 1) # [B*output_size, V*output_size, 3]
+                # kiui.write_image(f'train_srn_mask.jpg', gt_masks_save)
+                # pass
+            else:
+                gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+            
 
             gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+            # st()
 
             ## ------- end render ----------
             
@@ -998,6 +1016,7 @@ class Zero123PlusGaussianCode(nn.Module):
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
         elif self.opt.lambda_alpha > 0:
+            assert self.opt.data_mode != 'srn_cars'
             loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
             results['loss_alpha'] = loss_mse_alpha
             loss = loss + self.opt.lambda_alpha * loss_mse_alpha

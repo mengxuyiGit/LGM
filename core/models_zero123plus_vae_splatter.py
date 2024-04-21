@@ -315,28 +315,19 @@ class UNetDecoder(nn.Module):
                 assert NotImplementedError
         else:
             self.downsample_module = lambda x: x
-        
-        
-        if opt.decoder_mode in ["v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
-            self.decoder = self.decoder.requires_grad_(False).eval()
-        else:
-            self.decoder = self.decoder.requires_grad_(True).train()
+
+        self.decoder = self.decoder.requires_grad_(True).train()
         
         self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        # print(self.decoder)
-        # if opt.verbose or opt.verbose_main:
+    
         if True:
-            print(f"opt.decoder_mode : {opt.decoder_mode}")    
-            
-            decoder_requires_grad = any(p.requires_grad for p in self.decoder.parameters()) ## check decoder requires grad
+            decoder_requires_grad = all(p.requires_grad for p in self.decoder.parameters()) ## check decoder requires grad
             print(f"UNet Decoder vae.decoder requires grad: {decoder_requires_grad}")
 
-            others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
+            others_requires_grad = all(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
             print(f"UNet Decoder others requires grad: {others_requires_grad}")
-            # st()
-        
-       
-        
+            st()
+           
     
     def forward(self, z):
         sample = self.vae.post_quant_conv(z)
@@ -350,9 +341,6 @@ class UNetDecoder(nn.Module):
             # print(f"{i}th upblock input: {sample.shape}")
             sample = up_block(sample, latent_embeds)
         
-        # print(f"{i}th upblock output: {sample.shape}")
-        # st()
-        
         sample = self.decoder.conv_norm_out(sample)
         sample = self.decoder.conv_act(sample)
         rgb = self.decoder.conv_out(sample)
@@ -360,14 +348,79 @@ class UNetDecoder(nn.Module):
         
         splatters_320 = torch.cat([others, rgb], dim=1)
         splatters_128 = self.downsample_module(splatters_320)
-        # print(f"splatters_320:{splatters_320.shape}")
-        # print(f"splatters_128:{splatters_128.shape}")
-        # st()
+       
         return splatters_128
-        # return rgb
+      
+class UNetEncoder(nn.Module):
+    def __init__(self, vae, opt):
+        super(UNetEncoder, self).__init__()
+        self.vae = vae
+        self.encoder = vae.encoder
+
+        # Modify the first convolutional layer of the encoder to accept 14 channels
+        # Assuming the original conv layer is named `conv_in` and has a kernel size of 3x3
+        original_conv_in = self.encoder.conv_in
+        self.encoder.conv_in = nn.Conv2d(
+            # in_channels=14, 
+            in_channels=3, 
+            out_channels=original_conv_in.out_channels, 
+            kernel_size=original_conv_in.kernel_size, 
+            stride=original_conv_in.stride, 
+            padding=original_conv_in.padding, 
+            bias=original_conv_in.bias is not None
+        )
+
+        # Copy the weights from the first 3 channels of the original conv layer to the new conv layer
+        # And initialize the remaining weights (for the new channels) appropriately, e.g., with zeros or small random values
+        with torch.no_grad():
+            self.encoder.conv_in.weight[:, :3, :, :] = original_conv_in.weight.clone()
+            # Initialize the weights for the additional channels
+            nn.init.zeros_(self.encoder.conv_in.weight[:, 3:, :, :])
+            if original_conv_in.bias is not None:
+                self.encoder.conv_in.bias = nn.Parameter(original_conv_in.bias.clone()) # original_conv_in.bias.clone()
+
+        # Other layers remain unchanged
+
+        # Set the encoder to training or evaluation mode based on the options
+        # if opt.encoder_mode in ["v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
+        #     self.encoder = self.encoder.requires_grad_(False).eval()
+        # else:
         
+        self.encoder = self.encoder.requires_grad_(True).train()
         
-class Zero123PlusGaussianVaeKL(nn.Module):
+        # You may want to add any other layers or modules that are specific to your encoder design
+
+        # Example verbose output
+        if True:  # Replace with condition based on 'opt'
+            # print(f"opt.encoder_mode : {opt.encoder_mode}")    
+            
+            encoder_requires_grad = all(p.requires_grad for p in self.encoder.parameters())
+            print(f"UNet Encoder vae.encoder requires grad: {encoder_requires_grad}")
+    
+    def forward(self, x):
+        # Assuming 'x' is the 14-channel image input
+        # Pass 'x' through the encoder's modified first layer and the rest of the network
+        x = self.encoder.conv_in(x)
+
+        print("before downblocking: ", x.shape)
+        # start conv with splatter x of shape 128, while the original is 320
+        for down_block in self.encoder.down_blocks:
+            x = down_block(x)
+            print("... downblocking: ", x.shape)
+            
+
+        # ... continue passing 'x' through the rest of the encoder layers
+        # You'll need to follow the logic of your original encoder to continue the forward pass
+        
+        # Final encoding
+        # encoded_features = self.encoder.final_encoding_layer(x)
+        print("output: ", x.shape)
+
+        # return the encoded features
+        return x
+
+        
+class Zero123PlusGaussianSplatterVaeKL(nn.Module):
     def __init__(
         self,
         opt: Options,
@@ -383,12 +436,6 @@ class Zero123PlusGaussianVaeKL(nn.Module):
             opt.model_path,
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
-        
-        # # Load the pipeline
-        # self.pipe = DiffusionPipeline.from_pretrained(
-        #     "sudo-ai/zero123plus-v1.1", custom_pipeline="sudo-ai/zero123plus-pipeline",
-        #     torch_dtype=torch.float16
-        # )
 
         self.pipe.prepare() 
         # self.vae = self.pipe.vae.requires_grad_(False).eval()
@@ -397,14 +444,11 @@ class Zero123PlusGaussianVaeKL(nn.Module):
 
         self.unet = self.pipe.unet.eval().requires_grad_(False)
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
-
-        if opt.decoder_mode in ["v2_fix_rgb_more_conv"]:
-            assert NotImplementedError
-        elif opt.decoder_mode in ["v0_unfreeze_all", "v1_fix_rgb", "v1_fix_rgb_remove_unscale"]:
-            self.decoder = UNetDecoder(self.vae, opt)
-        else:
-            raise ValueError ("NOT a valid choice for decoder in Zero123PlusGaussianCode")
-
+        
+        # st()
+        self.encoder = UNetEncoder(self.vae, opt)
+        self.decoder = UNetDecoder(self.vae, opt)
+        
         # with torch.no_grad():
         #     cond = to_rgb_image(Image.open('/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd/000.png'))
         #     text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
@@ -480,7 +524,7 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         
     
     def encode_image(self, image, is_zero123plus=True):
-        # st() # image: torch.Size([1, 3, 768, 512])
+        st() # image: torch.Size([1, 3, 768, 512]) # should be splatter image
 
         if is_zero123plus:
             # NOTE: encode input image (before scale) should be in [-1, 1] while our image is in [0,1]
@@ -488,7 +532,10 @@ class Zero123PlusGaussianVaeKL(nn.Module):
             
             image = scale_image(image)
 
-            posterior = self.vae.encode(image).latent_dist # self.vae.encode(image) -> AutoencoderKLOutput(latent_dist=<diffusers.models.vae.DiagonalGaussianDistribution object at 0x7faec822e0e0>)
+            
+            posterior = self.encoder(image).latent_dist
+            st()
+            # posterior = self.vae.encode(image).latent_dist # self.vae.encode(image) -> AutoencoderKLOutput(latent_dist=<diffusers.models.vae.DiagonalGaussianDistribution object at 0x7faec822e0e0>)
             image = posterior.sample() * self.vae.config.scaling_factor # reparameterization
             image = scale_latents(image)
 
@@ -665,6 +712,11 @@ class Zero123PlusGaussianVaeKL(nn.Module):
 
     
     def forward_splatters_with_activation(self, images, cond, latents=None, epoch=None):
+
+        '''
+            this vae should encode splatter and decode splatter
+        '''
+
         B, V, C, H, W = images.shape
         # print(f"images.shape in forward+spaltter:{images.shape}") # SAME as the input_size
         with torch.no_grad():
@@ -853,19 +905,7 @@ class Zero123PlusGaussianVaeKL(nn.Module):
             else:
                 gt_splatters_low_res =  data['splatters_output']
                 gt_splatters =  torch.stack([F.interpolate(sp, self.splatter_size[-2:]) for sp in gt_splatters_low_res], dim=0)
-            # print(f"gt splatter size:{gt_splatters.shape}")
-           
-            # NOTE: discard the below of downsampling pred, but use upsampling gt
-            # if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
-            #     print("pred_splatters:", pred_splatters.shape)
-            #     B, V, C, H, W, = pred_splatters.shape
-            #     pred_splatters_gt_size = einops.rearrange(pred_splatters, "b v c h w -> (b v) c h w")
-            #     pred_splatters_gt_size = F.interpolate(pred_splatters_gt_size, size=gt_splatters.shape[-2:], mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
-            #     pred_splatters_gt_size = einops.rearrange(pred_splatters_gt_size, "(b v) c h w -> b v c h w", b=B, v=V)
-            #     st()
-                
-            # else:
-            #     pred_splatters_gt_size = pred_splatters
+          
             
             gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters, gt_splatters)
             loss_mse = gs_loss_mse_dict['total']
@@ -891,23 +931,6 @@ class Zero123PlusGaussianVaeKL(nn.Module):
         if self.opt.render_gt_splatter:
             print("Render GT splatter --> load splatters then fuse")
             gaussians = fuse_splatters(data['splatters_output'])
-            # print("directly load fused gaussian ply")
-            # gaussians = self.gs.load_ply('/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0/fused.ply').to(pred_splatters.device)
-            # gaussians = gaussians.unsqueeze(0)
-            
-            ## TODO: clamp reference
-            # scale = gaussians[...,4:7]
-            # print(f"gt splatter scale max:{scale.max()} scale min: {scale.min()}")
-            # # clamp the min and max scale to avoid oom
-            # st()
-            
-            if self.opt.perturb_rot_scaling:
-                # scaling: 4-7
-                # gaussians[...,4:7] = 0.006 * torch.rand_like(gaussians[...,4:7])
-                # rot: 7-11
-                # gaussians[...,7:11] = F.normalize(-1 + 2 * torch.zeros_like(gaussians[...,7:11]))
-                # print("small scale")
-                pass
                 
             
             if self.opt.discard_small_opacities: # only for gt debug
@@ -929,16 +952,7 @@ class Zero123PlusGaussianVaeKL(nn.Module):
             gaussians[..., :] = gt_gaussians[..., :]
             # del gt_gaussians
             print(f"replace --> slicing")
-            
-            # attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
-            # for attr_to_replace in self.opt.gt_replace_pred:
-            #     start_i, end_i = attr_map[attr_to_replace]          
-            #     print(f"replace pred__['{attr_to_replace}']__ with GT splatter --> load splatters then fuse") 
-            #     gaussians[..., start_i:end_i] = gt_gaussians[..., start_i:end_i]
-            
-            # test_rand_seed = torch.randint(0, 100, (3,))
-            # print(f"test_rand_seed: {test_rand_seed}")
-            # st()
+
             
         if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 or (not self.training):
             if self.opt.verbose_main:

@@ -7,6 +7,7 @@ from core.options import AllConfigs
 from core.models_zero123plus import Zero123PlusGaussian, gt_attr_keys, start_indices, end_indices, fuse_splatters
 from core.models_zero123plus_code import Zero123PlusGaussianCode
 from core.models_zero123plus_vae import Zero123PlusGaussianVaeKL
+from core.models_zero123plus_vae_splatter import Zero123PlusGaussianSplatterVaeKL
 
 from core.models_fix_pretrained import LGM
 
@@ -62,12 +63,17 @@ def main():
     # model
     if opt.model_type == 'Zero123PlusGaussianVaeKL':
         model = Zero123PlusGaussianVaeKL(opt)
-        if opt.data_mode == "srn_cars":
-            from core.dataset_v4_code_srn import SrnCarsDataset as Dataset
-        else:
-            from core.dataset_v4_code import ObjaverseDataset as Dataset
-    elif opt.model_type == 'LGM':
-        model = LGM(opt)
+    elif opt.model_type == 'Zero123PlusGaussianSplatterVaeKL':
+        model = Zero123PlusGaussianSplatterVaeKL(opt)
+    else:
+        print("Invalid model type")
+        exit(0)
+
+    if opt.data_mode == "srn_cars":
+        from core.dataset_v4_code_srn import SrnCarsDataset as Dataset
+    else:
+        from core.dataset_v4_code import ObjaverseDataset as Dataset
+  
     # model = SingleSplatterImage(opt)
     # opt.workspace += datetime.now().strftime("%Y%m%d-%H%M%S")
     # if accelerator.is_main_process:
@@ -514,6 +520,10 @@ def main():
                 
                 print(f"Save to run dir: {opt.workspace}")
                 for i, data in enumerate(test_dataloader):
+                    if i > 100:
+                        print("Finish evaluating 100 scenes")
+                        break
+                    
                     if not opt.codes_from_encoder:
                         ## ---- load or init code here ----
                         if num_gpus==1:
