@@ -18,6 +18,7 @@ IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
 import glob
 import math
+import einops
 
 def focal2fov(focal, pixels):
     return 2*math.atan(pixels/(2*focal))
@@ -62,6 +63,46 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     P[2, 3] = -(zfar * znear) / (zfar - znear)
     return P
 
+# exactly the same as self.load_ply() in the the gs.py 
+def load_ply(path, compatible=True):
+
+    from plyfile import PlyData, PlyElement
+
+    plydata = PlyData.read(path)
+
+    xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
+                    np.asarray(plydata.elements[0]["y"]),
+                    np.asarray(plydata.elements[0]["z"])),  axis=1)
+    # print("Number of points at loading : ", xyz.shape[0])
+
+    opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
+
+    shs = np.zeros((xyz.shape[0], 3))
+    shs[:, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
+    shs[:, 1] = np.asarray(plydata.elements[0]["f_dc_1"])
+    shs[:, 2] = np.asarray(plydata.elements[0]["f_dc_2"])
+
+    scale_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")]
+    scales = np.zeros((xyz.shape[0], len(scale_names)))
+    for idx, attr_name in enumerate(scale_names):
+        scales[:, idx] = np.asarray(plydata.elements[0][attr_name])
+
+    rot_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("rot_")]
+    rots = np.zeros((xyz.shape[0], len(rot_names)))
+    for idx, attr_name in enumerate(rot_names):
+        rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
+        
+    gaussians = np.concatenate([xyz, opacities, scales, rots, shs], axis=1)
+    gaussians = torch.from_numpy(gaussians).float() # cpu
+
+    if compatible:
+        gaussians[..., 3:4] = torch.sigmoid(gaussians[..., 3:4])
+        gaussians[..., 4:7] = torch.exp(gaussians[..., 4:7])
+        gaussians[..., 11:] = 0.28209479177387814 * gaussians[..., 11:] + 0.5
+
+    return gaussians
+
+from ipdb import set_trace as st
 
 class SrnCarDataset(Dataset):
 
@@ -118,6 +159,42 @@ class SrnCarDataset(Dataset):
 
 
         self.global_cnt = 0
+        
+        uid = self.items[0]
+        ## load splatter images
+        splatter_images_multi_views = []
+        splatter_uid = os.path.join(self.opt.resume_workspace, os.path.basename(uid), 'eval_pred_gs_299_0')
+        # print("resume_workspace: ", self.opt.resume_workspace)
+        
+        # find 
+        fixed_input_views = np.arange(1,7).tolist()
+        vids = fixed_input_views[:self.opt.num_input_views] 
+            
+        try:
+            # print(f"uid:{uid}\nsplatter_uid:{splatter_uid}")
+            for input_id in vids[:self.opt.num_input_views]:
+                sf = os.path.join(splatter_uid, f"splatter_{input_id-1}.ply")
+                if self.opt.verbose:
+                    print(f"sf:{sf}")
+                splatter_im = load_ply(sf)
+                splatter_images_multi_views.append(splatter_im)
+                # print(splatter_im.shape) # ([16384, 14])
+            
+            splatter_images_mv = torch.stack(splatter_images_multi_views, dim=0) # # [6, 16384, 14]
+            splatter_images_mv = torch.stack(splatter_images_multi_views, dim=0) # # [6, 16384, 14]
+            splatter_res = int(math.sqrt(splatter_images_mv.shape[-2]))
+            splatter_images_mv = einops.rearrange(splatter_images_mv, 'v (h w) c -> v c h w', h=splatter_res, w=splatter_res)
+            # results['splatters_output'] = splatter_images_mv
+            # print(results['splatters_output'].shape) # [6, 14, 128, 128])
+            self.splatter_images_mv = splatter_images_mv
+            # if getattr(self, 'splatter_images_mv', None) is not None:
+                # results['splatters_output'] = self.splatter_images_mv
+                # print("getattr(self, 'splatter_images_mv', None) is not None")
+        except:
+            print("getattr(self, 'splatter_images_mv', None) is None")
+            pass
+
+            
 
 
     def __len__(self):
@@ -179,6 +256,15 @@ class SrnCarDataset(Dataset):
         else:
             vids = fixed_input_views[:self.opt.num_input_views] + np.arange(numerical_value+1).tolist() # fixed order
             # vids = np.arange(1, numerical_value+1).tolist()
+        
+     
+      
+        
+        # finish 
+        if getattr(self, 'splatter_images_mv', None) is not None:
+            results['splatters_output'] = self.splatter_images_mv
+            
+        
         
         # print(vids)
         final_vids = []
@@ -264,7 +350,7 @@ class SrnCarDataset(Dataset):
         images = torch.stack(images, dim=0) # [V, C, H, W]
         masks = torch.stack(masks, dim=0) # [V, H, W]
         cam_poses = torch.stack(cam_poses, dim=0) # [V, 4, 4]
-        print("cam_poses: ", cam_poses.shape)
+        # print("cam_poses: ", cam_poses.shape)
 
         # normalized camera feats as in paper (transform the first pose to a fixed position)
         # transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
@@ -319,7 +405,7 @@ class SrnCarDataset(Dataset):
         cam_pos = - cam_poses[:, :3, 3] # [V, 3]
         
         results['cam_view'] = cam_view
-        print("cam_view: ",cam_view.shape)
+        # print("cam_view: ",cam_view.shape)
         results['cam_view_proj'] = cam_view_proj
         results['cam_pos'] = cam_pos
 

@@ -218,6 +218,8 @@ def main():
     #     print("You are infernece LGM on some specific scenes")
 
 
+    regex = re.compile(r'eval_pred_gs_(\d+)_0.*')
+
     for i, scene_path in enumerate(scene_dirs):
         scene_name = scene_path.split('/')[-2] if scene_path.endswith('/') else scene_path.split('/')[-1]
         # if (target_scenes is not None) and (scene_name in target_scenes):
@@ -237,29 +239,51 @@ def main():
             if opt.verbose:
                 print(f"Already exists {i}th scene: {scene_name}")
 
-            scene_finished = False
+            
+
+            if opt.resume_and_further_optimize:
+                
+                max_number = -1
+                # List all the items in the directory
+                for item in os.listdir(path):
+                    # Check if the item is a folder and matches the required pattern
+                    if os.path.isdir(os.path.join(path, item)):
+                        match = regex.match(item)
+                        if match:
+                            # Extract the number and convert it to an integer
+                            number = int(match.group(1))
+                            # Update the max_number if this number is larger
+                            max_number = max(max_number, number)
+
+                print(f"The maximum number among the folders is: {max_number}")
+
+            
+            else:
+                
+                scene_finished = False
            
-            for item in os.listdir(scene_workspace):
-                if not item.startswith('eval'):
-                    continue 
+                for item in os.listdir(scene_workspace):
+                    if not item.startswith('eval'):
+                        continue 
 
-                # print(f"extract first number from item {item}: ",extract_first_number(item))
-                if item.startswith('eval_pred_gs_') and item.endswith('_es'):
-                    if opt.verbose:
-                        print(f"Already early stopped.")
-                    scene_finished = True
-                    # check whether the early stopping ckpt has been saved
-                    break
+                    # print(f"extract first number from item {item}: ",extract_first_number(item))
+                    if item.startswith('eval_pred_gs_') and item.endswith('_es'):
+                        if opt.verbose:
+                            print(f"Already early stopped.")
+                        scene_finished = True
+                        # check whether the early stopping ckpt has been saved
+                        break
 
-                elif extract_first_number(item)>=opt.num_epochs-1:# already achieved the max training epochs
-                    if opt.verbose:
-                        print(f"Already achieved the max training epochs.")
-                    scene_finished = True
-                    break
+                    elif extract_first_number(item)>=opt.num_epochs-1:# already achieved the max training epochs
+                        if opt.verbose:
+                            print(f"Already achieved the max training epochs.")
+                        scene_finished = True
+                        break
 
-            if scene_finished:
-                print("SCENE finished: ", scene_name)
-                continue
+                if scene_finished:
+                    print("SCENE finished: ", scene_name)
+                    continue
+                
             
         
         try:
