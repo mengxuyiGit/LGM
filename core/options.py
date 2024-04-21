@@ -209,6 +209,7 @@ class Options:
 
     # overfit eg3d data
     angle_y_step: float = 5.e-3
+    further_optimize_splatter: bool = False
 
     
 

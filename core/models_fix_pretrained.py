@@ -98,9 +98,34 @@ class LGM(nn.Module):
         rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous().to(device) # [V, 6, h, w]
         
         return rays_embeddings
-        
+    
+    # inverse acts : for load splatter ckpt 
+    def inverse_scale_act(self, y):
+        # Inverse of y = 0.1 * softplus(x) is x = log(exp(10*y) - 1)
+        # Add a small epsilon to prevent log(0)
+        epsilon = 1e-6
+        return torch.log(torch.exp(y * 10) - 1 + epsilon)
 
-    def forward_gaussians(self, images):
+    def inverse_opacity_act(self, y):
+        # Inverse of y = sigmoid(x) is x = log(y / (1 - y))
+        # Add a small epsilon to prevent division by zero or log(0)
+        epsilon = 1e-6
+        return torch.log(y / (1 - y + epsilon) + epsilon)
+
+    def inverse_rgb_act(self, y):
+        # Inverse of y = 0.5 * tanh(x) + 0.5 is x = atanh(2 * (y - 0.5))
+        ## v1 
+        return torch.atanh(2 * y - 1)
+        ## v2
+        # # torch.atanh is not implemented, so we use numpy and then convert back to tensor
+        # # Note: numpy works with cpu tensors, so ensure your tensor is on cpu
+        # device = y.device
+        # y = y.cpu().detach().numpy()
+        # x = np.arctanh(2 * (y - 0.5))
+        # return torch.tensor(x, dtype=torch.float32, device=device)  # Convert back to tensor and send to original device if needed
+
+
+    def forward_gaussians(self, images, splatter_ckpt=None):
         # images: [B, 4, 9, H, W]
         # return: Gaussians: [B, dim_t]
 
@@ -116,7 +141,7 @@ class LGM(nn.Module):
         # x = x.reshape(B, 4, 14, self.opt.splat_size, self.opt.splat_size)
         
         ### ----- new -------
-        if self.splatter_out_is_random:
+        if self.splatter_out_is_random and splatter_ckpt == None:
             ## ----- previous -------
             images = images.view(B*V, C, H, W)
 
@@ -125,12 +150,37 @@ class LGM(nn.Module):
             
             x = x.reshape(B, 6, 14, self.opt.splat_size, self.opt.splat_size)
             ## assign the pretrained output to spaltter out
-            self.splatter_out = nn.Parameter(x[:,:1,:,::2,::2])
+            # self.splatter_out = nn.Parameter(x[:,:1,:,::2,::2]) # NOTE: for FFHQ
             # st()
+            self.splatter_out = nn.Parameter(x)
             
             ## toggle the flag
             self.splatter_out_is_random = False
             print("Only do this once: change random init to pretrained output")
+            # st()
+        
+        elif self.splatter_out_is_random and splatter_ckpt is not None:
+            # splatter_ckpt [1, 6, 14, 128, 128]
+            self.splatter_out_is_random = False
+            
+            # x = splatter_ckpt.permute(0, 1, 3, 4, 2).reshape(B, -1, 14) # [1, 98304, 14
+            B, V, C, H, W = splatter_ckpt.shape
+            x = einops.rearrange(splatter_ckpt, "b v c h w -> b (v h w) c")
+
+            ## do reverse activation on splatter ckpt
+            pos_deact = x[..., 0:3]
+            opacity_deact = self.inverse_opacity_act(x[..., 3:4])
+            scale_deact = self.inverse_scale_act(x[..., 4:7])
+            rotation_deact = x[..., 7:11]
+            rgbs_deact = self.inverse_rgb_act(x[..., 11:])
+
+            x = torch.cat([pos_deact, opacity_deact, scale_deact, rotation_deact, rgbs_deact], dim=-1) # [B, N, 14]
+            deacted_splatter_ckpt = einops.rearrange(x, " b (v h w) c -> b v c h w", v=V, h=H, w=W)
+
+            self.splatter_out = nn.Parameter(deacted_splatter_ckpt)
+            print("Only do this once: change random init to splatter ckpt")
+
+
 
         assert B==1 #TODO: can we handle multiple optimization in one loop?
         x = self.splatter_out
@@ -203,7 +253,10 @@ class LGM(nn.Module):
         
 
         # use the first view to predict gaussians
-        gaussians = self.forward_gaussians(images) # [B, N, 14]
+        # st() # check whether data contains optimzied splatter images
+        splatter_ckpt = data.get('splatters_output', None)
+        # print("splatter_ckpt: ", splatter_ckpt)
+        gaussians = self.forward_gaussians(images, splatter_ckpt=splatter_ckpt) # [B, N, 14]
         # verify whether the gaussians and the splatter_out are correct
 
         # ######## debug code #############
@@ -290,23 +343,23 @@ class LGM(nn.Module):
         loss = loss + loss_mse
         
         
-        # print('train vids',[t.item() for t in data['vids']])
-        if (opt is not None) and (epoch % opt.save_train_pred)==0 and epoch > 0:
-        # if (opt is not None) and epoch:
+        # # print('train vids',[t.item() for t in data['vids']])
+        # if (opt is not None) and (epoch % opt.save_train_pred)==0 and epoch > 0:
+        # # if (opt is not None) and epoch:
         
-            ### ----------- debug-------------
-            gt_images_save = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-            gt_images_save = gt_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images_save.shape[1] * gt_images_save.shape[3], 3) # [B*output_size, V*output_size, 3]
-            kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images_save)
+        #     ### ----------- debug-------------
+        #     gt_images_save = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+        #     gt_images_save = gt_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images_save.shape[1] * gt_images_save.shape[3], 3) # [B*output_size, V*output_size, 3]
+        #     kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images_save)
 
-            # gt_masks_save = data['masks_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-            # gt_masks_save = gt_masks_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks_save.shape[1] * gt_masks_save.shape[3], 1) # [B*output_size, V*output_size, 3]
-            # kiui.write_image(f'{opt.workspace}/train_gt_masks_{epoch}_{i}.jpg', gt_masks_save)
+        #     # gt_masks_save = data['masks_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+        #     # gt_masks_save = gt_masks_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks_save.shape[1] * gt_masks_save.shape[3], 1) # [B*output_size, V*output_size, 3]
+        #     # kiui.write_image(f'{opt.workspace}/train_gt_masks_{epoch}_{i}.jpg', gt_masks_save)
 
-            pred_images_save = results['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-            pred_images_save = pred_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images_save.shape[1] * pred_images_save.shape[3], 3)
-            kiui.write_image(f'{opt.workspace}/train_pred_images_{epoch}_{i}.jpg', pred_images_save)
-            ### -------- debug [end]-------------
+        #     pred_images_save = results['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+        #     pred_images_save = pred_images_save.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images_save.shape[1] * pred_images_save.shape[3], 3)
+        #     kiui.write_image(f'{opt.workspace}/train_pred_images_{epoch}_{i}.jpg', pred_images_save)
+        #     ### -------- debug [end]-------------
 
         if self.opt.lambda_lpips > 0:
             loss_lpips = self.lpips_loss(

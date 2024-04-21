@@ -136,14 +136,16 @@ def main():
                 print("Current run dir: ", opt.resume_workspace)
                 print("Resume run dir: ", run_dir.replace(f'{cur_run_id:05d}', resume_run_id))
 
-                assert run_dir.replace(f'{cur_run_id:05d}', resume_run_id) == opt.resume_workspace
+                if not opt.further_optimize_splatter:
+                    assert run_dir.replace(f'{cur_run_id:05d}', resume_run_id) == opt.resume_workspace
                 
             else:
                 raise ValueError(f"Invalid opt.resume_workspace format: {opt.resume_workspace}")
 
-            run_dir = opt.resume_workspace
-            assert os.path.exists(run_dir)
-            print(f"[Resume from dir (all scenes)] {run_dir}")
+            if not opt.further_optimize_splatter:
+                run_dir = opt.resume_workspace
+                assert os.path.exists(run_dir)
+                print(f"[Resume from dir (all scenes)] {run_dir}")
             
             # resume folder
             for i in range(1,100): # assume the number of resume does not pass 100
@@ -220,7 +222,7 @@ def main():
     #                  '06fa08b3b2834d26b3deee112eda2919']
     #     print("You are infernece LGM on some specific scenes")
 
-    scene_dirs = ["/home/xuyimeng/Repo/eg3d/eg3d/out_lgm"]
+    # scene_dirs = ["/home/xuyimeng/Repo/eg3d/eg3d/out_lgm"]
     for i, scene_path in enumerate(scene_dirs):
         scene_name = scene_path.split('/')[-2] if scene_path.endswith('/') else scene_path.split('/')[-1]
         # if (target_scenes is not None) and (scene_name in target_scenes):
@@ -231,8 +233,8 @@ def main():
         # if opt.verbose:
         #     print(f"Processing scene {i}: {scene_name}")
         
-        # # create scene_workspace
-        # scene_workspace = os.path.join(run_dir, scene_split, scene_name)
+        # create scene_workspace
+        scene_workspace = os.path.join(run_dir, scene_split, scene_name)
 
         
         
@@ -554,9 +556,9 @@ def main():
                             gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                             kiui.write_image(f'{scene_workspace}/eval_gt_images_{epoch}_{i}.jpg', gt_images)
 
-                            gt_masks_save = data['masks_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                            gt_masks_save = gt_masks_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks_save.shape[1] * gt_masks_save.shape[3], 1) # [B*output_size, V*output_size, 3]
-                            kiui.write_image(f'{opt.workspace}/train_gt_masks_{epoch}_{i}.jpg', gt_masks_save)
+                            # gt_masks_save = data['masks_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            # gt_masks_save = gt_masks_save.transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks_save.shape[1] * gt_masks_save.shape[3], 1) # [B*output_size, V*output_size, 3]
+                            # kiui.write_image(f'{opt.workspace}/train_gt_masks_{epoch}_{i}.jpg', gt_masks_save)
 
                             pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                             pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
