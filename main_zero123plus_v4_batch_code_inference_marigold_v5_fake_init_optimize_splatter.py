@@ -1325,11 +1325,7 @@ def main():
             guidance_scale = 4.0
 
 
-        # Parameters for early stopping
-        best_loss = float('inf')
-        patience_counter = 0
-        patience_limit = 10  # You can adjust this value
-        delta = 1e-2  # The threshold for improvement, can be a percentage of best_loss
+       
 
         
         print(f"Save to run dir: {opt.workspace}")
@@ -1338,6 +1334,12 @@ def main():
             #     continue
             # if i > 40:
             #     exit(0)
+            
+            # Parameters for early stopping
+            best_loss = float('inf')
+            patience_counter = 0
+            patience_limit = 100  # You can adjust this value
+            delta = 1e-2  # The threshold for improvement, can be a percentage of best_loss
             
             # exactly loop [scene_start_index, scene_end_index)
             if i  < opt.scene_start_index: 
@@ -1574,6 +1576,7 @@ def main():
                     if accelerator.is_main_process:
                         writer.add_scalar('decoded/loss', loss.item(), i)
                         writer.add_scalar('decoded/psnr', psnr.item(), i)
+                    
 
 
                     additional_reg_on_splatter = False
@@ -1642,12 +1645,13 @@ def main():
                             with open(psnr_log_file, 'a') as f:
                                 f.write(f"{save_path} - PSNR: {to_encode_psnr.item()}\n")
                         
-                        loss += to_encode_loss
+                        loss = to_encode_loss + loss * opt.loss_weights_decoded_splatter
                         
                         if accelerator.is_main_process:
                             writer.add_scalar('to_encode/loss', to_encode_loss.item(), i)
                             writer.add_scalar('to_encode/psnr', to_encode_psnr.item(), i)
                             writer.add_scalar('total/loss', loss.item(), i)
+                            writer.add_scalar('decoded/loss_weight', opt.loss_weights_decoded_splatter, i)
                         
                         to_encode_loss.backward()
                     
@@ -1733,6 +1737,7 @@ def main():
                         save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}_success'), range_min=-1)
                         save_gs_rendered_images(gs_results, fpath=os.path.join(output_path, f'{name}/{i}_success'))
                         
+                        st()
                         break
                     
                     
