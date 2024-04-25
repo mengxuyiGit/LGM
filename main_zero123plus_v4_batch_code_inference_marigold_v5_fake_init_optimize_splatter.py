@@ -1340,9 +1340,7 @@ def main():
             if i == opt.scene_end_index: 
                 print(f"Finished scenes from [{opt.scene_start_index}, {opt.scene_end_index}) !! Exit ")
                 exit(0)
-            print ("scene ", i)
-            continue
-                
+          
             scene_name = data["scene_name"][0]
             if i < 5 or scene_name == "0a9b36d36e904aee8b51e978a7c0acfd":
                 pass
