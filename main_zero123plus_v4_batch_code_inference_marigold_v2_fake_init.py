@@ -97,8 +97,9 @@ gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
 start_indices = [0, 3, 4, 7, 11]
 end_indices = [3, 4, 7, 11, 14]
 attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
-sp_min_max_dict = {"z-depth": (-0.7, 0.7), 
+sp_min_max_dict = {"z-depth": (-0.7, 0.7),  # FIXME: should be 0-3
                    "xy-offset": (-0.7, 0.7), 
+                   "xyz-offset": (-0.7, 0.7), 
                    "pos": (-0.7, 0.7), 
                    "scale": (-10., -2.),
                    }
@@ -113,7 +114,7 @@ group_scale = False
 
 
 if not group_scale:
-    mode = "v3"
+    mode = "v4"
     if mode == "v1":
         attr_map.update({
             'scale-x': (4,5),
@@ -151,7 +152,7 @@ if not group_scale:
                 "rgbs", # 11-14
                 ] # must be an ordered list according to the channels
         
-    elif mode == "v3":
+    elif mode in ["v3","v4"]:
         attr_map.update({
             "z-depth": (14,15), # TODO: find correct indices to insert this deptht
             "xyz-offset": (0,3), 
@@ -255,20 +256,22 @@ def prepare_3channel_images_to_encode(splatters_mv):
     return splatter_3Channel_image
 
 
-from Marigold.easy_inference import MarigoldModel
-## instantiate marigold model
-checkpoint_path = 'prs-eth/marigold-lcm-v1-0'
-marigold_model = MarigoldModel(checkpoint_path)
+# from Marigold.easy_inference import MarigoldModel
+# ## instantiate marigold model
+# checkpoint_path = 'prs-eth/marigold-lcm-v1-0'
+# marigold_model = MarigoldModel(checkpoint_path)
 
    
-def prepare_fake_3channel_images_to_encode(data, splatters_mv, depth_mode=None, model=None):
+def prepare_fake_3channel_images_to_encode(data, splatters_mv, depth_mode=None, model=None, lgm_model=None):
     # splatters_mv.shape -> torch.Size([1, 14, 384, 256])
     splatter_3Channel_image = {}
 
     ## TODO: important, do resize of fake images to 128 first!!!!
+    ## FIXME: why? Since it is fake, why do we stick to 128? On the contrary, 320 is better since it is aligend with the original zero123++ bg
 
     ## rgb
-    resized_rgb = F.interpolate(data["input"][0], (128, 128))
+    # resized_rgb = F.interpolate(data["input"][0], (128, 128))
+    resized_rgb = data["input"][0]
     mv_rgb_images = einops.rearrange(resized_rgb, "(m n) c h w -> (m h) (n w) c", m=3, n=2) # [B, V, 3, output_size, output_size]
     kiui.write_image('data_input_rgb.jpg', mv_rgb_images.detach().cpu().numpy())
     splatter_3Channel_image["rgbs"] = mv_rgb_images # [0,1]
@@ -276,7 +279,8 @@ def prepare_fake_3channel_images_to_encode(data, splatters_mv, depth_mode=None, 
     
     ## opacity
     # cannot init as constant for all pixels!!!! Use alpha mask from gt data mask
-    resized_alpha = F.interpolate(data["masks_input"][0], (128, 128))
+    # resized_alpha = F.interpolate(data["masks_input"][0], (128, 128))
+    resized_alpha = data["masks_input"][0]
     mv_alpha_images = einops.rearrange(resized_alpha, "(m n) c h w -> (m h) (n w) c", m=3, n=2) # [B, V, 3, output_size, output_size]
     kiui.write_image('data_input_mask.jpg', mv_alpha_images.detach().cpu().numpy())
     splatter_3Channel_image["opacity"] = torch.cat([mv_alpha_images]*3, dim=-1) # [0,1]
@@ -302,18 +306,62 @@ def prepare_fake_3channel_images_to_encode(data, splatters_mv, depth_mode=None, 
         assert model is not None
         gaussians = fuse_splatters(data["splatters_output"])
         bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-        gs_results = model.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+        # assert model.opt.render_input_views
+        gs_results = model.gs.render(gaussians, data['cam_view'][:,:model.opt.num_input_views], 
+                                     data['cam_view_proj'][:,:model.opt.num_input_views], data['cam_pos'][:,:model.opt.num_input_views], bg_color=bg_color)
                 
-        gt_depth = gs_results["depth"]
+        gt_depth = gs_results["depth"] # [1, V, 1, output_size, output_size]
+        ##
+        check_depth = True
+        if check_depth:
+            B, V, C, H, W= gt_depth.shape
+
+            xyz_offset = torch.zeros_like(gt_depth.repeat(1,1,3,1,1))
+            world_xyz2 = lgm_model.get_world_xyz_from_depth_offset(gt_depth, xyz_offset, data=data)
+            pos = einops.rearrange(world_xyz2, 'b (m n h w) c -> b c (m h) (n w)', b=B, m=3, n=2, h=H, w=W)
+
+            # save point cloud for debug
+            save_pc = False
+            save_mask_selected = True
+            if save_pc:
+                pc_dir = "debug_depth_pos_to_encode"
+                os.makedirs(pc_dir, exist_ok=True)
+                mv_pc = einops.rearrange(world_xyz2[0], '(v n) c -> v n c', v=V)
+                if save_mask_selected:
+                    mv_mask = einops.rearrange(resized_alpha, "v c h w -> v (h w) c") # v c h w 
+                    mv_depth = einops.rearrange(gt_depth[0], "v c h w -> v (h w) c")
+                    
+                              
+                for i, _v_pc in enumerate(mv_pc):
+                    if save_mask_selected:
+                        # save only visible by mask selection
+                        # _v_mask = (mv_mask[i] > 0).squeeze(-1) 
+                        _v_mask = (mv_depth[i] > 0).squeeze(-1)
+                        print(torch.unique(_v_mask), _v_mask.shape)
+                        _v_pc = _v_pc[_v_mask]
+                        print(_v_pc.shape)
+                        
+                    save_as_ply(_v_pc, f"{pc_dir}/view_{i}.ply")
+             
+                print(f"Saved pc from depths to {pc_dir} ")
+                st()
+                
 
         # NOTE: this normalization is important to get clean depth map, 
         # but may lose information about the actual depth value used for view consistent recon
-        gt_masks = (gt_masks - gt_masks.min()) / (gt_masks.max() - gt_masks.min())
+        depth_min, depth_max = 0, 3 
+        sp_min_max_dict["z-depth"] = depth_min, depth_max 
+        # st()
+        
+        gt_depth = (gt_depth - depth_min) / (depth_max - depth_min)
 
-        # gt_masks_save = gt_masks.detach().cpu().numpy().transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks.shape[1] * gt_masks.shape[3], 1) # [B*output_size, V*output_size, 3]
-        # kiui.write_image(f'diff_gs_w_depth.jpg', gt_masks_save)
+        gt_masks = gt_depth
+        gt_masks_save = gt_masks.detach().cpu().numpy().transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks.shape[1] * gt_masks.shape[3], 1) # [B*output_size, V*output_size, 3]
+        kiui.write_image(f'diff_gs_w_depth.jpg', gt_masks_save)
 
-        splatter_3Channel_image["z-depth"] = torch.zeros_like(splatter_3Channel_image["rgbs"])
+        reshaped_depth = einops.rearrange(gt_depth[0], "(m n) c h w -> (m h) (n w) c", m=3, n=2)
+        splatter_3Channel_image["z-depth"] =  torch.cat([reshaped_depth]*3, dim=-1)
+
 
     else:
         print("Not a valid depth mode in prepare_fake_3channel_images_to_encode")
@@ -322,7 +370,10 @@ def prepare_fake_3channel_images_to_encode(data, splatters_mv, depth_mode=None, 
     kiui.write_image('data_fake_depth_3channels.jpg', splatter_3Channel_image["z-depth"])
 
     ## xy offset # assume in [0,1]
-    splatter_3Channel_image["xyz-offset"] = torch.zeros_like(mv_rgb_images)
+    xyz_offset_zeros = torch.zeros_like(mv_rgb_images)
+    offset_min, offset_max = sp_min_max_dict["xyz-offset"]
+    xyz_offset_zeros = (xyz_offset_zeros - offset_min) / (offset_max - offset_min)
+    splatter_3Channel_image["xyz-offset"] = xyz_offset_zeros
 
 
     ## scale
@@ -342,7 +393,7 @@ def prepare_fake_3channel_images_to_encode(data, splatters_mv, depth_mode=None, 
     splatter_3Channel_image["rotation"] = torch.zeros_like(mv_rgb_images) # This is better than the above!! It's totally fine if all zeros
     # NOTE: this is already in axis angle since it is 3-channel
     
-    
+    # reshape, [0,1] -> [-1,1]
     for key, value in splatter_3Channel_image.items():
         ## do reshapeing to [1, 3, 384, 256])
         new_value = einops.rearrange(value, "h w c -> c h w")[None]
@@ -378,15 +429,15 @@ def encode_3channel_image_to_latents(pipe, sp_image):
 
 def decode_single_latents(pipe, latents, attr_to_encode):
     start_i, end_i = attr_map[attr_to_encode]
-    # print("decode_single_latents() -> latents.requires_grad", latents.requires_grad)
+    # print("decode_single_latents -> latents.requires_grad", latents.requires_grad)
 
     #  decode: latents -> platter attr
     latents1 = unscale_latents(latents)
     image = pipe.vae.decode(latents1 / pipe.vae.config.scaling_factor, return_dict=False)[0]
     image = unscale_image(image)
+    # print("decode_single_latents", latents1.shape, " ->", image.shape)
 
-    # image = model.decode_latents(latents)
-    # print("decode_single_latents() -> image.requires_grad", image.requires_grad)
+    # print("decode_single_latents -> image.requires_grad", image.requires_grad)
 
 
     # # save decoded image
@@ -422,7 +473,9 @@ def decode_single_latents(pipe, latents, attr_to_encode):
     elif attr_to_encode in[ "z-depth", "xy-offset", "pos", "xyz-offset"]:
         sp_min, sp_max = sp_min_max_dict[attr_to_encode]
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        print(f"{attr_to_encode}: {sp_max, sp_min}")
+        sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
+        print(f"{attr_to_encode}: {sp_min, sp_max}")
+        # st()
     
     
 
@@ -445,7 +498,7 @@ def decode_single_latents(pipe, latents, attr_to_encode):
         
   
     print(f"Decoded attr [unscaled] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
-    # print("decode_single_latents() -> sp_image_o.requires_grad", sp_image_o.requires_grad)
+    # print("decode_single_latents -> sp_image_o.requires_grad", sp_image_o.requires_grad)
     
     return sp_image_o, mv_image
 
@@ -492,12 +545,42 @@ def get_splatter_images_from_decoded_dict(decoded_attr_image_dict, lgm_model=Non
         assert _H / 3 == _W / 2 == 128
         V, H, W = 6, 128, 128
 
+        print("depth decoded in original range: ", depth_activated.min(), depth_activated.max())
         # depth_activated = einops.rearrange(depth_activated, "b c _h _w -> b (_h _w) c")
         depth_activated = einops.rearrange(depth_activated, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
         xyz_offset = decoded_attr_image_dict["xyz-offset"]
         # xyz_offset = einops.rearrange(xyz_offset, "b c _h _w -> b (_h _w) c")
         xyz_offset = einops.rearrange(xyz_offset, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
 
+        world_xyz2 = lgm_model.get_world_xyz_from_depth_offset(depth_activated, xyz_offset, data=data)
+        pos = einops.rearrange(world_xyz2, 'b (m n h w) c -> b c (m h) (n w)', b=B, m=3, n=2, h=H, w=W)
+        
+        # save point cloud for debug
+        save_pc = True
+        if save_pc:
+            pc_dir = "debug_depth_pos"
+            os.makedirs(pc_dir, exist_ok=True)
+            mv_pc = einops.rearrange(world_xyz2[0], '(v n) c -> v n c', v=V)
+            for i, _v_pc in enumerate(mv_pc):
+                save_as_ply(_v_pc, f"{pc_dir}/view_{i}.ply")
+            print(f"Saved pc from depths to {pc_dir} ")
+            st()
+    if mode == "v4":
+        assert lgm_model is not None and data is not None
+        # has to convert the depth + offset to true pos
+        depth_activated = decoded_attr_image_dict["z-depth"] # torch.Size([1, 98304, 1])
+        B, C, _H, _W = depth_activated.shape
+        assert _H / 3 == _W / 2 == 320
+        V, H, W = 6, 320, 320
+
+        print("depth decoded in original range: ", depth_activated.min(), depth_activated.max())
+        # depth_activated = einops.rearrange(depth_activated, "b c _h _w -> b (_h _w) c")
+        depth_activated = einops.rearrange(depth_activated, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
+        xyz_offset = decoded_attr_image_dict["xyz-offset"]
+        # xyz_offset = einops.rearrange(xyz_offset, "b c _h _w -> b (_h _w) c")
+        xyz_offset = einops.rearrange(xyz_offset, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
+
+        print(f"decoded depth_activated: {depth_activated.shape}, xyz_offset: {xyz_offset.shape}")
         world_xyz2 = lgm_model.get_world_xyz_from_depth_offset(depth_activated, xyz_offset, data=data)
         pos = einops.rearrange(world_xyz2, 'b (m n h w) c -> b c (m h) (n w)', b=B, m=3, n=2, h=H, w=W)
         
@@ -638,10 +721,11 @@ def main():
     
 
     lgm_model = None
-    if mode == "v3":
+    if mode in ["v3", "v4"]:
         from core.models_fix_pretrained_depth_offset import LGM
         opt.use_splatter_with_depth_offset = True
         lgm_model = LGM(opt)
+        lgm_model.requires_grad_(False).eval()
 
 
     # Check the number of GPUs
@@ -859,16 +943,19 @@ def main():
         if opt.codes_from_diffusion or opt.vae_on_splatter_image:
                     
             # # # Load the pipeline
-            # pipeline_0123 = DiffusionPipeline.from_pretrained(
-            #     "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
-            #     torch_dtype=torch.float32
-            # )
-            # pipeline_0123.to('cuda:0')
+            pipeline_0123 = DiffusionPipeline.from_pretrained(
+                "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
+                torch_dtype=torch.float32
+            )
+            pipeline_0123.to('cuda:0')
+            pipeline_0123.vae.requires_grad_(False).eval()
+            pipeline_0123.unet.requires_grad_(False).eval()
             
-            pipeline = model.pipe
-            pipeline_0123 = model.pipe
+            # pipeline = model.pipe
+            # pipeline_0123 = model.pipe
+            model.requires_grad_(False).eval()
 
-            # pipeline = pipeline_0123
+            pipeline = pipeline_0123
             # print("pipeline 0123")
             # print(pipeline.unet) # check whether lora is here
             # st()
@@ -937,7 +1024,7 @@ def main():
                 # TODO: instead of getting images from splatters_mv, instead, getting them from real rgb
                 # splatter_3Channel_image_to_encode = prepare_3channel_images_to_encode(splatters_mv)
                 # # st()
-                splatter_3Channel_image_to_encode = prepare_fake_3channel_images_to_encode(data, splatters_mv, model=model)
+                splatter_3Channel_image_to_encode = prepare_fake_3channel_images_to_encode(data, splatters_mv, model=model, lgm_model=lgm_model)
                 # NOTE: prepare_fake_3channel_images_to_encode returns value in [-1,1]
                 
                 print()
@@ -993,15 +1080,30 @@ def main():
                     # Generate images from updated latent codes
                     # Step 2: Render the images from the latents
                     # Reshape latents if necessary and decode them
+                    # with torch.no_grad():
                     for attr, latents in latents_all_attr_dict.items():
-                   
+                        st()
                         if latents.requires_grad and latents.grad is not None:
                             print(f"Gradient of {attr}: {latents.requires_grad} -- {latents.grad.norm().item()}")
 
+                        
                         decoded_attributes, decoded_images = decode_single_latents(pipeline_0123, latents, attr_to_encode=attr)
+                        # print("decode_single_latents: ", attr, " ->", latents.shape, "decoded attr -> ", decoded_attributes.shape)
                         # NOTE: decoded_attributes is already mapped to their original range, not [0,1] or [-1,1]
                         decoded_3channel_attr_image_dict.update({attr:decoded_images}) # which is for visualization, in range [-1,1]
                         decoded_attributes_dict.update({attr:decoded_attributes}) # splatter attributes in original range 
+                    
+                    # debug
+                    # Check gradients of the unet parameters 
+                    print(f"check unet parameters")
+                    for name, param in pipeline_0123.vae.named_parameters():
+                        if True:
+                            print(f"Parameter {name}") #s, Gradient norm: {param.grad.norm().item()}")
+                
+                    print(f"check other model parameters")
+                    for name, param in model.named_parameters():
+                        if param.requires_grad and param.grad is not None:
+                            print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     st()
                 
                     # order the attributes back into splatter image

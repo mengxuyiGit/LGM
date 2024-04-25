@@ -210,6 +210,17 @@ class Options:
     # overfit eg3d data
     angle_y_step: float = 5.e-3
     further_optimize_splatter: bool = False
+    workspace_to_save: Optional[str] = None
+    splatter_to_encode: Optional[str] = None
+    load_suffix: Optional[str] = None # "to_encode"
+    load_ext: Optional[str] = None # "png" , "pt"
+    optimization_objective: Optional[str] = None
+    attr_group_mode: Optional[str] = None
+
+    clip_image_to_encode: bool = False
+    rendering_loss_on_splatter_to_encode: bool = False
+    load_iter: int = 1000
+    color_augmentation: bool = False
 
     
 

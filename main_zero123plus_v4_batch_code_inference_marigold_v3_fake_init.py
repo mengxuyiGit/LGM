@@ -91,32 +91,164 @@ def fuse_splatters(splatters):
     return x
 
 ### Functions for vae_encode splatter images
+## depth <-> pose
+import math
+def init_ray_dirs(opt):
+    res = opt.output_size
+
+    x = torch.linspace(-res // 2 + 0.5, 
+                        res // 2 - 0.5, 
+                        res)
+    y = torch.linspace( res // 2 - 0.5, 
+                        -res // 2 + 0.5, 
+                        res)
+    ## NOTE: we assume using colmap to match 3dgs, thus need to invert y
+    inverted_x = False
+    inverted_y = True
+    if inverted_x:
+        x = -x
+    if inverted_y:
+        y = -y
+
+    grid_x, grid_y = torch.meshgrid(x, y, indexing='xy')
+    ones = torch.ones_like(grid_x, dtype=grid_x.dtype) # NOTE: should be ok
+    print("Use - ones for homo")
+    # st()
+    ray_dirs = torch.stack([grid_x, grid_y, ones]).unsqueeze(0)
+
+    # for cars and chairs the focal length is fixed across dataset
+    # so we can preprocess it
+    # for co3d this is done on the fly
+    # if self.cfg.data.category == "cars" or self.cfg.data.category == "chairs" \
+    #     or self.cfg.data.category == "objaverse":
+        # ray_dirs[:, :2, ...] /= fov2focal(self.cfg.data.fov * np.pi / 180, 
+        #                                   self.cfg.data.training_resolution)
+    
+    focal = res * 0.5 / math.tan(0.5 * np.deg2rad(opt.fovy)) # or change to torch.deg2tan
+    ray_dirs[:, :2, ...] /= focal
+    # self.register_buffer('ray_dirs', ray_dirs) # [1 3 128 128]
+    return ray_dirs
+
+
+    # ray_dists_sq = torch.sum(ray_dirs**2, dim=1, keepdim=True)
+    # ray_dists = ray_dists_sq.sqrt() # [1 1 128 128]
+    # self.register_buffer('ray_dists', ray_dists) # [1 3 128 128]
+
+
+def get_world_xyz_from_depth_offset(depth_activated, xyz_offset, data, opt):
+    
+    B, V, C, H, W = depth_activated.shape
+    print("depth_activated.shape: ", depth_activated.shape)
+
+    depth = einops.rearrange(depth_activated, 'b v c h w -> (b v) (h w) c', b=B, v=V, h=H, w=W)
+    xyz_offset = einops.rearrange(xyz_offset, 'b v c h w -> (b v) (h w) c', b=B, v=V, h=H, w=W)
+
+    global_ray_dirs = init_ray_dirs(opt)
+    batch_ray_dirs = einops.rearrange(global_ray_dirs, 'b c h w -> b (h w) c').repeat(depth.shape[0], 1, 1)
+
+    # cam view depth + cam view offset -> cam xyz 
+
+    cam_xyz2 = batch_ray_dirs.to(depth.device) * depth + xyz_offset
+    
+    # c2w 
+    cam_xyz_homo2 = torch.cat([cam_xyz2, torch.ones_like(cam_xyz2[...,-1:])], dim=-1)
+
+    c2w = einops.rearrange(data['c2w_colmap'].transpose(-2, -1), 'b v row col -> (b v) row col')
+    world_xyz_homo2 = torch.bmm(cam_xyz_homo2, c2w)
+    world_xyz2 = world_xyz_homo2[...,:3] / world_xyz_homo2[...,3:]
+
+    # out shape: (b v) (h w) c -> b (v h w) c'
+    world_xyz2 = einops.rearrange(world_xyz2, '(b v) n c -> b (v n) c', b=B, v=V)
+    
+    return world_xyz2
+
+
+
 
 # process the loaded splatters into 3-channel images
 gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
 start_indices = [0, 3, 4, 7, 11]
 end_indices = [3, 4, 7, 11, 14]
 attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
-sp_min_max_dict = {"z-depth": (-0.7, 0.7), 
+sp_min_max_dict = {"z-depth": (0, 3),  # FIXME: should be 0-3
                    "xy-offset": (-0.7, 0.7), 
+                   "xyz-offset": (-0.7, 0.7), 
                    "pos": (-0.7, 0.7), 
                    "scale": (-10., -2.),
                    }
+ordered_attr_list = ["pos", # 0-3
+                'opacity', # 3-4
+                'scale', # 4-7
+                "rotation", # 7-11
+                "rgbs", # 11-14
+            ] # must be an ordered list according to the channels
 
-group_scale = True
+group_scale = False
+
+
 if not group_scale:
-    attr_map.update({
-        'scale-x': (4,5),
-        'scale-y': (5,6),
-        'scale-z': (6,7),
-        "z-depth": (2,3),
-        "xy-offset": (0,2), # TODO: actually can directly take xyz during real training. Now for vis purpose only
-    })
+    mode = "v3"
+    if mode == "v1":
+        attr_map.update({
+            'scale-x': (4,5),
+            'scale-y': (5,6),
+            'scale-z': (6,7),
+            "z-depth": (2,3),
+            "xy-offset": (0,2), # TODO: actually can directly take xyz during real training. Now for vis purpose only
+        })
 
-    attr_cannot_be_encoded = ["scale", "pos"]
-    for key in attr_cannot_be_encoded:
-        del attr_map[key]
+        attr_cannot_be_encoded = ["scale", "pos"]
+        for key in attr_cannot_be_encoded:
+            del attr_map[key]
+
+        ordered_attr_list = ["xy-offset", "z-depth", # 0-3
+                'opacity', # 3-4
+                'scale-x', 'scale-y', 'scale-z', # 4-7
+                "rotation", # 7-11
+                "rgbs", # 11-14
+                ] # must be an ordered list according to the channels
+       
+    elif mode == "v2":
+        attr_map.update({
+            "z-depth": (2,3),
+            "xy-offset": (0,2), # TODO: actually can directly take xyz during real training. Now for vis purpose only
+        })
+
+        attr_cannot_be_encoded = ["pos"]
+        for key in attr_cannot_be_encoded:
+            del attr_map[key]
+    
+        ordered_attr_list = ["xy-offset", "z-depth", # 0-3
+                'opacity', # 3-4
+                'scale', # 4-7
+                "rotation", # 7-11
+                "rgbs", # 11-14
+                ] # must be an ordered list according to the channels
+        
+    elif mode in ["v3","v4"]:
+        attr_map.update({
+            "z-depth": (14,15), # TODO: find correct indices to insert this deptht
+            "xyz-offset": (0,3), 
+        })
+
+        attr_cannot_be_encoded = ["pos"]
+        for key in attr_cannot_be_encoded:
+            del attr_map[key]
+    
+        ordered_attr_list = ["xyz-offset", # 0-3
+                            "z-depth", # 14,15
+                'opacity', # 3-4
+                'scale', # 4-7
+                "rotation", # 7-11
+                "rgbs", # 11-14
+                ] # must be an ordered list according to the channels
+        ## INI lgm model to get xyz from depth
+
+    else:
+        raise ValueError ("Invalid ungrouping mode for splatter attributes")
+
 else:
+   
     # attr_map.update({
         # 'scale-x': (4,5),
         # 'scale-y': (5,6),
@@ -154,7 +286,8 @@ def prepare_3channel_images_to_encode(splatters_mv):
             # sp_min, sp_max =  -1., 1.
             # splatter_attr = (splatter_attr - sp_min) / (sp_max - sp_min)
             ## cat one more dim
-            splatter_attr = torch.cat((splatter_attr, 0.5 * torch.ones_like(splatter_attr[:,0:1,...])), dim=1)
+            # splatter_attr = torch.cat((splatter_attr, 0.5 * torch.ones_like(splatter_attr[:,0:1,...])), dim=1)
+            splatter_attr = torch.cat((splatter_attr, torch.zeros_like(splatter_attr[:,0:1,...])), dim=1)
         elif attr_to_encode == "rotation":
             # st() # assert 4 is on the last dim
             # quaternion to axis angle
@@ -187,11 +320,231 @@ def prepare_3channel_images_to_encode(splatters_mv):
         sp_image = splatter_attr * 2 - 1 # [map to range [-1,1]]
         print(f"[{attr_to_encode}] in [-1, 1]: min={sp_image.min()} max={sp_image.max()}")
         print("[prepare_3channel_images_to_encode] finished")
+       
         
         splatter_3Channel_image[attr_to_encode] = sp_image
 
+    st()
+
     return splatter_3Channel_image
 
+
+# from Marigold.easy_inference import MarigoldModel
+# ## instantiate marigold model
+# checkpoint_path = 'prs-eth/marigold-lcm-v1-0'
+# marigold_model = MarigoldModel(checkpoint_path)
+
+
+
+
+
+from torchvision import transforms
+from PIL import Image
+import cv2
+
+def load_splatter_3channel_images_to_encode(splatter_dir):
+    splatter_3Channel_image = {}
+    
+    for attr in ordered_attr_list:
+        im_path = os.path.join(splatter_dir, f"{attr}_decoded.png")
+        
+        # image = cv2.imread(im_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
+        # image = torch.from_numpy(image)
+        
+        # Define a transform to convert the image to tensor
+        transform = transforms.Compose([
+            transforms.ToTensor(),  # Converts to tensor and scales to [0, 1]
+        ])
+        
+        image = Image.open(im_path).convert('RGB')  # Convert to RGB
+        # Apply the transform to the image
+        image = transform(image)
+        image = einops.rearrange(image, "c h w -> h w c")
+        
+        print("images shape: ", image.shape) # (384, 256, 3)
+        
+        
+        si, ei = attr_map[attr]
+        if (ei - si) == 1:
+            image = torch.mean(image, dim=-1, keepdim=True)
+            image = image.repeat(1,1,3)
+        elif attr == "rotation": 
+            pass
+            # ag = image[None] # einops.rearrange(, 'b c h w -> b h w c')
+            # print("load axis angle as shape [b h w c]: ", ag.shape)
+            # quaternion = axis_angle_to_quaternion(ag)
+            # sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')
+        else:
+            assert (ei - si) == 3, print(f"{attr} has invalid si and ei: {si, ei}")
+        
+        splatter_3Channel_image[attr] = image  # [0,1]
+    
+     # reshape, [0,1] -> [-1,1]
+    for key, value in splatter_3Channel_image.items():
+        ## do reshapeing to [1, 3, 384, 256])
+        new_value = einops.rearrange(value, "h w c -> c h w")[None]
+        print("new shape: ", new_value.shape)
+        ## do mapping of value from [0,1] to [-1,1]
+        if value.min() < 0 or value.max()>1:
+            st()
+        new_value = new_value * 2 - 1
+        splatter_3Channel_image.update({key: new_value})
+    
+    depth_min, depth_max = 0, 3 
+    sp_min_max_dict["z-depth"] = depth_min, depth_max 
+    
+    assert set(ordered_attr_list) == set(splatter_3Channel_image.keys())
+    
+    return splatter_3Channel_image
+   
+def prepare_fake_3channel_images_to_encode(data, splatters_mv, depth_mode=None, lgm_model=None, gs=None, opt=None):
+    # splatters_mv.shape -> torch.Size([1, 14, 384, 256])
+    splatter_3Channel_image = {}
+
+    ## TODO: important, do resize of fake images to 128 first!!!!
+    ## FIXME: why? Since it is fake, why do we stick to 128? On the contrary, 320 is better since it is aligend with the original zero123++ bg
+
+    ## rgb
+    # resized_rgb = F.interpolate(data["input"][0], (128, 128))
+    resized_rgb = data["input"][0]
+    mv_rgb_images = einops.rearrange(resized_rgb, "(m n) c h w -> (m h) (n w) c", m=3, n=2) # [B, V, 3, output_size, output_size]
+    kiui.write_image('data_input_rgb.jpg', mv_rgb_images.detach().cpu().numpy())
+    splatter_3Channel_image["rgbs"] = mv_rgb_images # [0,1]
+
+    
+    ## opacity
+    # cannot init as constant for all pixels!!!! Use alpha mask from gt data mask
+    # resized_alpha = F.interpolate(data["masks_input"][0], (128, 128))
+    resized_alpha = data["masks_input"][0]
+    mv_alpha_images = einops.rearrange(resized_alpha, "(m n) c h w -> (m h) (n w) c", m=3, n=2) # [B, V, 3, output_size, output_size]
+    kiui.write_image('data_input_mask.jpg', mv_alpha_images.detach().cpu().numpy())
+    splatter_3Channel_image["opacity"] = torch.cat([mv_alpha_images]*3, dim=-1) # [0,1]
+    kiui.write_image('data_fake_opacity_3channel.jpg', splatter_3Channel_image["opacity"])
+
+
+    ## z-depth
+    # TODO: infer the depth for each view independently? Using metric depth?
+    ## get from marigold
+    # Assume rgb_image is a PIL Image or a tensor with shape [H, W, 3]
+    original_size_rgb = einops.rearrange(data["input"][0], "(m n) c h w -> (m h) (n w) c", m=3, n=2)
+    depth_mode = "gaussian_rendering"
+    if depth_mode=="marigold":
+        depth_map_np = marigold_model.get_depth_from_image(original_size_rgb) # (768, 512). regardless of input shape, [0,1]
+        # kiui.write_image('data_marigold_depth.jpg', depth_map_np)
+
+        depth_map_mv = einops.rearrange(torch.from_numpy(depth_map_np), '(m h) (n w) -> (m n) h w', m=3, n=2)
+        depth_map_mv = depth_map_mv.unsqueeze(1) # [V C H W]
+        resized_depth = F.interpolate(depth_map_mv, (128, 128))
+        reshaped_depth = einops.rearrange(resized_depth, "(m n) c h w -> (m h) (n w) c", m=3, n=2)# H, W, 1
+        splatter_3Channel_image["z-depth"] =  torch.cat([reshaped_depth]*3, dim=-1)
+    elif depth_mode=="gaussian_rendering":
+        # assert model is not None
+        gaussians = fuse_splatters(data["splatters_output"])
+        bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
+        assert opt.render_input_views
+        gs_results = gs.render(gaussians, data['cam_view'][:,:opt.num_input_views], 
+                                     data['cam_view_proj'][:,:opt.num_input_views], data['cam_pos'][:,:opt.num_input_views], bg_color=bg_color)
+                
+        gt_depth = gs_results["depth"] # [1, V, 1, output_size, output_size]
+        ##
+        check_depth = True
+        if check_depth:
+            B, V, C, H, W= gt_depth.shape
+
+            xyz_offset = torch.zeros_like(gt_depth.repeat(1,1,3,1,1))
+            # world_xyz2 = lgm_model.get_world_xyz_from_depth_offset(gt_depth, xyz_offset, data=data)
+            world_xyz2 = get_world_xyz_from_depth_offset(gt_depth, xyz_offset, data=data, opt=opt)
+            pos = einops.rearrange(world_xyz2, 'b (m n h w) c -> b c (m h) (n w)', b=B, m=3, n=2, h=H, w=W)
+
+            # save point cloud for debug
+            save_pc = False
+            save_mask_selected = True
+            if save_pc:
+                pc_dir = "debug_depth_pos_to_encode"
+                os.makedirs(pc_dir, exist_ok=True)
+                mv_pc = einops.rearrange(world_xyz2[0], '(v n) c -> v n c', v=V)
+                if save_mask_selected:
+                    mv_mask = einops.rearrange(resized_alpha, "v c h w -> v (h w) c") # v c h w 
+                    mv_depth = einops.rearrange(gt_depth[0], "v c h w -> v (h w) c")
+                    
+                              
+                for i, _v_pc in enumerate(mv_pc):
+                    if save_mask_selected:
+                        # save only visible by mask selection
+                        # _v_mask = (mv_mask[i] > 0).squeeze(-1) 
+                        _v_mask = (mv_depth[i] > 0).squeeze(-1)
+                        print(torch.unique(_v_mask), _v_mask.shape)
+                        _v_pc = _v_pc[_v_mask]
+                        print(_v_pc.shape)
+                        
+                    save_as_ply(_v_pc, f"{pc_dir}/view_{i}.ply")
+             
+                print(f"Saved pc from depths to {pc_dir} ")
+                st()
+                
+
+        # NOTE: this normalization is important to get clean depth map, 
+        # but may lose information about the actual depth value used for view consistent recon
+        depth_min, depth_max = 0, 3 
+        sp_min_max_dict["z-depth"] = depth_min, depth_max 
+        # st()
+        
+        gt_depth = (gt_depth - depth_min) / (depth_max - depth_min)
+
+        gt_masks = gt_depth
+        gt_masks_save = gt_masks.detach().cpu().numpy().transpose(0, 3, 1, 4, 2).reshape(-1, gt_masks.shape[1] * gt_masks.shape[3], 1) # [B*output_size, V*output_size, 3]
+        kiui.write_image(f'diff_gs_w_depth.jpg', gt_masks_save)
+
+        reshaped_depth = einops.rearrange(gt_depth[0], "(m n) c h w -> (m h) (n w) c", m=3, n=2)
+        splatter_3Channel_image["z-depth"] =  torch.cat([reshaped_depth]*3, dim=-1)
+
+
+    else:
+        print("Not a valid depth mode in prepare_fake_3channel_images_to_encode")
+        exit()
+
+    kiui.write_image('data_fake_depth_3channels.jpg', splatter_3Channel_image["z-depth"])
+
+    ## xy offset # assume in [0,1]
+    xyz_offset_zeros = torch.zeros_like(mv_rgb_images)
+    offset_min, offset_max = sp_min_max_dict["xyz-offset"]
+    xyz_offset_zeros = (xyz_offset_zeros - offset_min) / (offset_max - offset_min)
+    splatter_3Channel_image["xyz-offset"] = xyz_offset_zeros
+
+
+    ## scale
+    # constant: 
+    scale_constant = -5.7 # between -5.3 and -6
+    # fake_scale_attr = torch.ones_like(mv_rgb_images) * torch.exp(
+    #     torch.tensor([scale_constant], device=splatters_mv.device)
+    #     )
+    fake_scale_attr = torch.ones_like(mv_rgb_images) * scale_constant # already in log scale
+    # map to [0,1]
+    sp_min, sp_max = sp_min_max_dict["scale"]
+    splatter_3Channel_image["scale"] = (fake_scale_attr - sp_min) / (sp_max - sp_min)
+    
+
+    ## rotation # assume in [0,1]
+    # decoded_attr_image_dict[attr_to_encode] = F.normalize(torch.ones_like(splatter_attr))
+    splatter_3Channel_image["rotation"] = torch.zeros_like(mv_rgb_images) # This is better than the above!! It's totally fine if all zeros
+    # NOTE: this is already in axis angle since it is 3-channel
+    
+    # reshape, [0,1] -> [-1,1]
+    for key, value in splatter_3Channel_image.items():
+        ## do reshapeing to [1, 3, 384, 256])
+        new_value = einops.rearrange(value, "h w c -> c h w")[None]
+        print("new shape: ", new_value.shape)
+        ## do mapping of value from [0,1] to [-1,1]
+        if value.min() < 0 or value.max()>1:
+            st()
+        new_value = new_value * 2 - 1
+        splatter_3Channel_image.update({key: new_value})
+    
+    
+    assert set(ordered_attr_list) == set(splatter_3Channel_image.keys())
+
+
+    return splatter_3Channel_image
 
 def encode_3channel_image_to_latents(pipe, sp_image):
     
@@ -203,6 +556,7 @@ def encode_3channel_image_to_latents(pipe, sp_image):
     # encode: splatter attr -> latent 
     # sp_image_original = sp_image.clone()
     sp_image = scale_image(sp_image.to(pipe.device))
+    # st()
     sp_image = pipe.vae.encode(sp_image).latent_dist.sample() * pipe.vae.config.scaling_factor
     latents = scale_latents(sp_image)
 
@@ -211,15 +565,15 @@ def encode_3channel_image_to_latents(pipe, sp_image):
 
 def decode_single_latents(pipe, latents, attr_to_encode):
     start_i, end_i = attr_map[attr_to_encode]
-    # print("decode_single_latents() -> latents.requires_grad", latents.requires_grad)
+    # print("decode_single_latents -> latents.requires_grad", latents.requires_grad)
 
     #  decode: latents -> platter attr
     latents1 = unscale_latents(latents)
     image = pipe.vae.decode(latents1 / pipe.vae.config.scaling_factor, return_dict=False)[0]
     image = unscale_image(image)
+    # print("decode_single_latents", latents1.shape, " ->", image.shape)
 
-    # image = model.decode_latents(latents)
-    # print("decode_single_latents() -> image.requires_grad", image.requires_grad)
+    # print("decode_single_latents -> image.requires_grad", image.requires_grad)
 
 
     # # save decoded image
@@ -252,12 +606,17 @@ def decode_single_latents(pipe, latents, attr_to_encode):
     # elif attr_to_encode == "z-depth":
         # sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
 
-    elif attr_to_encode in[ "z-depth", "xy-offset", "pos"]:
+    elif attr_to_encode in[ "z-depth", "xy-offset", "pos", "xyz-offset"]:
         sp_min, sp_max = sp_min_max_dict[attr_to_encode]
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+        sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
+        print(f"{attr_to_encode}: {sp_min, sp_max}")
+        # st()
+    
+    
 
     if attr_to_encode == "xy-offset": 
-        sp_image_o = sp_image_o[:,:2] # FIXME: ...,2??
+        sp_image_o = sp_image_o[:,:2] # sp_image_o: torch.Size([1, 3, 384, 256])
 
     if attr_to_encode == "rotation": 
         
@@ -271,48 +630,136 @@ def decode_single_latents(pipe, latents, attr_to_encode):
         # st()
         # print(f"Decoded attr [unscaled, before mean] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
         sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
-
-
         # print(f"Decoded attr [unscaled, after median] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
         
   
     print(f"Decoded attr [unscaled] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
-    # print("decode_single_latents() -> sp_image_o.requires_grad", sp_image_o.requires_grad)
+    # print("decode_single_latents -> sp_image_o.requires_grad", sp_image_o.requires_grad)
     
     return sp_image_o, mv_image
 
-def get_splatter_images_from_decoded_dict(decoded_attr_image_dict, group_scale=False):
+def save_as_ply(points, filename='output.ply'):
+    header = f"""ply
+format ascii 1.0
+element vertex {len(points)}
+property float x
+property float y
+property float z
+end_header
+"""
+    with open(filename, 'w') as f:
+        f.write(header)
+        for point in points:
+            f.write(f"{point[0]} {point[1]} {point[2]}\n")
+
+# # Example tensor of shape [n, 3]
+# points = torch.rand(10, 3)  # 10 random 3D points
+# save_as_ply(points, 'points.ply')
+
+def get_splatter_images_from_decoded_dict(decoded_attr_image_dict, lgm_model=None, data=None, group_scale=False, save_pc=False):
         
-    if not group_scale:
-        ordered_attr_list = ["xy-offset", "z-depth", # 0-3
-                            'opacity', # 3-4
-                            'scale-x', 'scale-y', 'scale-z', # 4-7
-                            "rotation", # 7-11
-                            "rgbs", # 11-14
-                            ] # must be an ordered list according to the channels
-    else:
-        ordered_attr_list = ["pos", # 0-3
-                            'opacity', # 3-4
-                            'scale', # 4-7
-                            "rotation", # 7-11
-                            "rgbs", # 11-14
-                            ] # must be an ordered list according to the channels
+    # if not group_scale:
+    #     ordered_attr_list = ["xy-offset", "z-depth", # 0-3
+    #                         'opacity', # 3-4
+    #                         'scale-x', 'scale-y', 'scale-z', # 4-7
+    #                         "rotation", # 7-11
+    #                         "rgbs", # 11-14
+    #                         ] # must be an ordered list according to the channels
+    # else:
+    #     ordered_attr_list = ["pos", # 0-3
+    #                         'opacity', # 3-4
+    #                         'scale', # 4-7
+    #                         "rotation", # 7-11
+    #                         "rgbs", # 11-14
+    #                         ] # must be an ordered list according to the channels
     
-    attr_image_list = [decoded_attr_image_dict[attr] for attr in ordered_attr_list ]
-    # [print(t.shape) for t in attr_image_list]
+    if mode == "v3":
+        assert lgm_model is not None and data is not None
+        # has to convert the depth + offset to true pos
+        depth_activated = decoded_attr_image_dict["z-depth"] # torch.Size([1, 98304, 1])
+        B, C, _H, _W = depth_activated.shape
+        assert _H / 3 == _W / 2 == 128
+        V, H, W = 6, 128, 128
+
+        print("depth decoded in original range: ", depth_activated.min(), depth_activated.max())
+        # depth_activated = einops.rearrange(depth_activated, "b c _h _w -> b (_h _w) c")
+        depth_activated = einops.rearrange(depth_activated, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
+        xyz_offset = decoded_attr_image_dict["xyz-offset"]
+        # xyz_offset = einops.rearrange(xyz_offset, "b c _h _w -> b (_h _w) c")
+        xyz_offset = einops.rearrange(xyz_offset, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
+
+        # world_xyz2 = lgm_model.get_world_xyz_from_depth_offset(depth_activated, xyz_offset, data=data)
+        world_xyz2 = get_world_xyz_from_depth_offset(depth_activated, xyz_offset, data=data, opt=opt)
+        pos = einops.rearrange(world_xyz2, 'b (m n h w) c -> b c (m h) (n w)', b=B, m=3, n=2, h=H, w=W)
+        
+        # save point cloud for debug
+        # save_pc = True
+        if save_pc:
+            pc_dir = "debug_depth_pos"
+            os.makedirs(pc_dir, exist_ok=True)
+            mv_pc = einops.rearrange(world_xyz2[0], '(v n) c -> v n c', v=V)
+            for i, _v_pc in enumerate(mv_pc):
+                save_as_ply(_v_pc, f"{pc_dir}/view_{i}.ply")
+            print(f"Saved pc from depths to {pc_dir} ")
+            # st()
+    # if mode == "v4":
+    #     assert lgm_model is not None and data is not None
+    #     # has to convert the depth + offset to true pos
+    #     depth_activated = decoded_attr_image_dict["z-depth"] # torch.Size([1, 98304, 1])
+    #     B, C, _H, _W = depth_activated.shape
+    #     assert _H / 3 == _W / 2 == 320
+    #     V, H, W = 6, 320, 320
+
+    #     print("depth decoded in original range: ", depth_activated.min(), depth_activated.max())
+    #     # depth_activated = einops.rearrange(depth_activated, "b c _h _w -> b (_h _w) c")
+    #     depth_activated = einops.rearrange(depth_activated, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
+    #     xyz_offset = decoded_attr_image_dict["xyz-offset"]
+    #     # xyz_offset = einops.rearrange(xyz_offset, "b c _h _w -> b (_h _w) c")
+    #     xyz_offset = einops.rearrange(xyz_offset, "b c (m h) (n w) -> b (m n) c h w", h=H, w=W, m=3, n=2)
+
+    #     print(f"decoded depth_activated: {depth_activated.shape}, xyz_offset: {xyz_offset.shape}")
+    #     world_xyz2 = lgm_model.get_world_xyz_from_depth_offset(depth_activated, xyz_offset, data=data)
+    #     pos = einops.rearrange(world_xyz2, 'b (m n h w) c -> b c (m h) (n w)', b=B, m=3, n=2, h=H, w=W)
+        
+    #     # save point cloud for debug
+    #     save_pc = True
+    #     if save_pc:
+    #         pc_dir = "debug_depth_pos"
+    #         os.makedirs(pc_dir, exist_ok=True)
+    #         mv_pc = einops.rearrange(world_xyz2[0], '(v n) c -> v n c', v=V)
+    #         for i, _v_pc in enumerate(mv_pc):
+    #             save_as_ply(_v_pc, f"{pc_dir}/view_{i}.ply")
+    #         print(f"Saved pc from depths to {pc_dir} ")
+    #         st()
+            
+            
+        ## the order should also change, not the same as the ordered list since xyz-depth channnel mismatch
+        attr_image_list = [pos] 
+        attr_image_list += [decoded_attr_image_dict[attr] for attr in ordered_attr_list[2:] ]
+
+    else:
+
+        attr_image_list = [decoded_attr_image_dict[attr] for attr in ordered_attr_list ]
+        # [print(t.shape) for t in attr_image_list]
+
     splatter_mv = torch.cat(attr_image_list, dim=1)
 
     ## reshape 
     splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) 
-
+    
     return splatters_to_render
                     
-def render_from_decoded_images(model, splatters_to_render, data):
+def render_from_decoded_images(gs, splatters_to_render, data):
     gaussians = fuse_splatters(splatters_to_render)
     bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-    gs_results = model.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+    gs_results = gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
                     
     return gs_results
+
+from kiui.lpips import LPIPS
+global_lpips_loss = LPIPS(net='vgg')
+global_lpips_loss.requires_grad_(False)
+global_lpips_loss.to("cuda")
 
 def calculate_loss(model, gs_results, data, save_gt_path=None):
     results = {}
@@ -330,22 +777,30 @@ def calculate_loss(model, gs_results, data, save_gt_path=None):
         kiui.write_image(os.path.join(save_gt_path, 'calculate_loss_image_gt.jpg'), gt_images_save)
 
 
-
     loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
     results['loss_rendering'] = loss_mse_rendering
     loss = loss + loss_mse_rendering
 
-    if model.opt.lambda_lpips > 0:
-        loss_lpips = model.lpips_loss(
-            F.interpolate(gt_images.view(-1, 3, model.opt.output_size, model.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-            F.interpolate(pred_images.view(-1, 3, model.opt.output_size, model.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+    if opt.lambda_lpips > 0:
+        # loss_lpips = model.lpips_loss(
+        loss_lpips = global_lpips_loss(
+            F.interpolate(gt_images.view(-1, 3, opt.output_size, opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+            F.interpolate(pred_images.view(-1, 3, opt.output_size, opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
         ).mean()
         results['loss_lpips'] = loss_lpips
-        loss = loss + model.opt.lambda_lpips * loss_lpips
+        loss = loss + opt.lambda_lpips * loss_lpips
   
         print(f"loss lpips:{loss_lpips}")
+    
+    results['loss'] = loss
+    
+    # metric
+    with torch.no_grad():
+        psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
+        results['psnr'] = psnr
+    
         
-    return loss
+    return results
 
 def save_3channel_splatter_images(splatter_dict, fpath, range_min=0, suffix="decoded"):
     # os.makedirs(os.path.join(output_path, f'{name}/{iteration}'), exist_ok=True)
@@ -373,6 +828,16 @@ def save_gs_rendered_images(gs_results, fpath):
     pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
     kiui.write_image(os.path.join(fpath, 'gs_render_alpha.png'), pred_alphas)
 
+import torch.nn as nn
+class SimpleLinearModel(nn.Module):
+    def __init__(self):
+        super(SimpleLinearModel, self).__init__()
+        self.linear = nn.Linear(in_features=1, out_features=1)
+
+    def forward(self, x):
+        return self.linear(x)
+    
+opt = tyro.cli(AllConfigs)
 
 def main():    
     import sys
@@ -385,7 +850,7 @@ def main():
     # sys.path.append(your_path)
    
 
-    opt = tyro.cli(AllConfigs)
+    # opt = tyro.cli(AllConfigs)
     
     if opt.set_random_seed:
         # Set a manual seed for reproducibility 
@@ -402,18 +867,32 @@ def main():
         kwargs_handlers=[ddp_kwargs],
     )
 
-    # model
-    if opt.model_type == 'Zero123PlusGaussian':
-        model = Zero123PlusGaussian(opt)
-        from core.dataset_v4_batch import ObjaverseDataset as Dataset
-    elif opt.model_type == 'Zero123PlusGaussianCode':
-        model = Zero123PlusGaussianCode(opt)
-        from core.dataset_v4_code import ObjaverseDataset as Dataset
+    # # model
+    # if opt.model_type == 'Zero123PlusGaussian':
+    #     model = Zero123PlusGaussian(opt)
+    #     from core.dataset_v4_batch import ObjaverseDataset as Dataset
+    # elif opt.model_type == 'Zero123PlusGaussianCode':
+    #     model = Zero123PlusGaussianCode(opt)
+    #     from core.dataset_v4_code import ObjaverseDataset as Dataset
     
-    elif opt.model_type == 'Zero123PlusGaussianCodeUnetLora':
-        model = Zero123PlusGaussianCodeUnetLora(opt)
-        from core.dataset_v4_code import ObjaverseDataset as Dataset
+    # elif opt.model_type == 'Zero123PlusGaussianCodeUnetLora':
+    #     model = Zero123PlusGaussianCodeUnetLora(opt)
+    #     from core.dataset_v4_code import ObjaverseDataset as Dataset
+   
     
+
+    lgm_model = None
+    if mode in ["v3", "v4"]:
+        from core.models_fix_pretrained_depth_offset import LGM
+        opt.use_splatter_with_depth_offset = True
+        lgm_model = LGM(opt)
+        lgm_model.requires_grad_(False).eval()
+    
+    # model = lgm_model
+    model = SimpleLinearModel()
+    from core.dataset_v4_code import ObjaverseDataset as Dataset
+
+
     # Check the number of GPUs
     num_gpus = accelerator.num_processes
     if accelerator.is_main_process:
@@ -487,6 +966,9 @@ def main():
     # real_workspace = sorted(os.listdir(os.path.dirname(opt.workspace)))[-1]
     # opt.workspace = real_workspace
     print(f"workspace: {opt.workspace}")
+    
+    from core.gs_w_depth import GaussianRenderer
+    gs = GaussianRenderer(opt=opt)
 
     # # broadcast the opt.workspace to all processes
     # workspace_tensor = torch.tensor(list(opt.workspace.encode()), device="cuda", dtype=torch.uint8)
@@ -528,7 +1010,7 @@ def main():
         for folder in ['core', 'scripts']:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-        for file in ['main_zero123plus_v4_batch_code_inference_marigold.py']:
+        for file in ['main_zero123plus_v4_batch_code_inference_marigold_v2_fake_init.py']:
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
@@ -593,8 +1075,9 @@ def main():
     )
 
 
-    # optimizer
+    # # optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+   
 
     # scheduler (per-iteration)
     if opt.lr_scheduler == 'CosAnn':
@@ -612,7 +1095,7 @@ def main():
     model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, test_dataloader, scheduler
     )
-   
+
             # eval
     # with torch.no_grad():
     if True:
@@ -629,18 +1112,21 @@ def main():
         if opt.codes_from_diffusion or opt.vae_on_splatter_image:
                     
             # # # Load the pipeline
-            # pipeline_0123 = DiffusionPipeline.from_pretrained(
-            #     "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
-            #     torch_dtype=torch.float32
-            # )
-            # pipeline_0123.to('cuda:0')
+            pipeline_0123 = DiffusionPipeline.from_pretrained(
+                "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
+                torch_dtype=torch.float32
+            )
+            pipeline_0123.to('cuda:0')
+            pipeline_0123.vae.requires_grad_(False).eval()
+            pipeline_0123.unet.requires_grad_(False).eval()
             
-            pipeline = model.pipe
-            pipeline_0123 = model.pipe
+            # pipeline = model.pipe
+            # pipeline_0123 = model.pipe
+            # model.requires_grad_(False).eval()
 
-            # pipeline = pipeline_0123
+            pipeline = pipeline_0123
             # print("pipeline 0123")
-            print(pipeline.unet) # check whether lora is here
+            # print(pipeline.unet) # check whether lora is here
             # st()
 
             # Feel free to tune the scheduler!
@@ -704,7 +1190,14 @@ def main():
                 splatters_mv = einops.rearrange(data["splatters_output"], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
                 
                 # process each attr to be 3-channel images
-                splatter_3Channel_image_to_encode = prepare_3channel_images_to_encode(splatters_mv)
+                # TODO: instead of getting images from splatters_mv, instead, getting them from real rgb
+                # splatter_3Channel_image_to_encode = prepare_3channel_images_to_encode(splatters_mv)
+                # # st()
+                if opt.splatter_to_encode is not None:
+                    splatter_3Channel_image_to_encode = load_splatter_3channel_images_to_encode(opt.splatter_to_encode)
+                else:
+                    splatter_3Channel_image_to_encode = prepare_fake_3channel_images_to_encode(data, splatters_mv, lgm_model=lgm_model, gs=gs, opt=opt)
+                # NOTE: prepare_fake_3channel_images_to_encode returns value in [-1,1]
                 
                 print()
                 for attr_to_encode, splatter_attr in splatter_3Channel_image_to_encode.items():
@@ -712,18 +1205,20 @@ def main():
 
                 # vae.encode
                 latents_all_attr_dict = {}
-                for attr in gt_attr_keys:
+              
+                print(ordered_attr_list)
+                for attr in ordered_attr_list:
                     latents_single_attr = encode_3channel_image_to_latents(pipe, splatter_3Channel_image_to_encode[attr])
                     latents_all_attr_dict.update({attr: latents_single_attr.detach().clone().requires_grad_(True)})
 
-                latents_all_attr_tensor = torch.cat([latents_all_attr_dict[attr] for attr in gt_attr_keys])
-                print(latents_all_attr_tensor.shape, len(gt_attr_keys)) # torch.Size([5, 4, 48, 32])
-                assert latents_all_attr_tensor.shape[0] == len(gt_attr_keys)
+                latents_all_attr_tensor = torch.cat([latents_all_attr_dict[attr] for attr in ordered_attr_list])
+                print(latents_all_attr_tensor.shape, len(ordered_attr_list)) # torch.Size([5, 4, 48, 32])
+                assert latents_all_attr_tensor.shape[0] == len(ordered_attr_list)
                 
                 # create optimizer for latent codes
                 latent_codes = latents_all_attr_tensor
                 # optimizer = Adam([latent_codes], lr=0.01)
-                optimizer = torch.optim.Adam([latents_all_attr_dict[attr] for attr in gt_attr_keys], lr=0.01)
+                optimizer = torch.optim.Adam([latents_all_attr_dict[attr] for attr in ordered_attr_list], lr=0.01)
 
 
                 # Optimization loop
@@ -746,7 +1241,7 @@ def main():
                 ## gt splatter image
                 gaussians = fuse_splatters(data["splatters_output"])
                 bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-                gs_results = model.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+                gs_results = gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
             
                 save_gs_rendered_images(gs_results, fpath=os.path.join(output_path, f'{name}/gt'))
             
@@ -754,31 +1249,48 @@ def main():
                     optimizer.zero_grad()  # Perform a si
                     
                     print(f"[Iter {i}]")
-                    
                     # Generate images from updated latent codes
                     # Step 2: Render the images from the latents
                     # Reshape latents if necessary and decode them
-                    for attr, latents in latents_all_attr_dict.items():
-                        if latents.requires_grad and latents.grad is not None:
-                            print(f"Gradient of {attr}: {latents.requires_grad} -- {latents.grad.norm().item()}")
+                    # with torch.no_grad():
 
+                    for attr, latents in latents_all_attr_dict.items():
+                        
                         decoded_attributes, decoded_images = decode_single_latents(pipeline_0123, latents, attr_to_encode=attr)
+                        # print("decode_single_latents: ", attr, " ->", latents.shape, "decoded attr -> ", decoded_attributes.shape)
+                        # NOTE: decoded_attributes is already mapped to their original range, not [0,1] or [-1,1]
                         decoded_3channel_attr_image_dict.update({attr:decoded_images}) # which is for visualization, in range [-1,1]
                         decoded_attributes_dict.update({attr:decoded_attributes}) # splatter attributes in original range 
                     
+                    # # debug
+                    # # Check gradients of the unet parameters 
+                    # print(f"check unet parameters")
+                    # for name, param in pipeline_0123.vae.named_parameters():
+                    #     if param.requires_grad and param.grad is not None:
+                    #         print(f"Parameter {name}") #s, Gradient norm: {param.grad.norm().item()}")
+                
+                    # print(f"check other model parameters")
+                    # for name, param in pipeline_0123.unet.named_parameters():
+                    #     if param.requires_grad and param.grad is not None:
+                    #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                    # print("grad at iter = ", i)
+                    # st() # passed: no grad on any params
                 
                     # order the attributes back into splatter image
-                    splatters_to_render = get_splatter_images_from_decoded_dict(decoded_attributes_dict, group_scale=True)
+                    # TODO: group_scale=False. do some check on dim
+                    splatters_to_render = get_splatter_images_from_decoded_dict(decoded_attributes_dict, lgm_model=lgm_model, data=data, group_scale=group_scale)
                     print("splatters_to_render.requires_grad: ", splatters_to_render.requires_grad)
                     # st()
 
                     # Render the decoded images using the splatter model
-                    gs_results = render_from_decoded_images(model, splatters_to_render, data=data)
+                    gs_results = render_from_decoded_images(gs, splatters_to_render, data=data)
                     
                     # Step 3: Calculate the loss
                     # The target images should be the ground truth images you are trying to approximate
                     save_gt_path = None if i > 0 else os.path.join(output_path, f'{name}/gt')
-                    loss = calculate_loss(model, gs_results, data, save_gt_path=save_gt_path)
+                    results = calculate_loss(model, gs_results, data, save_gt_path=save_gt_path)
+                    loss = results['loss']
+                    psnr = results['psnr']
                     if i==0:
                         acceptable_loss_threshold = 0.1 * loss
                    
@@ -787,6 +1299,18 @@ def main():
 
                     # # Save the current state of the parameters before the update
                     # param_state_before = {name: param.clone() for name, param in model.named_parameters() if param.requires_grad}
+
+                    for attr, latents in latents_all_attr_dict.items():
+                        # st()
+                        if latents.requires_grad and latents.grad is not None:
+                            print(f"Gradient of {attr}: {latents.requires_grad} -- {latents.grad.norm().item()}")
+                    st()
+                    
+                    for attr, image in splatter_3Channel_image_to_encode.items():
+                        # if image.requires_grad: # and image.grad is not None:
+                        # print(f"Gradient of [splatter image] {attr}: {image.requires_grad} -- {image.grad.norm().item()}")
+                        print(f"{attr} - requires_grad: {image.requires_grad}, grad: {getattr(image, 'grad', None)}")
+                        # st()
 
                     
                     # Step 5: Update the latents
@@ -984,22 +1508,22 @@ def main():
                     if not render_splatter_images:
                         continue
 
-                    # reshape to original splatter image shape for splatter rendering
-                    ## cat all attrs
-                    if not group_scale:
-                        ordered_attr_list = ["xy-offset", "z-depth", # 0-3
-                                            'opacity', # 3-4
-                                            'scale-x', 'scale-y', 'scale-z', # 4-7
-                                            "rotation", # 7-11
-                                            "rgbs", # 11-14
-                                            ] # must be an ordered list according to the channels
-                    else:
-                        ordered_attr_list = ["pos", # 0-3
-                                            'opacity', # 3-4
-                                            'scale', # 4-7
-                                            "rotation", # 7-11
-                                            "rgbs", # 11-14
-                                            ] # must be an ordered list according to the channels
+                    # # reshape to original splatter image shape for splatter rendering
+                    # ## cat all attrs
+                    # if not group_scale:
+                    #     ordered_attr_list = ["xy-offset", "z-depth", # 0-3
+                    #                         'opacity', # 3-4
+                    #                         'scale-x', 'scale-y', 'scale-z', # 4-7
+                    #                         "rotation", # 7-11
+                    #                         "rgbs", # 11-14
+                    #                         ] # must be an ordered list according to the channels
+                    # else:
+                    #     ordered_attr_list = ["pos", # 0-3
+                    #                         'opacity', # 3-4
+                    #                         'scale', # 4-7
+                    #                         "rotation", # 7-11
+                    #                         "rgbs", # 11-14
+                    #                         ] # must be an ordered list according to the channels
                     attr_image_list = [decoded_attr_image_dict[attr] for attr in ordered_attr_list ]
                     # [print(t.shape) for t in attr_image_list]
                     splatter_mv = torch.cat(attr_image_list, dim=1)

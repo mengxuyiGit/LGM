@@ -34,6 +34,9 @@ class GaussianRenderer:
         # cam_view, cam_view_proj: [B, V, 4, 4]
         # cam_pos: [B, V, 3]
         
+        assert all(bg_color==1)
+          
+        
         if self.opt.verbose_main:
             print(f"gs.render input: {gaussians.shape}")
 
@@ -57,8 +60,8 @@ class GaussianRenderer:
 
             for v in range(V):
                 
-                try:
-                # if True:
+                # try:
+                if True:
                     # render novel views
                     view_matrix = cam_view[b, v].float()
                     view_proj_matrix = cam_view_proj[b, v].float()
@@ -100,20 +103,20 @@ class GaussianRenderer:
                     alphas.append(rendered_alpha)
                     depths.append(rendered_depth)
                 
-                except:
-                    print(f"^|_______OOM: {b}th gaussian, {v}th view")
+                # except:
+                #     print(f"^|_______OOM: {b}th gaussian, {v}th view")
                     # st()
 
        
-        try:
-        # if True:
+        # try:
+        if True:
             images = torch.stack(images, dim=0).view(B, V, 3, self.opt.output_size, self.opt.output_size)
             alphas = torch.stack(alphas, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
             depths = torch.stack(depths, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
-        except:
-            print(f"^|_______OOM: torch.stack")
-            print(f"Max scale: {scales.max()}")
-            st()
+        # except:
+        #     print(f"^|_______OOM: torch.stack")
+        #     print(f"Max scale: {scales.max()}")
+        #     st()
       
         
         if self.opt.verbose_main:
