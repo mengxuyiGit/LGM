@@ -135,41 +135,41 @@ DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN_HQ='/mnt/kostas-graid/sw/envs/xuyimeng/Repo/
 #     --output_size 128 --input_size 128 \
 #     --optimization_objective "splatter_images" 
     
-# export CUDA_VISIBLE_DEVICES=1
-# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_debug \
-#     --lr 2e-3 --num_epochs 1001 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
-#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
-#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-#     --desc 'v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
-#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
-#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
-#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
-#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
-#     --decoder_upblocks_interpolate_mode "last_layer" \
-#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
-#     --output_size 128 --input_size 128 \
-#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
-#     --rendering_loss_on_splatter_to_encode \
-#     --scene_start_index 10  --scene_end_index 100
-
-
-# [try size 320]
 export CUDA_VISIBLE_DEVICES=1
 accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_debug \
     --lr 2e-3 --num_epochs 1001 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'v5_LGM_320_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --desc 'v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
     --decoder_upblocks_interpolate_mode "last_layer" \
     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
-    --output_size 320 --input_size 320 \
+    --output_size 128 --input_size 128 \
     --optimization_objective "splatter_images" --attr_group_mode "v5" \
     --rendering_loss_on_splatter_to_encode \
     --scene_start_index 10  --scene_end_index 100
+
+
+# # [try size 320]
+# export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_debug \
+#     --lr 2e-3 --num_epochs 1001 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'v5_LGM_320_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" \
+#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+#     --output_size 320 --input_size 320 \
+#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
+#     --rendering_loss_on_splatter_to_encode \
+#     --scene_start_index 0  --scene_end_index 4
 
 # # [KEY NOTES: 
 # # 1. load all the views
