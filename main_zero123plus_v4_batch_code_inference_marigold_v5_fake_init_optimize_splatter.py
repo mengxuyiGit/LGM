@@ -38,6 +38,7 @@ from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
 import einops
 import rembg
 import requests
+import glob
 
 from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
 
@@ -1182,7 +1183,12 @@ def main():
         for folder in ['core', 'scripts']:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-        for file in ['main_zero123plus_v4_batch_code_inference_marigold_v2_fake_init.py']:
+        # Define the pattern to search for
+        pattern = "main_zero123plus_v4_batch_code_inference_marigold_*"
+        # Use glob to find all files matching the pattern
+        files = glob.glob(pattern)
+        for file in files:
+            # for file in ['main_zero123plus_v4_batch_code_inference_marigold_v2_fake_init.py']:
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
@@ -1323,7 +1329,7 @@ def main():
         best_loss = float('inf')
         patience_counter = 0
         patience_limit = 10  # You can adjust this value
-        delta = 1e-3  # The threshold for improvement, can be a percentage of best_loss
+        delta = 1e-2  # The threshold for improvement, can be a percentage of best_loss
 
         
         print(f"Save to run dir: {opt.workspace}")
@@ -1342,10 +1348,10 @@ def main():
                 exit(0)
           
             scene_name = data["scene_name"][0]
-            if i < 5 or scene_name == "0a9b36d36e904aee8b51e978a7c0acfd":
-                pass
-            else:
-                continue
+            # if i < 5 or scene_name == "0a9b36d36e904aee8b51e978a7c0acfd":
+            #     pass
+            # else:
+            #     continue
             
             directory = f'{opt.workspace}/eval_ckpt/{accelerator.process_index}_{i}_{scene_name}'
             if not os.path.exists(directory):
@@ -1360,7 +1366,11 @@ def main():
                         
                 
                 # path =f'/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/{scene_name}/000.png'
-                path = f"{opt.data_path_rendering}/{scene_name}/rgb/000000.png"
+                if opt.data_mode == "srn_cars":
+                    path = f"{opt.data_path_rendering}/{scene_name}/rgb/000000.png"
+                else:
+                    path = f"{opt.data_path_rendering}/{scene_name}/000.png"
+                    
                 print("Cond path is :", path)
             
                 name = path.split('/')[-2]
@@ -1526,7 +1536,6 @@ def main():
                         #     print(f"Gradient of {attr}: {latents.requires_grad} -- {latents.grad.norm().item()}")
                         
                         decoded_attributes, decoded_images = decode_single_latents(pipeline_0123, latents, attr_to_encode=attr)
-                        # print("decode_single_latents: ", attr, " ->", latents.shape, "decoded attr -> ", decoded_attributes.shape)
                         # NOTE: decoded_attributes is already mapped to their original range, not [0,1] or [-1,1]
                         decoded_3channel_attr_image_dict.update({attr:decoded_images}) # which is for visualization, in range [-1,1]
                         decoded_attributes_dict.update({attr:decoded_attributes}) # splatter attributes in original range 
@@ -1618,16 +1627,16 @@ def main():
                         splatters_to_render = get_splatter_images_from_decoded_dict(to_encode_attributes_dict_init, lgm_model=lgm_model, data=data, group_scale=group_scale)
                         print("splatters_to_render.requires_grad: ", splatters_to_render.requires_grad)
                         # Render the decoded images using the splatter model
-                        gs_results = render_from_decoded_images(gs, splatters_to_render, data=data, bg_color=global_bg_color) # NOTE: can do color_augmentation here
+                        gs_results_to_encode = render_from_decoded_images(gs, splatters_to_render, data=data, bg_color=global_bg_color) # NOTE: can do color_augmentation here
                         
-                        to_encode_results = calculate_loss(model, gs_results, data, save_gt_path=save_gt_path)
+                        to_encode_results = calculate_loss(model, gs_results_to_encode, data, save_gt_path=save_gt_path)
                         to_encode_loss = to_encode_results['loss']
                         to_encode_psnr = to_encode_results['psnr']
                         
                         if i % save_iters == 0:
                             # save rendering results
                             save_path = os.path.join(output_path, f'{name}/{i}_encoder_input')
-                            save_gs_rendered_images(gs_results, fpath=save_path)
+                            save_gs_rendered_images(gs_results_to_encode, fpath=save_path)
 
                             # Write PSNR value to the shared log file
                             with open(psnr_log_file, 'a') as f:
@@ -1663,7 +1672,7 @@ def main():
                     if i % save_iters == 0:
                         # save splatter image 
                         print(f"output_path={output_path}, name={name}")
-                        save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}'), range_min=-1)
+                        # save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}'), range_min=-1)
                         # st()
                         # save rendering results
                         save_path = os.path.join(output_path, f'{name}/{i}')
@@ -1705,7 +1714,7 @@ def main():
                     #     save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}_success'), range_min=-1)
                     #     save_gs_rendered_images(gs_results, fpath=os.path.join(output_path, f'{name}/{i}_success'))
                     #     break
-                    
+
                     ## v2: early stopping
                     current_loss = loss.item()
 
