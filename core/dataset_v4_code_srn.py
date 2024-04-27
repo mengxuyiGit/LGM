@@ -98,8 +98,12 @@ class SrnCarsDataset(Dataset):
             
         for scene_path in all_scene_paths:
             
-            pattern = os.path.join(scene_path, 'eval_pred_gs_299*')
-            es_folder =  glob.glob(pattern)
+            # pattern = os.path.join(scene_path, 'eval_pred_gs_299*')
+            # es_folder =  glob.glob(pattern)
+            pattern1 = os.path.join(scene_path, 'eval_pred_gs_999*')
+            pattern2 = os.path.join(scene_path, 'eval_pred_gs_*_es')
+            es_folder = glob.glob(pattern1) + glob.glob(pattern2)
+
             try:
                 assert len(es_folder) >= 1
             except:
@@ -200,9 +204,11 @@ class SrnCarsDataset(Dataset):
         #     # fixed views
         #     vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
         if self.training:
-            vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
+            # vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(50).tolist()
+            vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(np.arange(self.opt.num_input_views, 50)).tolist()
         else:
-            vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 50).tolist()
+            # vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 50).tolist()
+            vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(np.arange(self.opt.num_input_views, 50)).tolist()
 
         cond_path = os.path.join(uid, f'rgb/000000.png')
         from PIL import Image
@@ -281,7 +287,8 @@ class SrnCarsDataset(Dataset):
             cam_poses.append(c2w)
 
             vid_cnt += 1
-            if self.training and (vid_cnt == self.opt.num_views):
+            # if self.training and (vid_cnt == self.opt.num_views):
+            if (vid_cnt == self.opt.num_views):
                 break
 
         if vid_cnt < self.opt.num_views:
@@ -326,7 +333,7 @@ class SrnCarsDataset(Dataset):
         render_input_views = self.opt.render_input_views
         
         if images.shape[-1] != self.opt.output_size:
-            print("DOING resizing")
+            print("DOING resizing OF 'images_output' to ", self.opt.output_size)
             results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         else:
             results['images_output'] = images
