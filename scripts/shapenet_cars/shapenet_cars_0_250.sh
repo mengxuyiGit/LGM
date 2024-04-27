@@ -28,12 +28,14 @@ DATA_DIR_BATCH_SRN_CARS="/home/xuyimeng/Data/SRN/srn_cars/cars_train"
 
 
 # resume from es checkpoint
+# export CUDA_VISIBLE_DEVICES=1
 accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch_srn_cars.py big --workspace runs/LGM_optimize_splatter/optimize \
     --desc 'further_optimize_splatter_srn_cars' --data_path ${DATA_DIR_BATCH_SRN_CARS} \
     --resume pretrained/model_fp16.safetensors --num_epochs 1000 --fix_pretrained --prob_cam_jitter 0 \
     --lr 0.006 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 10 \
     --eval_iter 20 --save_iter 500 --fovy 52 \
-    --scene_start_index 250 --scene_end_index 500 --early_stopping \
+    --scene_start_index 0 --scene_end_index 250 --early_stopping \
     --further_optimize_splatter \
-    --resume_workspace '/home/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/shapenet_fit_batch/00001-debug_srn_cars-es10-Plat-patience_10-factor_0.5-eval_150-adamW-subset_250_500_splat128-inV6-lossV20-lr0.006/cars_train'
+    --resume_workspace '/home/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/shapenet_fit_batch/00000-debug_srn_cars-es10-Plat-patience_10-factor_0.5-eval_150-adamW-subset_0_250_splat128-inV6-lossV20-lr0.006/cars_train' \
+    --workspace_to_save "runs/LGM_optimize_splatter/optimize/00000-further_optimize_splatter_srn_cars-es10-Plat-patience_10-factor_0.5-eval_20-adamW-subset_0_250_splat128-inV6-lossV20-lr0.006"
 
