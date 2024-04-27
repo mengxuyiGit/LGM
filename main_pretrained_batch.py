@@ -39,6 +39,9 @@ def main():
     # model
     if opt.use_splatter_with_depth_offset:
         from core.models_fix_pretrained_depth_offset import LGM
+    else:
+        from core.models_fix_pretrained import LGM
+        
 
     model = LGM(opt)
     if opt.fix_pretrained:
