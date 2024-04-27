@@ -233,6 +233,7 @@ class ObjaverseDataset(Dataset):
             camera_path = os.path.join(uid, f'{vid:03d}.npy')
 
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
+            # print("images shape: ", image.shape) # 320x320x4
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
@@ -297,6 +298,7 @@ class ObjaverseDataset(Dataset):
         transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0]) # w2c_1
         cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4], c2c_1
 
+       
         images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         masks_input = F.interpolate(masks[:self.opt.num_input_views].clone().unsqueeze(1), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         if self.prepare_white_bg:
