@@ -34,7 +34,8 @@ class GaussianRenderer:
         # cam_view, cam_view_proj: [B, V, 4, 4]
         # cam_pos: [B, V, 3]
         
-        assert all(bg_color==1)
+        if self.opt.data_mode == "srn_cars":
+            assert all(bg_color==1)
           
         
         if self.opt.verbose_main:

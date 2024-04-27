@@ -47,7 +47,10 @@ class LGM(nn.Module):
         self.pos_act = lambda x: x.clamp(-1, 1)
         self.scale_act = lambda x: 0.1 * F.softplus(x)
         self.opacity_act = lambda x: torch.sigmoid(x)
-        self.rot_act = F.normalize
+        # self.rot_act = F.normalize
+        print("Fixed the rot")
+        st()
+        self.rot_act = lambda x: F.normalize(x, dim=-1)
         self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
 
         # LPIPS loss
@@ -306,7 +309,7 @@ class LGM(nn.Module):
 
         # random bg for training
         if self.training and not torch.all(data['masks_output']==1):
-            st() # This should not st() for srn data, which has all 1 as mask
+            # st() # This should not st() for srn data, which has all 1 as mask
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
             # bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) # NOTE: this is for shapenet cars, which do not have a gt mask
         else:
