@@ -221,6 +221,9 @@ class Options:
     rendering_loss_on_splatter_to_encode: bool = False
     load_iter: int = 1000
     color_augmentation: bool = False
+    loss_weights_decoded_splatter: float = 1.
+
+    splatter_size: int = 128
 
     
 

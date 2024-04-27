@@ -42,6 +42,9 @@ import glob
 
 from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
 
+from itertools import islice
+
+
 def to_rgb_image(maybe_rgba: Image.Image):
     if maybe_rgba.mode == 'RGB':
         return maybe_rgba
@@ -388,7 +391,7 @@ def load_splatter_3channel_images_to_encode(splatter_dir, suffix="to_encode"):
     for key, value in splatter_3Channel_image.items():
         ## do reshapeing to [1, 3, 384, 256])
         new_value = einops.rearrange(value, "h w c -> c h w")[None]
-        print("new shape: ", new_value.shape)
+        # print("new shape: ", new_value.shape)
         ## do mapping of value from [0,1] to [-1,1]
         if value.min() < 0 or value.max()>1:
             st()
@@ -617,7 +620,7 @@ def prepare_fake_original_channel_images_to_encode(data, splatters_mv, depth_mod
     
 
     ## rotation # assume in [0,1]
-    # decoded_attr_image_dict[attr_to_encode] = F.normalize(torch.ones_like(splatter_attr))
+    # decoded_attr_image_dict[attr_to_encode] = F.normalize(torch.ones_like(splatter_attr). dim=-1)
     splatter_3Channel_image["rotation"] = torch.zeros_like(mv_rgb_images) # This is better than the above!! It's totally fine if all zeros
     # NOTE: this is already in axis angle since it is 3-channel
     
@@ -985,7 +988,7 @@ def save_3channel_splatter_images(splatter_dict, fpath, range_min=0, suffix="dec
             mv_image_numpy = einops.rearrange(image_array, 'c h w-> h w c').astype(np.uint8) 
       
         Image.fromarray(mv_image_numpy).save(os.path.join(fpath, f'{attr_to_encode}_{suffix}.png'))
-        print(f"[save_3channel_splatter_images] {attr_to_encode}-{suffix} ", image.mean())
+        # print(f"[save_3channel_splatter_images] {attr_to_encode}-{suffix} ", image.mean())
         
         print(f"{attr_to_encode} saved!")
     # st()
@@ -1128,13 +1131,18 @@ def main():
         desc += f"_lipschitz_mode={opt.lipschitz_mode}_coeff={opt.lipschitz_coefficient}"
         
         
-    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
+    if opt.resume_workspace is not None:
+        opt.workspace = opt.resume_workspace
+    else:
+            
+        opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
+        
     
-    if accelerator.is_main_process:
-        assert not os.path.exists(opt.workspace)
-        print(f"makdir: {opt.workspace}")
-        os.makedirs(opt.workspace, exist_ok=True)
-        # writer = tensorboard.SummaryWriter(opt.workspace)
+        if accelerator.is_main_process:
+            assert not os.path.exists(opt.workspace)
+            print(f"makdir: {opt.workspace}")
+            os.makedirs(opt.workspace, exist_ok=True)
+            # writer = tensorboard.SummaryWriter(opt.workspace)
     
     # real_workspace = sorted(os.listdir(os.path.dirname(opt.workspace)))[-1]
     # opt.workspace = real_workspace
@@ -1178,6 +1186,17 @@ def main():
 
     if accelerator.is_main_process:
         src_snapshot_folder = os.path.join(opt.workspace, 'src')
+        src_i = 1
+        while os.path.exists(src_snapshot_folder):
+            # resume folder
+            # for i in range(1,100): # assume the number of resume does not pass 100
+            src_snapshot_folder = os.path.join(opt.workspace, f'src_{src_i:03d}')
+            src_i += 1
+            # if not os.path.exists(src_snapshot_folder):
+            #     if opt.verbose:
+            #         print(f"Resume src folder: {src_snapshot_folder}")
+            #     break
+    
         ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
         # for folder in ['core', 'scripts', 'zero123plus']:
         for folder in ['core', 'scripts']:
@@ -1297,7 +1316,6 @@ def main():
             pipeline_0123.to('cuda:0')
             pipeline_0123.vae.requires_grad_(False).eval()
             pipeline_0123.unet.requires_grad_(False).eval()
-            
             # pipeline = model.pipe
             # pipeline_0123 = model.pipe
             # model.requires_grad_(False).eval()
@@ -1329,18 +1347,25 @@ def main():
 
         
         print(f"Save to run dir: {opt.workspace}")
-        for i, data in enumerate(test_dataloader):
+        
+        # Skip to the start_index in the dataloader
+        data_iterator = islice(enumerate(test_dataloader), opt.scene_start_index, opt.scene_end_index)
+
+        for i, data in data_iterator:
+        # for i, data in enumerate(test_dataloader):
             # if i == 0:
             #     continue
             # if i > 40:
             #     exit(0)
             
             # Parameters for early stopping
-            best_loss = float('inf')
+            # best_loss = float('inf')
+            best_psnr =0
             patience_counter = 0
-            patience_limit = 100  # You can adjust this value
+            patience_limit = 50  # You can adjust this value
             delta = 1e-2  # The threshold for improvement, can be a percentage of best_loss
-            
+
+           
             # exactly loop [scene_start_index, scene_end_index)
             if i  < opt.scene_start_index: 
                 continue
@@ -1356,8 +1381,8 @@ def main():
             #     continue
             
             directory = f'{opt.workspace}/eval_ckpt/{accelerator.process_index}_{i}_{scene_name}'
-            if not os.path.exists(directory):
-                os.makedirs(directory)
+            # if not os.path.exists(directory):
+            #     os.makedirs(directory)
             
 
             if opt.vae_on_splatter_image:
@@ -1377,17 +1402,68 @@ def main():
             
                 name = path.split('/')[-2]
                 name = f"{i}_{name}"
+                
+
+                # check whether
+
+                def extract_first_number(folder_name):
+                    match = re.search(r'\d+', folder_name)
+                    return int(match.group()) if match else None
+
+                def check_scene_finished(scene_workspace):
+                    # print(scene_workspace)
+                    # st()
+                    if os.path.exists(scene_workspace):
+                        # if opt.verbose:
+                        print(f"Already exists {i}th scene")
+                    else:
+                        return False
+                    
+
+                    # scene_finished = False
+                
+                    for item in os.listdir(scene_workspace):
+                        # if not item.startswith('eval'):
+                        #     continue 
+                        item_epoch = extract_first_number(item)
+                        # if item_epoch is None or item.startswith('events'):
+                        if item_epoch is None or not os.path.isdir(os.path.join(scene_workspace, item)):
+                            continue
+
+                        # print(f"extract first number from item {item}: ",extract_first_number(item))
+                        # print(item)
+                        print(extract_first_number(item))
+                        if item.endswith('_success'):
+                            if opt.verbose:
+                                print(f"Already early stopped.")
+                            return True
+                         
+                        elif extract_first_number(item)>=opt.num_epochs-1:# already achieved the max training epochs
+                            if opt.verbose:
+                                print(f"Already achieved the max training epochs.")
+                            return True
+            
+                    # ---------
+                
+                
+                scene_finished = check_scene_finished(os.path.join(output_path, name)) 
+                if scene_finished:
+                    # st()
+                    continue 
+                
+                print("This scene needs to be processed ", i)
+                # continue
+                # st()
+                
                 os.makedirs(os.path.join(output_path, name), exist_ok=True)
 
                 img = to_rgb_image(Image.open(path))
                 
                 img.save(os.path.join(output_path, f'{name}/cond.png'))
-            
-
-              
-                # reshape splatter 
-                # make input 6 views into a 3x2 grid
+        
                 splatters_mv = einops.rearrange(data["splatters_output"], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+                    
+               
                 
                 # process each attr to be 3-channel images
                 # TODO: instead of getting images from splatters_mv, instead, getting them from real rgb
@@ -1440,23 +1516,30 @@ def main():
                 # NOTE: prepare_fake_3channel_images_to_encode returns value in [-1,1]
                 
                 
+                
+                # # doing resize 
+                # for attr_to_encode, splatter_attr in splatter_original_Channel_image_to_encode.items():
+                #     splatter_attr_mv = einops.rearrange(splatter_attr[0], "c (m h) (n w) -> (m n) c h w", m=3, n=2)
+                #     splatter_attr_mv_resized = F.interpolate(splatter_attr_mv, size=(320, 320), mode='bilinear', align_corners=False)
+                #     splatter_original_Channel_image_to_encode[attr_to_encode] = einops.rearrange(splatter_attr_mv_resized, "(m n) c h w -> c (m h) (n w)", m=3, n=2)[None]
+                
+                
                 print()
                 for attr_to_encode, splatter_attr in splatter_original_Channel_image_to_encode.items():
-                    print(attr_to_encode, splatter_attr.shape, splatter_attr.min(), splatter_attr.max())
+                    # print(attr_to_encode, splatter_attr.shape, splatter_attr.min(), splatter_attr.max())
                     splatter_attr.requires_grad_(True)
 
                 
                 optimizer = torch.optim.Adam([splatter_original_Channel_image_to_encode[attr] for attr in ordered_attr_list], lr=0.01)
 
-                for param_group in optimizer.param_groups:
-                    for param in param_group['params']:
-                        print(param.requires_grad, param.shape)
+                # for param_group in optimizer.param_groups:
+                #     for param in param_group['params']:
+                #         print(param.requires_grad, param.shape)
 
-                # st()
 
                 # Optimization loop
                 num_iterations = opt.num_epochs      
-                save_iters = num_iterations // 10
+                save_iters = 100 # num_iterations // 10
                 
                 if opt.splatter_to_encode is not None: #  and opt.attr_group_mode != "v5":
                     num_iterations = 1
@@ -1479,7 +1562,7 @@ def main():
                 
                 with torch.no_grad():
                     splatters_to_render = get_splatter_images_from_decoded_dict(to_encode_attributes_dict_init, lgm_model=lgm_model, data=data, group_scale=group_scale)
-                    print("splatters_to_render.requires_grad: ", splatters_to_render.requires_grad)
+                    # print("splatters_to_render.requires_grad: ", splatters_to_render.requires_grad)
                     # Render the decoded images using the splatter model
                     
                     # bg_color =  torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
@@ -1676,8 +1759,7 @@ def main():
                     if i % save_iters == 0:
                         # save splatter image 
                         print(f"output_path={output_path}, name={name}")
-                        # save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}'), range_min=-1)
-                        # st()
+                        save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}'), range_min=-1)
                         # save rendering results
                         save_path = os.path.join(output_path, f'{name}/{i}')
                         save_gs_rendered_images(gs_results, fpath=save_path)
@@ -1720,15 +1802,26 @@ def main():
                     #     break
 
                     ## v2: early stopping
-                    current_loss = loss.item()
+                    # current_loss = loss.item()
+
+                    # # Update the best loss and reset patience counter if current loss is better
+                    # if current_loss < best_loss - delta:
+                    #     best_loss = current_loss
+                    #     patience_counter = 0
+                    #     print(f"New best loss: {best_loss}")
+                    # else:
+                    #     patience_counter += 1
+
+                    current_psnr = psnr.item()
 
                     # Update the best loss and reset patience counter if current loss is better
-                    if current_loss < best_loss - delta:
-                        best_loss = current_loss
+                    if current_psnr > best_psnr + delta:
+                        best_psnr = current_psnr
                         patience_counter = 0
-                        print(f"New best loss: {best_loss}")
+                        print(f"New best psnr: {best_psnr}")
                     else:
                         patience_counter += 1
+
 
                     # If no improvement for a number of iterations specified by patience_limit, stop
                     if patience_counter >= patience_limit:
@@ -1736,8 +1829,7 @@ def main():
 
                         save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}_success'), range_min=-1)
                         save_gs_rendered_images(gs_results, fpath=os.path.join(output_path, f'{name}/{i}_success'))
-                        
-                        st()
+                        # st()
                         break
                     
                     
