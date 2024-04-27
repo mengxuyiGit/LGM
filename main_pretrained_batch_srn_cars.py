@@ -127,7 +127,18 @@ def main():
         
         
         run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
-        if opt.resume_workspace is not None:
+        if opt.workspace_to_save is not None:
+            run_dir = opt.workspace_to_save
+            
+            # resume folder
+            for i in range(1,100): # assume the number of resume does not pass 100
+                src_snapshot_folder = os.path.join(run_dir, f'src_{i:03d}')
+                if not os.path.exists(src_snapshot_folder):
+                    if opt.verbose:
+                        print(f"Resume src folder: {src_snapshot_folder}")
+                    break
+        
+        elif opt.resume_workspace is not None:
             
             # check their conditions are the same
             match = re.match(r'.*?(\d{5})-.*', opt.resume_workspace)
@@ -238,33 +249,33 @@ def main():
 
         
         
-        # if os.path.exists(scene_workspace):
-        #     if opt.verbose:
-        #         print(f"Already exists {i}th scene: {scene_name}")
+        if os.path.exists(scene_workspace):
+            # if opt.verbose:
+            print(f"Already exists {i}th scene: {scene_name}")
 
-        #     scene_finished = False
+            scene_finished = False
            
-        #     for item in os.listdir(scene_workspace):
-        #         if not item.startswith('eval'):
-        #             continue 
+            for item in os.listdir(scene_workspace):
+                if not item.startswith('eval'):
+                    continue 
 
-        #         # print(f"extract first number from item {item}: ",extract_first_number(item))
-        #         if item.startswith('eval_pred_gs_') and item.endswith('_es'):
-        #             if opt.verbose:
-        #                 print(f"Already early stopped.")
-        #             scene_finished = True
-        #             # check whether the early stopping ckpt has been saved
-        #             break
+                # print(f"extract first number from item {item}: ",extract_first_number(item))
+                if item.startswith('eval_pred_gs_') and item.endswith('_es'):
+                    if opt.verbose:
+                        print(f"Already early stopped.")
+                    scene_finished = True
+                    # check whether the early stopping ckpt has been saved
+                    break
 
-        #         elif extract_first_number(item)>=opt.num_epochs-1:# already achieved the max training epochs
-        #             if opt.verbose:
-        #                 print(f"Already achieved the max training epochs.")
-        #             scene_finished = True
-        #             break
+                elif extract_first_number(item)>=opt.num_epochs-1:# already achieved the max training epochs
+                    if opt.verbose:
+                        print(f"Already achieved the max training epochs.")
+                    scene_finished = True
+                    break
 
-        #     if scene_finished:
-        #         print("SCENE finished: ", scene_name)
-        #         continue
+            if scene_finished:
+                print("SCENE finished: ", scene_name)
+                continue
             
         
         # try:
