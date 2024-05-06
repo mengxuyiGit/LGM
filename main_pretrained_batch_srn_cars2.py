@@ -233,18 +233,16 @@ def main():
         # create scene_workspace
         scene_workspace = os.path.join(run_dir, scene_split, scene_name)
 
-        
-        
         if os.path.exists(scene_workspace):
             if opt.verbose:
                 print(f"Already exists {i}th scene: {scene_name}")
 
-            
-
+        
             if opt.resume_and_further_optimize:
                 
                 max_number = -1
                 # List all the items in the directory
+                path = scene_workspace
                 for item in os.listdir(path):
                     # Check if the item is a folder and matches the required pattern
                     if os.path.isdir(os.path.join(path, item)):
@@ -256,10 +254,12 @@ def main():
                             max_number = max(max_number, number)
 
                 print(f"The maximum number among the folders is: {max_number}")
+                ## set iter to this 
+                
 
             
             else:
-                
+
                 scene_finished = False
            
                 for item in os.listdir(scene_workspace):

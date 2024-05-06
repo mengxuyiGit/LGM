@@ -73,35 +73,11 @@ class LGM(nn.Module):
     
 
     # ------- depth + offset helper funcs [begin] ------- 
-
-    def init_ray_dirs_legacy(self):
-        x = torch.linspace(-self.cfg.data.training_resolution // 2 + 0.5, 
-                            self.cfg.data.training_resolution // 2 - 0.5, 
-                            self.cfg.data.training_resolution) 
-        y = torch.linspace( self.cfg.data.training_resolution // 2 - 0.5, 
-                           -self.cfg.data.training_resolution // 2 + 0.5, 
-                            self.cfg.data.training_resolution)
-        if self.cfg.model.inverted_x:
-            x = -x
-        if self.cfg.model.inverted_y:
-            y = -y
-        grid_x, grid_y = torch.meshgrid(x, y, indexing='xy')
-        ones = torch.ones_like(grid_x, dtype=grid_x.dtype)
-        ray_dirs = torch.stack([grid_x, grid_y, ones]).unsqueeze(0)
-
-        # for cars and chairs the focal length is fixed across dataset
-        # so we can preprocess it
-        # for co3d this is done on the fly
-        if self.cfg.data.category == "cars" or self.cfg.data.category == "chairs" \
-            or self.cfg.data.category == "objaverse":
-            ray_dirs[:, :2, ...] /= fov2focal(self.cfg.data.fov * np.pi / 180, 
-                                              self.cfg.data.training_resolution)
-        self.register_buffer('ray_dirs', ray_dirs)
-    
     def init_ray_dirs(self):
 
         # res = self.opt.output_size # TODO: confirm using this dim
-        res = self.opt.splat_size
+        # res = self.opt.splat_size
+        res = 320
 
         x = torch.linspace(-res // 2 + 0.5, 
                             res // 2 - 0.5, 
@@ -393,6 +369,7 @@ class LGM(nn.Module):
     def get_world_xyz_from_depth_offset(self, depth_activated, xyz_offset, data):
 
         B, V, C, H, W = depth_activated.shape
+        print("depth_activated.shape: ", depth_activated.shape)
 
         depth = einops.rearrange(depth_activated, 'b v c h w -> (b v) (h w) c', b=B, v=V, h=H, w=W)
         xyz_offset = einops.rearrange(xyz_offset, 'b v c h w -> (b v) (h w) c', b=B, v=V, h=H, w=W)

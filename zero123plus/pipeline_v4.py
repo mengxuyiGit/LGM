@@ -26,7 +26,8 @@ from diffusers import (
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.models.attention_processor import Attention, AttnProcessor, XFormersAttnProcessor, AttnProcessor2_0
 from diffusers.utils.import_utils import is_xformers_available
-
+from ipdb import set_trace as st
+from custom_unet.unet_channelwise import UNet2DConditionModelChannelwise # as UNet2DConditionModel
 
 def to_rgb_image(maybe_rgba: Image.Image):
     if maybe_rgba.mode == 'RGB':
@@ -81,7 +82,8 @@ class ReferenceOnlyAttnProc(torch.nn.Module):
 class RefOnlyNoisedUNet(torch.nn.Module):
     def __init__(self, unet: UNet2DConditionModel, train_sched: DDPMScheduler, val_sched: EulerAncestralDiscreteScheduler) -> None:
         super().__init__()
-        self.unet = unet
+        self.unet = UNet2DConditionModelChannelwise(unet)
+        self.duplicate_cond_lat = True
         self.train_sched = train_sched
         self.val_sched = val_sched
         self.is_generator = False
@@ -109,6 +111,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         if is_cfg_guidance:
             encoder_hidden_states = encoder_hidden_states[1:]
             class_labels = class_labels[1:]
+        # from ipdb import set_trace as st; st()
         self.unet(
             noisy_cond_lat, timestep,
             encoder_hidden_states=encoder_hidden_states,
@@ -124,6 +127,10 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         **kwargs
     ):
         cond_lat = cross_attention_kwargs['cond_lat']
+      
+        if self.duplicate_cond_lat:
+            cond_lat = cond_lat.repeat(1,5,1,1)
+    
         is_cfg_guidance = cross_attention_kwargs.get('is_cfg_guidance', False)
         noise = torch.randn_like(cond_lat)
         if self.is_generator:
@@ -149,6 +156,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             ref_dict, is_cfg_guidance, **kwargs
         )
         weight_dtype = self.unet.dtype
+       
         return self.unet(
             sample, timestep,
             encoder_hidden_states, *args,

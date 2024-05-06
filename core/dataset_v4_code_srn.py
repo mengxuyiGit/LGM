@@ -139,6 +139,10 @@ class SrnCarsDataset(Dataset):
         
         # self.items = [k for k in self.data_path_splatter_gt.keys()]
         all_items = [k for k in self.data_path_splatter_gt.keys()]
+        # 
+        all_items = all_items[opt.scene_start_index:opt.scene_end_index]
+        print(f"There are {len(all_items)} in scene ({opt.scene_start_index,opt.scene_end_index})")
+        
         num_val = min(50, len(all_items)//2) # when using small dataset to debug
         if self.training:
             self.items = all_items # NOTE: all scenes are used for training and val
@@ -242,6 +246,7 @@ class SrnCarsDataset(Dataset):
         results['splatters_output'] = splatter_images_mv
         # print(results['splatters_output'].shape) # [6, 14, 128, 128])
         
+        vids = [0] + vids
         for vid in vids:
 
             image_path = os.path.join(uid, 'rgb', f'{vid:06d}.png')
@@ -308,8 +313,16 @@ class SrnCarsDataset(Dataset):
         cam_poses = torch.stack(cam_poses, dim=0) # [V, 4, 4]
 
         # normalized camera feats as in paper (transform the first pose to a fixed position)
+        print(f"SRN: scene {scene_name}")
+    
+           
+        c2w_0th = load_pose(os.path.join(uid, 'pose', f'{0:06d}.txt'))
+        print(f"-- 0th view  cam pose: {c2w_0th}")
+        print(f"-- 1th view  cam pose: {cam_poses[0]}")
+        # transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1.5], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0]) # w2c_1
         transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1.5], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0]) # w2c_1
         cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4], c2c_1
+        print(f"-- normalized cam pose 1-N: {cam_poses[:6]}")
 
         images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         if self.prepare_white_bg:
