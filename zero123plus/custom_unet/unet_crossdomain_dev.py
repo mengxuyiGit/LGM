@@ -48,7 +48,7 @@ from zero123plus.custom_unet.custom_diffusers.unet_2d_condition_cd import UNet2D
 
 
 class UNet2DConditionModelCrossDomainAttn(torch.nn.Module):
-    def __init__(self, unet: UNet2DConditionModel,
+    def __init__(self, unet: UNet2DConditionModel=None,
                  in_channels=20, out_channels=20):
         super().__init__()
         # unet: original unet
