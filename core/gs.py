@@ -56,7 +56,8 @@ class GaussianRenderer:
 
             for v in range(V):
                 
-                try:
+                # try:
+                if True:
                     # render novel views
                     view_matrix = cam_view[b, v].float()
                     view_proj_matrix = cam_view_proj[b, v].float()
@@ -98,18 +99,19 @@ class GaussianRenderer:
                     images.append(rendered_image)
                     alphas.append(rendered_alpha)
                 
-                except:
-                    print(f"^|_______OOM: {b}th gaussian, {v}th view")
-                    # st()
+                # except:
+                #     print(f"^|_______OOM: {b}th gaussian, {v}th view")
+                #     # st()
 
        
-        try:
+        # try:
+        if True:
             images = torch.stack(images, dim=0).view(B, V, 3, self.opt.output_size, self.opt.output_size)
             alphas = torch.stack(alphas, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
-        except:
-            print(f"^|_______OOM: torch.stack")
-            print(f"Max scale: {scales.max()}")
-            st()
+        # except:
+        #     print(f"^|_______OOM: torch.stack")
+        #     print(f"Max scale: {scales.max()}")
+        #     st()
       
         
         if self.opt.verbose_main:

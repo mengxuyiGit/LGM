@@ -71,6 +71,7 @@ def predict_noise0_diffuser(unet, noisy_latents, text_embeddings, t,
     )
     alpha_t = alphas_cumprod[t] ** 0.5
     sigma_t = (1 - alphas_cumprod[t]) ** 0.5
+    
     if guidance_scale == 1.:
         cak = {}
         if cross_attention_kwargs is not None:
@@ -79,14 +80,17 @@ def predict_noise0_diffuser(unet, noisy_latents, text_embeddings, t,
                     cak[key] = cross_attention_kwargs[key][batch_size:]
                 else:
                     cak[key] = cross_attention_kwargs[key]
+        st()
         noise_pred = unet(noisy_latents, t, encoder_hidden_states=text_embeddings[batch_size:], cross_attention_kwargs=cak).sample
         if lora_v or scheduler.config.prediction_type == 'v_prediction':
             # assume the output of unet is v-pred, convert to noise-pred now
             noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + noise_pred * alpha_t.view(-1, 1, 1, 1)
         if model == 'unet_if':
+            st()
             noise_pred, _ = noise_pred.split(3, dim=1)
     else:
         t = torch.cat([t] * 2)
+        st()
         # predict the noise residual
         noise_pred = unet(latent_model_input, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs).sample
         if lora_v or scheduler.config.prediction_type == 'v_prediction':
@@ -378,6 +382,7 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
         
         # TODO:[BEGIN] check this part about requires grad -----------
 
+
         self.pipe = DiffusionPipeline.from_pretrained(
             opt.model_path,
             custom_pipeline=opt.custom_pipeline
@@ -480,7 +485,7 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
         else:
             self.code_activation = lambda x: x
             self.code_activation_inverse = lambda x: x
-        
+      
     
     def encode_image(self, image, is_zero123plus=True):
         # st() # image: torch.Size([1, 3, 768, 512])
@@ -526,6 +531,20 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
         )
         # return (noisy_latents - noise_pred * sigma_t) / alpha_t
         return (noisy_latents - noise_pred * sigma_t.reshape(-1, 1, 1, 1)) / alpha_t.reshape(-1, 1, 1, 1)
+    
+    def predict_eps(self, noisy_latents, text_embeddings, t, 
+            guidance_scale=1.0, cross_attention_kwargs={}, 
+            scheduler=None, lora_v=False, model='sd'):
+        alpha_t, sigma_t = self.get_alpha(scheduler, t, noisy_latents.device)
+        # print(f"t={t}, alpha_t, sigma_t:{alpha_t, sigma_t}")
+        noise_pred = predict_noise0_diffuser(
+            self.unet, noisy_latents, text_embeddings, t=t,
+            guidance_scale=guidance_scale, cross_attention_kwargs=cross_attention_kwargs, 
+            scheduler=scheduler, model=model
+        )
+        x = (noisy_latents - noise_pred * sigma_t.reshape(-1, 1, 1, 1)) / alpha_t.reshape(-1, 1, 1, 1)
+        return {"noise_pred": noise_pred, "x0": x}
+      
 
     def state_dict(self, **kwargs):
         # remove lpips_loss
@@ -671,35 +690,45 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
             torch.save(results, os.path.join(save_dir, scene_name_single) + '.pth')
 
     
-    def forward_splatters_with_activation_train_unet(self, cond, latents):
+    # def forward_splatters_with_activation_train_unet(self, cond, latents):
+    #     st()
       
-        B = cond.shape[0]
+    #     B = cond.shape[0]
         
-        with torch.no_grad():
-            text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
-            cross_attention_kwargs_stu = cross_attention_kwargs
+    #     with torch.no_grad():
+    #         text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
+    #         cross_attention_kwargs_stu = cross_attention_kwargs
         
-        # TODO: [BEGIN] training and loss on latent code
+    #     # TODO: [BEGIN] training and loss on latent code
      
-        if latents is None:
-            raise ValueError("Latents must be provided for the diffusion training process")
+    #     if latents is None:
+    #         raise ValueError("Latents must be provided for the diffusion training process")
 
-        gt_latents = latents
-        guidance_scale = 1.0
+    #     gt_latents = latents
+    #     guidance_scale = 1.0
         
-        t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents.device)
-        noise = torch.randn_like(latents, device=latents.device)
-        noisy_latents = self.pipe.scheduler.add_noise(latents, noise, t)
+    #     t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents.device)
+    #     noise = torch.randn_like(latents, device=latents.device)
+    #     noisy_latents = self.pipe.scheduler.add_noise(latents, noise, t)
       
-        x = self.predict_x0(
-            noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
-            cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-    
-        # do loss on x and gt_latents
-        loss_latent = F.mse_loss(x, gt_latents)
-        st()
+    #     pred = "eps"
+    #     if pred == "x0":
+    #         x = self.predict_x0(
+    #             noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
+    #             cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
         
-        return loss_latent
+    #         # do loss on x and gt_latents
+    #         loss_latent = F.mse_loss(x, gt_latents)
+    #     elif pred == "eps":
+    #         res = self.predict_eps(
+    #             noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
+    #             cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+    #         # do loss on x and gt_latents
+    #         loss_latent = F.mse_loss(noise, res["noise_pred"])
+    #         x = res["x0"]
+        
+        
+    #     return loss_latent
         
         
         
@@ -730,16 +759,24 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
           
         # print(noisy_latents.shape)
         # st()
+    
+        pred = "eps"
+        if pred == "x0":
+            x = self.predict_x0(
+                noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
+                cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
         
-        x = self.predict_x0(
-            noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
-            cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-      
-        # print(f"pred x0: {x.shape}, latents:{latents.shape}")
-        
-        # do loss on x and gt_latents
-        loss_latent = F.mse_loss(x, gt_latents)
-        
+            # do loss on x and gt_latents
+            # add w(t) for loss: only for predict x0, not for v_pred or eps
+            loss_latent = F.mse_loss(x, gt_latents)
+        elif pred == "eps":
+            res = self.predict_eps(
+                noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
+                cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
+            # do loss on x and gt_latents
+            loss_latent = F.mse_loss(noise, res["noise_pred"])
+            x = res["x0"]
+     
         # TODO: [END] training and loss on latent code
         
         x = self.decode_latents(x) # (B, 14, H, W)
@@ -869,7 +906,10 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
         # 1. optimize the splatters from the code
         if self.opt.codes_from_encoder:
             # codes=None
-            data['codes']=None
+             # make input 6 views into a 3x2 grid
+            images = einops.rearrange(data['input'], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+            # init code from pretrained zero123++ encoder
+            data['codes']=self.encode_image(images)
         else:
             if 'codes' not in data:
                 st()
@@ -923,7 +963,11 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
         if self.training: # random bg for training
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
         else:
-            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
+            
+            if self.opt.data_mode == "srn_cars":
+                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
+            else:
+                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
         
         if self.opt.render_gt_splatter:
             print("Render GT splatter --> load splatters then fuse")
@@ -986,6 +1030,9 @@ class Zero123PlusGaussianCodeUnet(nn.Module):
             
             gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
             gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+             # get gt_mask from gt gaussian rendering
+            if self.opt.data_mode == "srn_cars":
+                gt_masks = self.gs.render(fuse_splatters(data['splatters_output']), data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)['alpha']
 
             gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
 

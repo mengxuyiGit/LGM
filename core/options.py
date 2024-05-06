@@ -139,6 +139,7 @@ class Options:
     # for zero123++ batch training 
     data_path_rendering: Optional[str] = None
     data_path_splatter_gt: Optional[str] = None
+    data_path_vae_splatter: Optional[str] = None
     verbose_main: bool = False
     # scale_max_clamp: float = 
     plot_attribute_histgram: Tuple[str, ...] = ()
@@ -224,7 +225,10 @@ class Options:
     loss_weights_decoded_splatter: float = 1.
 
     splatter_size: int = 128
-
+    lambda_latent: float = 1
+    attr_to_learn: Optional[str] = None
+    fixed_noise_level: Optional[int] = None
+    cd_spatial_concat: bool = False
     
 
 # all the default settings

@@ -1,5 +1,8 @@
 DATA_DIR_BATCH_RENDERING='/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999'
 DATA_DIR_BATCH_SPLATTER_GT_ROOT='/home/xuyimeng/Repo/LGM/runs/splatter_gt'
+# DATA_DIR_BATCH_SPLATTER_GT_ROOT_FIX_ROT='/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/optimize_fixrot/00001-batch-es10-Plat-patience_2-factor_0.5-eval_5-adamW-subset_0_5_splat128-inV6-lossV20-lr0.003/9000-9999'
+# DATA_DIR_BATCH_SPLATTER_GT_ROOT_FIX_ROT="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/optimize_fixrot/init-00001-batch-es10-Plat-patience_2-factor_0.5-eval_5-adamW-subset_0_5_splat128-inV6-lossV20-lr0.003/9000-9999"
+DATA_DIR_BATCH_SPLATTER_GT_ROOT_FIX_ROT="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/optimize_fixrot/00002-batch-es10-Plat-patience_2-factor_0.5-eval_5-adamW-subset_0_5_splat128-inV6-lossV20-lr0.003/9000-9999"
 
 DATA_DIR_BATCH_RENDERING_SRN='/home/xuyimeng/Data/SRN/srn_cars/cars_train'
 DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN_HQ='/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/optimize'
@@ -135,31 +138,68 @@ DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN_HQ='/mnt/kostas-graid/sw/envs/xuyimeng/Repo/
 #     --output_size 128 --input_size 128 \
 #     --optimization_objective "splatter_images" 
     
-export CUDA_VISIBLE_DEVICES=1
-accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_debug \
-    --lr 2e-3 --num_epochs 1001 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
-    --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
-    --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
-    --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
-    --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
-    --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
-    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
-    --decoder_upblocks_interpolate_mode "last_layer" \
-    --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
-    --output_size 128 --input_size 128 \
-    --optimization_objective "splatter_images" --attr_group_mode "v5" \
-    --rendering_loss_on_splatter_to_encode \
-    --scene_start_index 10  --scene_end_index 100
-
-
-# # [try size 320]
-# export CUDA_VISIBLE_DEVICES=1
-# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_debug \
-#     --lr 2e-3 --num_epochs 1001 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+# # export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_optimize \
+#     --lr 2e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
 #     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
 #     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-#     --desc 'v5_LGM_320_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --desc 'v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" \
+#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+#     --output_size 128 --input_size 128 \
+#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
+#     --rendering_loss_on_splatter_to_encode --loss_weights_decoded_splatter 1.5 \
+#     --scene_start_index 858  --scene_end_index 1000 \
+#     --resume_workspace "runs/marigold/workspace_optimize/20240426-135026-v5_LGM_init_render320_scene_800_1000_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.006-Plat"
+
+# export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_optimize \
+#     --lr 2e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" \
+#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+#     --output_size 128 --input_size 128 \
+#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
+#     --rendering_loss_on_splatter_to_encode --loss_weights_decoded_splatter 1.5 \
+#     --scene_start_index 440  --scene_end_index 600 \
+#     --resume_workspace "runs/marigold/workspace_optimize/20240426-140725-v5_LGM_init_render320_scene_400_600_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.006-Plat"
+
+
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_optimize \
+#     --lr 2e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" \
+#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+#     --output_size 128 --input_size 128 \
+#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
+#     --rendering_loss_on_splatter_to_encode --loss_weights_decoded_splatter 1.5 \
+#     --scene_start_index 640  --scene_end_index 800 \
+#     --resume_workspace "runs/marigold/workspace_optimize/20240426-140907-v5_LGM_init_render320_scene_600_800_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.006-Plat"
+
+
+# # # [APR 25 rendering at size 320. Frozen: for optimizing splatter images from LGM init.]
+# # export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter.py big --workspace runs/marigold/workspace_debug \
+#     --lr 6e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'v5_LGM_FIXROT_optimized_inference' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT_FIX_ROT} \
 #     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
 #     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
 #     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
@@ -169,7 +209,87 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_
 #     --output_size 320 --input_size 320 \
 #     --optimization_objective "splatter_images" --attr_group_mode "v5" \
 #     --rendering_loss_on_splatter_to_encode \
-#     --scene_start_index 0  --scene_end_index 4
+#     --scene_start_index 0  --scene_end_index 200 --verbose 
+
+    # --desc 'v5_LGM_init_render320_scene_0_100_reg_encoder_input_every_iter_no_clip'
+    # --scene_start_index 0  --scene_end_index 100
+
+# # # [APR 25 Inference]
+# export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v7_fake_init_optimize_splatter_inference_finetuned.py big --workspace runs/marigold/workspace_debug \
+#     --lr 6e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'rgb-attr' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" \
+#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+#     --output_size 128 --input_size 128 \
+#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
+#     --scene_start_index 0  --scene_end_index 5 \
+#     --load_suffix "to_encode" --load_ext "png" --load_iter 1000 \
+#     --custom_pipeline "./zero123plus/pipeline_v5.py" \
+#     --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240504-marigold-unet-single-attr-rgbs-train-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/model.safetensors" 
+#     # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-every-iter-20240425-003322-v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder"
+#     # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_ovft/20240503-235752-marigold-unet-v-pred-cd-spatial-cat-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_3600/model.safetensors" \
+#     # --rendering_loss_on_splatter_to_encode \
+#     # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-save-iters-decode-20240424-184835-v5_LGM_init_scene1andAfter_to_decoded_png_inference1000-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder"
+#     # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/20240424-184835-v5_LGM_init_scene1andAfter_to_decoded_png_inference1000-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder/1_02b0456362f9442da46d39fb34b3ee5b/800"
+#     # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_optimize/20240425-232930-v5_LGM_init_render320_scene_0_200_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.006-Plat/zero123plus/outputs_v3_inference_my_decoder"
+
+export CUDA_VISIBLE_DEVICES=1
+accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v7_fake_init_optimize_splatter_inference_finetuned.py big --workspace runs/marigold_unet/workspace_CD_inference \
+    --lr 6e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+    --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+    --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+    --desc 'spatial-cat-train-epoch130' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+    --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+    --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+    --decoder_upblocks_interpolate_mode "last_layer" \
+    --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+    --output_size 128 --input_size 128 \
+    --optimization_objective "splatter_images" --attr_group_mode "v5" \
+    --scene_start_index 5  --scene_end_index 100 \
+    --load_suffix "to_encode" --load_ext "png" --load_iter 1000 \
+    --custom_pipeline "./zero123plus/pipeline_v5.py" \
+    --cd_spatial_concat \
+    --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240505-4-gpus-marigold-unet-v-pred-cd-spatial-cat-all-data-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_130/model.safetensors"
+    # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-every-iter-20240425-003322-v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder"
+    # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_ovft/20240503-235752-marigold-unet-v-pred-cd-spatial-cat-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_3600/model.safetensors" \
+    # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240504-marigold-unet-single-attr-rgbs-train-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/model.safetensors" \
+    # --rendering_loss_on_splatter_to_encode \
+    # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-save-iters-decode-20240424-184835-v5_LGM_init_scene1andAfter_to_decoded_png_inference1000-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder"
+    # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/20240424-184835-v5_LGM_init_scene1andAfter_to_decoded_png_inference1000-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder/1_02b0456362f9442da46d39fb34b3ee5b/800"
+  
+
+
+# # # [resize optimzied splatter from 128 to 320]
+# # export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v6_inference_resize_splatter.py big --workspace runs/marigold/workspace_debug \
+#     --lr 2e-3 --num_epochs 1001 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'v6_directly_resize_optimized128_to320_render320' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" \
+#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+#     --output_size 320 --input_size 320 --splatter_size 320 \
+#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
+#     --rendering_loss_on_splatter_to_encode \
+#     --scene_start_index 0  --scene_end_index 4 \
+#     --load_suffix "to_encode" --load_ext "png" --load_iter 300 \
+#     --splatter_to_encode "runs/marigold/workspace_optimize/20240425-232930-v5_LGM_init_render320_scene_0_200_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.006-Plat/zero123plus/outputs_v3_inference_my_decoder"
+# #     # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-save-iters-decode-20240424-184835-v5_LGM_init_scene1andAfter_to_decoded_png_inference1000-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder/1_02b0456362f9442da46d39fb34b3ee5b/1000"
+# #     # --splatter_to_encode "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_debug/20240425-185946-v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus/outputs_v3_inference_my_decoder/3_032b9ee505844b46b3b1436de5fef3bb/270_success" \
+    
 
 # # [KEY NOTES: 
 # # 1. load all the views

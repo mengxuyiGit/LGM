@@ -60,9 +60,27 @@
 # LOG_DIR="runs/vae_train/workspace_train/00004-ddp_srn-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0_kl1e-06-lr0.0001-Plat100"
 # LOG_DIR="runs/zerp123plus_batch/workspace_debug/20240418-155022-ablation_2_only_decoder_srn_overfit_mask_loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr0.0001-Plat100"
 # LOG_DIR="runs/zerp123plus_batch/workspace_debug/20240418-155502-ablation_2_only_decoder_objaverse-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr0.0001-Plat100"
-LOG_DIR="runs/zerp123plus_batch/workspace_debug"
+# LOG_DIR="runs/zerp123plus_batch/workspace_debug"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_train/tensorboard-compare"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-save-iters-decode-20240424-184835-v5_LGM_init_scene1andAfter_to_decoded_png_inference1000-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat/zero123plus"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_debug/20240425-003322-v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_debug/20240425-021703-v5_LGM_init_srn_cars_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_debug/20240425-033032-v5_LGM_320_init_scene0andAfter_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_debug/20240425-185946-v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="runs/marigold/workspace_test/20240425-205821-v5_LGM_init_render320_scene_0_100_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="runs/marigold/workspace_debug/20240425-211335-v5_LGM_init_render320_scene_0_200_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_optimize"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-every-iter-20240425-003322-v5_LGM_init_scene0andAfter_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_test/reg-both-encode-save-iters-decode-20240424-184835-v5_LGM_init_scene1andAfter_to_decoded_png_inference1000-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.002-Plat"
+# LOG_DIR="runs/marigold_srn"
+# LOG_DIR="runs/marigold_unet/workspace_debug/20240429-013821-marigold-unet-w-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr1e-05-Plat5"
+# LOG_DIR="runs/marigold_unet/workspace_debug/20240429-014831-marigold-unet-w-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr1e-06-Plat5"
+# LOG_DIR="runs/marigold_unet/workspace_debug/20240429-020506-marigold-unet-w-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr1e-05-Plat5"
+LOG_DIR="runs/marigold_unet/workspace_debug/20240429-023105-marigold-unet-wo-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss-lr1e-06-Plat5"
 
-TB_PORT=6138
+
+TB_PORT=6157
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
 
 TB_FOLDER=$1

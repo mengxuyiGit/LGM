@@ -23,18 +23,32 @@ DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN='/home/xuyimeng/Repo/LGM/runs/LGM_optimize_s
 #     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
 #     --lambda_kl 1e-6
 
-
-accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_vae.py big --workspace runs/vae_train/workspace_debug \
-    --lr 1e-4 --num_epochs 20001 --eval_iter 5 --save_iter 10 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+# [Owerfitting]
+CUDA_VISIBLE_DEVICES=1
+accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_vae.py big --workspace runs/vae_train/workspace_train \
+    --lr 1e-4 --num_epochs 20001 --eval_iter 100 --save_iter 200 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
     --prob_cam_jitter 0 --prob_grid_distortion 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'ddp_srn' --data_path_rendering ${DATA_DIR_BATCH_RENDERING_SRN} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN} \
+    --desc 'overfit_srn' --data_path_rendering ${DATA_DIR_BATCH_RENDERING_SRN} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN} \
     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --model_type Zero123PlusGaussianSplatterVaeKL \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
-    --lambda_kl 1e-6 --data_mode srn_cars --save_ckpt_copies 
+    --lambda_kl 1e-6 --data_mode srn_cars --save_ckpt_copies --output_size 128 --overfit_one_scene
+
+# # training
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_vae.py big --workspace runs/vae_train/workspace_train \
+#     --lr 1e-4 --num_epochs 20001 --eval_iter 5 --save_iter 10 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --prob_grid_distortion 0 --input_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'overfit_srn' --data_path_rendering ${DATA_DIR_BATCH_RENDERING_SRN} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --model_type Zero123PlusGaussianSplatterVaeKL \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --lambda_kl 1e-6 --data_mode srn_cars --save_ckpt_copies --output_size 128
 
 # accelerate launch --main_process_port 29510 --config_file acc_configs/gpu2.yaml main_zero123plus_v4_batch_vae.py big --workspace runs/vae_train/workspace_train \
 #     --lr 1e-4 --num_epochs 20001 --eval_iter 5 --save_iter 10 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \

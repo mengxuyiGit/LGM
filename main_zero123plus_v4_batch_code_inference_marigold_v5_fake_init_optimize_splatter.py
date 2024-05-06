@@ -1255,7 +1255,8 @@ def main():
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=opt.batch_size,
-        shuffle=True,
+        # shuffle=True,
+        shuffle=False,
         num_workers=opt.num_workers,
         pin_memory=True,
         drop_last=False,
@@ -1349,10 +1350,14 @@ def main():
         print(f"Save to run dir: {opt.workspace}")
         
         # Skip to the start_index in the dataloader
-        data_iterator = islice(enumerate(test_dataloader), opt.scene_start_index, opt.scene_end_index)
+        # data_iterator = islice(enumerate(test_dataloader), opt.scene_start_index, opt.scene_end_index)
 
-        for i, data in data_iterator:
-        # for i, data in enumerate(test_dataloader):
+        # for _i, data in data_iterator:
+        for _i, data in enumerate(test_dataloader):
+            
+            i = _i + opt.scene_start_index
+            print("Scene ", i)
+        
             # if i == 0:
             #     continue
             # if i > 40:
@@ -1400,9 +1405,11 @@ def main():
                     
                 print("Cond path is :", path)
             
-                name = path.split('/')[-2]
+                if opt.data_mode == "srn_cars":
+                    name = path.split('/')[-3]
+                else:
+                    name = path.split('/')[-2]
                 name = f"{i}_{name}"
-                
 
                 # check whether
 
@@ -1448,8 +1455,10 @@ def main():
                 
                 scene_finished = check_scene_finished(os.path.join(output_path, name)) 
                 if scene_finished:
-                    # st()
+                    # # st()
+                    # if 
                     continue 
+                    
                 
                 print("This scene needs to be processed ", i)
                 # continue
@@ -1460,6 +1469,7 @@ def main():
                 img = to_rgb_image(Image.open(path))
                 
                 img.save(os.path.join(output_path, f'{name}/cond.png'))
+                cond = [img]
         
                 splatters_mv = einops.rearrange(data["splatters_output"], 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
                     
@@ -1481,6 +1491,7 @@ def main():
                     ## combine the splatter_to_encode with the scene name
                     load_path = os.path.join(opt.splatter_to_encode, f"{name}/{opt.load_iter}")
                     print("Scene specific load path is : ", load_path)
+                    st()
                     
                     try:
                         splatter_original_Channel_image_to_encode = load_splatter_png_as_original_channel_images_to_encode(load_path, device=splatters_mv.device, suffix=opt.load_suffix, ext=opt.load_ext)
@@ -1619,6 +1630,20 @@ def main():
                         # # print(f"[latents] {attr} - requires_grad: {latents.requires_grad}, grad: {getattr(latents, 'grad', None)}")
                         # if latents.requires_grad and latents.grad is not None:
                         #     print(f"Gradient of {attr}: {latents.requires_grad} -- {latents.grad.norm().item()}")
+                        do_diffusion = True
+                        if do_diffusion:
+                            st()
+            
+                            prompt_embeds, cak = pipeline.prepare_conditions(cond, guidance_scale=4.0)
+                            print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
+                            pipeline.scheduler.set_timesteps(75, device='cuda:0')
+                            # if opt.one_step_diffusion is not None:
+                            #     pipeline.scheduler.set_timesteps(opt.one_step_diffusion, device='cuda:0')
+                                
+                            timesteps = pipeline.scheduler.timesteps
+                        
+                            latents  = torch.randn([1, pipeline.unet.config.in_channels, 120, 80], device='cuda:0', dtype=torch.float32)
+                            latents_init = latents.clone().detach()
                         
                         decoded_attributes, decoded_images = decode_single_latents(pipeline_0123, latents, attr_to_encode=attr)
                         # NOTE: decoded_attributes is already mapped to their original range, not [0,1] or [-1,1]
@@ -1827,6 +1852,7 @@ def main():
                     if patience_counter >= patience_limit:
                         print("Early stopping triggered")
 
+                        save_3channel_splatter_images(splatter_3Channel_image_to_encode, fpath=os.path.join(output_path, f'{name}/{i}_success'), range_min=-1, suffix="to_encode")
                         save_3channel_splatter_images(decoded_3channel_attr_image_dict, fpath=os.path.join(output_path, f'{name}/{i}_success'), range_min=-1)
                         save_gs_rendered_images(gs_results, fpath=os.path.join(output_path, f'{name}/{i}_success'))
                         # st()

@@ -326,7 +326,7 @@ class UNetDecoder(nn.Module):
 
             others_requires_grad = all(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
             print(f"UNet Decoder others requires grad: {others_requires_grad}")
-            st()
+            # st()
            
     
     def forward(self, z):
@@ -347,7 +347,8 @@ class UNetDecoder(nn.Module):
         others = self.others(sample)
         
         splatters_320 = torch.cat([others, rgb], dim=1)
-        splatters_128 = self.downsample_module(splatters_320)
+        # splatters_128 = self.downsample_module(splatters_320)
+        splatters_128 = splatters_320
        
         return splatters_128
       
@@ -361,8 +362,8 @@ class UNetEncoder(nn.Module):
         # Assuming the original conv layer is named `conv_in` and has a kernel size of 3x3
         original_conv_in = self.encoder.conv_in
         self.encoder.conv_in = nn.Conv2d(
-            # in_channels=14, 
-            in_channels=3, 
+            in_channels=14, 
+            # in_channels=3, 
             out_channels=original_conv_in.out_channels, 
             kernel_size=original_conv_in.kernel_size, 
             stride=original_conv_in.stride, 
@@ -400,13 +401,13 @@ class UNetEncoder(nn.Module):
     def forward(self, x):
         # Assuming 'x' is the 14-channel image input
         # Pass 'x' through the encoder's modified first layer and the rest of the network
-        x = self.encoder.conv_in(x)
+        # x = self.encoder.conv_in(x)
 
-        print("before downblocking: ", x.shape)
-        # start conv with splatter x of shape 128, while the original is 320
-        for down_block in self.encoder.down_blocks:
-            x = down_block(x)
-            print("... downblocking: ", x.shape)
+        # print("before downblocking: ", x.shape)
+        # # start conv with splatter x of shape 128, while the original is 320
+        # for down_block in self.encoder.down_blocks:
+        #     x = down_block(x)
+        #     print("... downblocking: ", x.shape)
             
 
         # ... continue passing 'x' through the rest of the encoder layers
@@ -414,6 +415,9 @@ class UNetEncoder(nn.Module):
         
         # Final encoding
         # encoded_features = self.encoder.final_encoding_layer(x)
+        
+        
+        x = self.encoder(x)
         print("output: ", x.shape)
 
         # return the encoded features
@@ -524,20 +528,18 @@ class Zero123PlusGaussianSplatterVaeKL(nn.Module):
         
     
     def encode_image(self, image, is_zero123plus=True):
-        st() # image: torch.Size([1, 3, 768, 512]) # should be splatter image
+        # st() # image: torch.Size([1, 3, 768, 512]) # should be splatter image
 
         if is_zero123plus:
             # NOTE: encode input image (before scale) should be in [-1, 1] while our image is in [0,1]
             image = image * 2 - 1
             
             image = scale_image(image)
-
             
-            posterior = self.encoder(image).latent_dist
-            st()
-            # posterior = self.vae.encode(image).latent_dist # self.vae.encode(image) -> AutoencoderKLOutput(latent_dist=<diffusers.models.vae.DiagonalGaussianDistribution object at 0x7faec822e0e0>)
+            # posterior = self.encoder(image).latent_dist
+            posterior = self.vae.encode(image).latent_dist # self.vae.encode(image) -> AutoencoderKLOutput(latent_dist=<diffusers.models.vae.DiagonalGaussianDistribution object at 0x7faec822e0e0>)
             image = posterior.sample() * self.vae.config.scaling_factor # reparameterization
-            image = scale_latents(image)
+            image = scale_latents(image) # [1, 4, 48, 32]
 
         else:
             image = self.vae.encode(image, return_dict=False)[0] * self.vae.config.scaling_factor
@@ -719,9 +721,9 @@ class Zero123PlusGaussianSplatterVaeKL(nn.Module):
 
         B, V, C, H, W = images.shape
         # print(f"images.shape in forward+spaltter:{images.shape}") # SAME as the input_size
-        with torch.no_grad():
-            text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
-            cross_attention_kwargs_stu = cross_attention_kwargs
+        # with torch.no_grad():
+        #     text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
+        #     cross_attention_kwargs_stu = cross_attention_kwargs
 
         # make input 6 views into a 3x2 grid
         images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
@@ -887,6 +889,7 @@ class Zero123PlusGaussianSplatterVaeKL(nn.Module):
                 pass
                 # print("has code")
             
+        images = data['splatters_output']
         pred_splatters, posterior = self.forward_splatters_with_activation(images, cond, latents=codes, epoch=epoch) # [B, N, 14] # (B, 6, 14, H, W)
         
         results['splatters_from_code'] = pred_splatters # [1, 6, 14, 256, 256]
