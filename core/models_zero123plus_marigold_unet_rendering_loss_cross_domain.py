@@ -370,7 +370,6 @@ class UNetDecoder(nn.Module):
             print(f"UNet Decoder others requires grad: {others_requires_grad}")
             # st()
         
-       
         
     
     def forward(self, z):
@@ -431,9 +430,101 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         self.vae = self.pipe.vae.requires_grad_(False).eval()
     
         print("Unet is trainable")
-        self.unet = self.pipe.unet.requires_grad_(True).train() 
-        #  self.unet = ChannelCatUnet
-        
+        if opt.only_train_attention:
+            def set_requires_grad(module, value):
+                for param in module.parameters():
+                    param.requires_grad = value
+                   
+            # Freeze all parameters first
+            set_requires_grad(self.pipe.unet, False)
+            
+            from diffusers.models.attention_processor import Attention
+            # Function to selectively unfreeze attention layers
+            # def unfreeze_attention_layers(module):
+            #     for child_name, child in module.named_children():
+            #         if isinstance(child, Attention):
+            #             # st()
+            #             # Unfreeze this attention layer
+            #             set_requires_grad(child, True)
+            #         elif len(list(child.children())) > 0:
+            #             # Recursively apply to child modules
+            #             unfreeze_attention_layers(child)
+            
+            # unfreeze_attention_layers(self.pipe.unet)
+            
+            # def unfreeze_attention_and_norm_layers(module, parent_name=""):
+            #     # This flag will be True if the last layer was an Attention layer
+            #     last_was_attention = False
+                
+            #     for child_name, child in module.named_children():
+            #         # Construct the full path name for current layer
+            #         full_name = f"{parent_name}.{child_name}" if parent_name else child_name
+                    
+            #         # Check if current module is an Attention or it is a normalization layer that follows an Attention layer
+            #         if isinstance(child, Attention):
+            #             set_requires_grad(child, True)
+            #             print(f"Unfrozen Layer: {full_name} (Attention)")
+            #             last_was_attention = True
+            #         elif isinstance(child, (nn.LayerNorm, nn.BatchNorm2d, nn.GroupNorm)) and last_was_attention:
+            #             set_requires_grad(child, True)
+            #             print(f"Unfrozen Layer: {full_name} (Normalization following Attention)")
+            #             last_was_attention = False  # Reset flag after processing the normalization layer
+            #         else:
+            #             last_was_attention = False  # Reset flag if it's not an attention or the correct norm layer
+            #             unfreeze_attention_and_norm_layers(child, full_name)  # Recurse into child modules
+
+
+            # # Apply to your model
+            
+            # unfreeze_attention_and_norm_layers(self.pipe.unet)
+            
+            # def set_transformer_grad(model):
+            #     for name, child in model.named_children():
+            #         print(name)
+            #         if isinstance(child, torch.nn.ModuleList) or 'transformer_blocks' in name:
+            #             set_transformer_grad(child)  # Recursively apply to all children
+            #         if 'transformer_blocks' in name:  # Check if it is a transformer block
+            #             for param in child.parameters():
+            #                 param.requires_grad = True  # Set requires_grad to True for all parameters in transformer blocks
+            #         elif 'attn' in name or 'ff' in name or 'norm' in name:  # Optionally check for specific block names
+            #             for param in child.parameters():
+            #                 param.requires_grad = True
+
+            # # Example of how to apply this function to your model
+            # set_transformer_grad(self.pipe.unet)
+
+            def unfreeze_transformer_layers(module):
+                for child_name, child in module.named_children():
+                    if 'transformer_blocks' in child_name or isinstance(child, Attention):
+                        for param in child.parameters():
+                            param.requires_grad = True  # Set requires_grad to True for all parameters in the transformer blocks or Attention layers
+                    else:
+                        unfreeze_transformer_layers(child)  # Recursively apply to child modules
+
+            # Example of how to apply this function to your model
+            unfreeze_transformer_layers(self.pipe.unet)
+            
+            # def print_grad_status(module, module_path=""):
+            #     for name, param in module.named_parameters():
+            #         print(f"{module_path + name} -> requires_grad={param.requires_grad}")
+
+            # print("\nFinal grad status of all parameters:")
+            # print_grad_status(self.pipe.unet)
+
+            def print_grad_status(module, module_path="", file_path="grad_status.txt"):
+                with open(file_path, 'w') as file:
+                    for name, param in module.named_parameters():
+                        print(f"{module_path + name} -> requires_grad={param.requires_grad}", file=file)
+
+            # Usage example
+            print_grad_status(self.pipe.unet, file_path=f"{opt.workspace}/model_grad_status.txt")
+            
+            self.unet = self.pipe.unet
+            
+        else:
+            self.unet = self.pipe.unet.requires_grad_(True).train() 
+       
+       
         # if opt.scheduler_type == "cosine":
         #     # Assuming self.pipe.scheduler.config is your original FrozenDict configuration
         #     original_config = dict(self.pipe.scheduler.config)
@@ -524,8 +615,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
             self.code_activation = lambda x: x
             self.code_activation_inverse = lambda x: x
-        
-        with open("model_new.txt", "w") as f:
+        # st()
+        with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
             print(self.unet, file=f)
       
     
@@ -810,11 +901,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     #     splatters = einops.rearrange(splatters, 'b (h2 h) (w2 w) c -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
     #     return splatters, loss_latent
     
-    
         
     def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
         # Gaussian shape: (B*6, 14, H, W)
-        
+        # st()
         results = {}
         loss = 0
        
@@ -847,22 +937,23 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # kiui.write_image(f'pure_noise_single_attr.jpg',  np.random.rand(*images_to_save[:128].shape))
             # st()
 
-    
         # encode
         sp_image_batch = scale_image(images_all_attr_batch)
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
         # ----
         
-
-        if (self.opt.attr_to_learn is not None): # and (self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py", "./zero123plus/pipeline_v5.py"]):
+        if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py"]:
+            gt_latents = latents_all_attr_encoded
+            
+        elif (self.opt.attr_to_learn is not None): # and (self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py", "./zero123plus/pipeline_v5.py"]):
             
             attr_i = ordered_attr_list.index(self.opt.attr_to_learn)
             print(f"{ordered_attr_list} - {attr_i} = {self.opt.attr_to_learn}")
             gt_latents = latents_all_attr_encoded[attr_i:attr_i+1]
                   
         elif self.opt.cd_spatial_concat:
-            gt_latents = einops.rearrange(latents_all_attr_encoded, "(B V) C (m H) (n W) -> B C (V H) (m n W)", B=data['cond'].shape[0], m=3, n=2)
+            gt_latents = einops.rearrange(latents_all_attr_encoded, "(B A) C (m H) (n W) -> B C (A H) (m n W)", B=data['cond'].shape[0], m=3, n=2)
             
         else:  
             gt_latents = latents_all_attr_encoded
@@ -910,7 +1001,19 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             #     cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus',
             #     class_labels=domain_embeddings)
             
+            # def extract_into_tensor(a, t, x_shape):
+            #     b, *_ = t.shape
+            #     out = a.gather(-1, t)
+            #     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
+            # def get_v(self, x, noise, t, sqrt_alphas_cumprod):
+            #     return (
+            #             extract_into_tensor(sqrt_alphas_cumprod, t, x.shape) * noise -
+            #             extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x.shape) * x
+            #     )
+
             # v-prediction with unet
+            st()
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
             alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
@@ -919,6 +1022,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
             sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
             noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
+            
+            v_target = alpha_t * noise - sigma_t * gt_latents
         
             x = (noisy_latents - noise_pred * sigma_t) / alpha_t
         
@@ -955,11 +1060,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # calbculate loss
         # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
-        weight = 1
-        loss = (weight * ((noise - noise_pred) ** 2)).mean()
-    
+        # weight = 1
+        # loss = (weight * ((noise - noise_pred) ** 2)).mean()
         
-        loss_latent = F.mse_loss(x, gt_latents) 
+        # loss_latent = F.mse_loss(x, gt_latents) 
+        loss_latent = F.mse_loss(v_pred, v_target) 
         
         # ------- 
         
@@ -1166,11 +1271,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.training: # random bg for training
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
         else:
-            
-            if self.opt.data_mode == "srn_cars":
-                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
-            else:
-                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
+            # if self.opt.data_mode == "srn_cars":
+            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
+            # else:
+                # bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
                 
         # if opt.data_mode == "srn_cars":
         #     bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) 
@@ -1336,7 +1440,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         # ----- rendering [end] -----
         psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
-        results['psnr'] = psnr
+        results['psnr'] = psnr.detach()
         if isinstance(loss, int):
             loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
         results['loss'] = loss
