@@ -1239,7 +1239,7 @@ def main():
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
             
-            del state_dict[k]
+        del state_dict[k]
         # st()
         model.requires_grad_(False).eval()
         
@@ -1346,7 +1346,8 @@ def main():
             output_path = f"{opt.workspace}/zero123plus/outputs_v3_inference_my_decoder"
             
             pipeline.prepare()
-            guidance_scale = 1.5
+            # guidance_scale = 1.5
+            guidance_scale = 1
 
 
        
@@ -1489,7 +1490,8 @@ def main():
                     global_bg_color = torch.ones(3, dtype=torch.float32, device="cuda")
                     assert not opt.color_augmentation
                 else:
-                    global_bg_color = torch.ones(3, dtype=torch.float32, device="cuda") * 0.5
+                    # global_bg_color = torch.ones(3, dtype=torch.float32, device="cuda") * 0.5
+                    global_bg_color = torch.ones(3, dtype=torch.float32, device="cuda")
 
                 if opt.splatter_to_encode is not None:
 
@@ -1630,33 +1632,55 @@ def main():
                     assert latents_all_attr_tensor.shape[0] == len(ordered_attr_list)
     
                     with torch.no_grad():
-                        if opt.cd_spatial_concat:
-                            
-                            gt_latents = einops.rearrange(latents_all_attr_tensor, "(B A) C (m H) (n W) -> B C (A H) (m n W)", B=data['cond'].shape[0], m=3, n=2)
+                        if opt.cd_spatial_concat or opt.custom_pipeline in ["./zero123plus/pipeline_v7_seq.py"]:
+                            if opt.cd_spatial_concat:
+                                gt_latents = einops.rearrange(latents_all_attr_tensor, "(B A) C (m H) (n W) -> B C (A H) (m n W)", B=data['cond'].shape[0], m=3, n=2)
+                            elif opt.custom_pipeline in ["./zero123plus/pipeline_v7_seq.py"]:
+                                gt_latents = latents_all_attr_tensor
+                            else:
+                                assert NotImplementedError
+                                
                             with torch.no_grad():
                                 # pipeline =  # .unet.requires_grad_(False).eval()
+                                
                                 prompt_embeds, cak = model.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
+                                if opt.custom_pipeline in ["./zero123plus/pipeline_v7_seq.py"]:
+                                    # print(procmpt_embeds.shape)
+                                    # st()
+                                    prompt_embeds = torch.cat([prompt_embeds[0:1]]*gt_latents.shape[0] + [prompt_embeds[1:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
+                                    cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
+                                    
                                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
                                 model.pipe.scheduler.set_timesteps(30, device='cuda:0')
                                 # if opt.one_step_diffusion is not None:
                                 #     pipeline.scheduler.set_timesteps(opt.one_step_diffusion, device='cuda:0')
                                     
                                 timesteps = model.pipe.scheduler.timesteps
-                            
-                                latents  = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
+                                
+                                debug = True
+                                if debug:
+                                    debug_t = torch.tensor(50, dtype=torch.int64, device='cuda:0',)
+                                    noise = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
+                                    t = torch.ones((5,), device=gt_latents.device, dtype=torch.int)
+                                    latents = model.pipe.scheduler.add_noise(gt_latents, noise, t*debug_t)
+                                    
+                                    timesteps = [debug_t]
+                                else:
+                                    latents  = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
                                 
                                 domain_embeddings = torch.eye(5).to(latents.device)
-                                domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
+                                if opt.cd_spatial_concat:
+                                    domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
                                 domain_embeddings = torch.cat([
                                         torch.sin(domain_embeddings),
                                         torch.cos(domain_embeddings)
                                     ], dim=-1)
                                 
-                                # st()
+                            
                                 # latents_init = latents.clone().detach()
                                 for _, t in enumerate(timesteps):
                                     print(f"enumerate(timesteps) t={t}")
-                                    # st()
+                            
                                     latent_model_input = torch.cat([latents] * 2)
                                     # domain_embeddings = torch.cat([domain_embeddings] * 2)
                                     latent_model_input = model.pipe.scheduler.scale_model_input(latent_model_input, t)
@@ -1669,7 +1693,8 @@ def main():
                                         cross_attention_kwargs=cak,
                                         return_dict=False,
                                         class_labels=domain_embeddings,
-                                    )[0]
+                        
+                                    )[0]    
 
                                     # perform guidance
                                     if True:
@@ -1677,13 +1702,25 @@ def main():
                                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                                     # compute the previous noisy sample x_t -> x_t-1
-                                    latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
-                                
+                                    if debug:
+                                        alphas_cumprod = model.pipe.scheduler.alphas_cumprod.to(
+                                            device=latents.device, dtype=latents.dtype
+                                        )
+                                        alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
+                                        sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
+                                        noise_pred = latents * sigma_t.view(-1, 1, 1, 1) + noise_pred * alpha_t.view(-1, 1, 1, 1)
+                                        
+        
+                                    
+                                        latents = (latents - noise_pred * sigma_t) / alpha_t
+                                    else:
+                                        latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                                    
                                 print(latents.shape)
                                        
-                                # reshape back
-                              
-                                latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", B=data['cond'].shape[0], A=5, m=3, n=2)
+                                if opt.cd_spatial_concat: # reshape back
+                                    latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", B=data['cond'].shape[0], A=5, m=3, n=2)
+                                    # latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
                                
                                 for attr_latents, attr in zip(latents, ordered_attr_list):
                                     
@@ -1706,7 +1743,7 @@ def main():
                                         pipeline = model.pipe # .unet.requires_grad_(False).eval()
                                         prompt_embeds, cak = pipeline.prepare_conditions(cond, guidance_scale=guidance_scale)
                                         print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
-                                        pipeline.scheduler.set_timesteps(30, device='cuda:0')
+                                        pipeline.scheduler.set_timesteps(75, device='cuda:0')
                                         # if opt.one_step_diffusion is not None:
                                         #     pipeline.scheduler.set_timesteps(opt.one_step_diffusion, device='cuda:0')
                                             

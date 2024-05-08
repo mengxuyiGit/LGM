@@ -93,8 +93,9 @@ DATA_DIR_BATCH_VAE_SPLATTER_ROOT="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/ru
 #     # --overfit_one_scene 
 
 # # [MAY 05: train spatial cat on all scenes]
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
-# accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_train \
+# # export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --main_process_port 29515 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_train \
 #     --lr 1e-4 --num_epochs 10001 --eval_iter 10 --save_iter 10 --lr_scheduler Plat \
 #     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
@@ -109,22 +110,90 @@ DATA_DIR_BATCH_VAE_SPLATTER_ROOT="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/ru
 #     --custom_pipeline "./zero123plus/pipeline_v5.py" --render_input_views --attr_group_mode "v5" \
 #     --cd_spatial_concat
 
-# [MAY 02: overfit single scene, all attributes, with cross domain attention]
-export CUDA_VISIBLE_DEVICES=1
+# # [MAY 02: overfit single scene, all attributes, with cross domain attention]
+# export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_debug \
+#     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 100 --lr_scheduler Plat \
+#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'marigold-unet-single-attr-rgbs-train' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain --data_path_vae_splatter ${DATA_DIR_BATCH_VAE_SPLATTER_ROOT} \
+#     --custom_pipeline "./zero123plus/pipeline_v5_dev.py" --render_input_views --attr_group_mode "v5" \
+#     --overfit_one_scene 
+
+# # [MAY 06: overfit single scene, all attributes, with cross domain attention]
+# export CUDA_VISIBLE_DEVICES=1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_debug \
+#     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 100 --lr_scheduler Plat \
+#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'marigold-unet-single-attr-rgbs-train' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain --data_path_vae_splatter ${DATA_DIR_BATCH_VAE_SPLATTER_ROOT} \
+#     --custom_pipeline "./zero123plus/pipeline_v6_set.py" --render_input_views --attr_group_mode "v5" \
+#     --overfit_one_scene 
+
+# [MAY 06: overfit single scene, all attributes, with cross domain attention]
+# export CUDA_VISIBLE_DEVICES=1
 accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_debug \
-    --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 100 --lr_scheduler Plat \
+    --lr 1e-4 --num_epochs 10001 --eval_iter 100 --save_iter 200 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'marigold-unet-single-attr-rgbs-train' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --desc 'marigold-unet-only-train-attn' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
     --set_random_seed --batch_size 1 --num_workers 1 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --scale_clamp_max -2 --scale_clamp_min -10 \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain --data_path_vae_splatter ${DATA_DIR_BATCH_VAE_SPLATTER_ROOT} \
-    --custom_pipeline "./zero123plus/pipeline_v5_dev.py" --render_input_views --attr_group_mode "v5" \
-    --overfit_one_scene 
+    --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
+    --overfit_one_scene --bg 1.0 --only_train_attention
+
+# # 4gpus: 
+# export CUDA_VISIBLE_DEVICES=0,1
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_debug \
+#     --lr 1e-4 --num_epochs 10001 --eval_iter 10 --save_iter 10 --lr_scheduler Plat \
+#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'marigold-unet-v7-seq-reshape-v-pred-loss-white' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain --data_path_vae_splatter ${DATA_DIR_BATCH_VAE_SPLATTER_ROOT} \
+#     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0
+
+# # [MAY 06]: only train transformer
+# accelerate launch --main_process_port 29515 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_train \
+#     --lr 1e-4 --num_epochs 10001 --eval_iter 10 --save_iter 10 --lr_scheduler Plat \
+#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'marigold-unet-v7_seq-only-train-attn-v-pred-white-bg' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain --data_path_vae_splatter ${DATA_DIR_BATCH_VAE_SPLATTER_ROOT} \
+#     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0 --only_train_attention
+
 
 # accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_debug \
 #     --lr 1e-5 --num_epochs 10001 --eval_iter 100 --save_iter 100 --lr_scheduler Plat \
