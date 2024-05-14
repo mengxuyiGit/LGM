@@ -1406,22 +1406,32 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
             results['psnr'] = psnr
         
+        if self.opt.rendering_loss_use_weight_t:
+            _alpha_t = alpha_t.flatten()[0]
+            _weight_t = _alpha_t ** 2
+            # print(f"_weight_t of {t[0].item()}: ", _weight_t)
+        else:
+            _weight_t = 1
           
         if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
+            loss_mse_rendering *= _weight_t
             results['loss_rendering'] = loss_mse_rendering
+            # results['loss_rendering_weight_t'] = loss_mse_rendering
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
+                
         elif self.opt.lambda_alpha > 0:
             loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
+            loss_mse_alpha *= _weight_t
             results['loss_alpha'] = loss_mse_alpha
+            # results['loss_alpha_weight_t'] = loss_mse_alpha
             loss += self.opt.lambda_alpha * loss_mse_alpha
             if self.opt.verbose_main:
                 print(f"loss alpha:{loss_mse_alpha}")
             
     
-
         ## FIXME: it does not make sense to apply lpips on splatter, right?
         if self.opt.lambda_lpips > 0:
             loss_lpips = self.lpips_loss(
@@ -1433,7 +1443,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                 F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
+            loss_lpips *= _weight_t
             results['loss_lpips'] = loss_lpips
+            # results['loss_lpips_weight-t'] = loss_lpips
             loss += self.opt.lambda_lpips * loss_lpips
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
