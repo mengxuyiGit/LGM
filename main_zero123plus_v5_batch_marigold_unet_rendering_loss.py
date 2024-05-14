@@ -335,8 +335,8 @@ def main():
                     total_gs_loss_mse_dict[key] = 0
             
             splatter_guidance = (opt.lambda_splatter > 0) and (epoch <= opt.splatter_guidance_warmup) or (epoch % opt.splatter_guidance_interval == 0)
-            if splatter_guidance:
-                print(f"splatter_guidance in epoch: {epoch}")
+            # if splatter_guidance:
+            #     print(f"splatter_guidance in epoch: {epoch}")
                     
             # for i, data in enumerate(train_dataloader):
             

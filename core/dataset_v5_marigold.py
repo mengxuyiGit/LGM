@@ -120,7 +120,7 @@ sp_min_max_dict = {
     }
 def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix="to_encode", device="cuda", ext="png"):
     # valid siffices: ["decoded", "to_encode"]
-    print(f"Loading {suffix}_{ext} files")
+    # print(f"Loading {suffix}_{ext} files")
     # NOTE: since we are loading png not ply, no need to do deactivation
     splatter_3Channel_image = {}
     
@@ -134,8 +134,8 @@ def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix=
 
         # try:
         if True:
-            print(f"splatter_dir: {splatter_dir}")
-            print(f"{attr}_{suffix}.{ext}")
+            # print(f"splatter_dir: {splatter_dir}")
+            # print(f"{attr}_{suffix}.{ext}")
             im_path = os.path.join(splatter_dir, f"{attr}_{suffix}.{ext}")
         # except:
         #     print(f"splatter_dir: {splatter_dir}")
@@ -409,7 +409,7 @@ class ObjaverseDataset(Dataset):
         # results['splatters_output'] = splatter_images_mv
         # # print(results['splatters_output'].shape) # [6, 14, 128, 128])
          
-        print("Load splatter png from ", splatter_uid)
+        # print("Load splatter png from ", splatter_uid)
         splatter_original_Channel_mvimage_dict = load_splatter_png_as_original_channel_images_to_encode(splatter_uid, suffix="to_encode", ext="png")
         results.update(splatter_original_Channel_mvimage_dict)
         
