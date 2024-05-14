@@ -432,21 +432,22 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
 
         return hidden_states
 
-def random_initialize_unet(unet):
-    # Recursively initialize weights of a given module
-    def init_weights(m):
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
-            nn.init.kaiming_normal_(m.weight)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-        elif isinstance(m, nn.LayerNorm):
-            nn.init.constant_(m.weight, 1)
-            nn.init.constant_(m.bias, 0)
+# def random_initialize_unet(unet):
+#     # Recursively initialize weights of a given module
 
-    # Apply weight initialization
+#     # Apply weight initialization
+#     print("Random init UNet weights")
+#     unet.apply(init_weights)
+
+def init_weights(m):
     print("Random init UNet weights")
-    unet.apply(init_weights)
-    
+    if isinstance(m, (nn.Conv2d, nn.Linear)):
+        nn.init.kaiming_normal_(m.weight)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.LayerNorm):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)
 
 def modify_unet(unet):
     # Recursive function to modify transformer blocks
@@ -461,7 +462,6 @@ def modify_unet(unet):
 
     # Apply modifications
     replace_transformer_blocks(unet)
-    # random_initialize_unet(unet)
 
 class RefOnlyNoisedUNet(torch.nn.Module):
     def __init__(self, unet: UNet2DConditionModel, train_sched: DDPMScheduler, val_sched: EulerAncestralDiscreteScheduler):
@@ -504,9 +504,11 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         # unet.set_attn_processor(unet_lora_attn_procs)
         unet.set_attn_processor(unet_lora_attn_procs)
         
+        # Random init unet weights
+        unet.apply(init_weights)
        
         self.unet = unet
-        with open("unet_6set_after_modify.txt", "w") as f:
+        with open("unet_7seq_after_modify.txt", "w") as f:
             print(self.unet, file=f)
         
     
