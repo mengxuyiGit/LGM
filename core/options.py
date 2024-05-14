@@ -229,6 +229,7 @@ class Options:
     attr_to_learn: Optional[str] = None
     fixed_noise_level: Optional[int] = None
     cd_spatial_concat: bool = False
+    only_train_attention: bool = False
     
 
 # all the default settings
