@@ -230,6 +230,7 @@ class Options:
     fixed_noise_level: Optional[int] = None
     cd_spatial_concat: bool = False
     only_train_attention: bool = False
+    rendering_loss_use_weight_t: bool = False
     
 
 # all the default settings

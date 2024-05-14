@@ -151,7 +151,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'marigold-unet-only-train-attn' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --desc 'RENDERING_USE_WEIGHT_T_marigold-unet-only-train-attn' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
     --set_random_seed --batch_size 1 --num_workers 1 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --scale_clamp_max -2 --scale_clamp_min -10 \
@@ -159,7 +159,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain --data_path_vae_splatter ${DATA_DIR_BATCH_VAE_SPLATTER_ROOT} \
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
-    --overfit_one_scene --bg 1.0 --only_train_attention
+    --overfit_one_scene --bg 1.0 --only_train_attention --rendering_loss_use_weight_t
 
 # # 4gpus: 
 # export CUDA_VISIBLE_DEVICES=0,1
