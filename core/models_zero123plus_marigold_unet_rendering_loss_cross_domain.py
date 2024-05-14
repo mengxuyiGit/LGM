@@ -971,7 +971,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
        
         ## visualize noisy latent
         if True: # training
-            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
+            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (1,), device=latents_all_attr_encoded.device).repeat(B)
             
             noise = torch.randn_like(gt_latents, device=gt_latents.device)
             noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
@@ -1013,7 +1013,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             #     )
 
             # v-prediction with unet
-            st()
+    
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
             alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
