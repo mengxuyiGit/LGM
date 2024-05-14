@@ -439,60 +439,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             set_requires_grad(self.pipe.unet, False)
             
             from diffusers.models.attention_processor import Attention
-            # Function to selectively unfreeze attention layers
-            # def unfreeze_attention_layers(module):
-            #     for child_name, child in module.named_children():
-            #         if isinstance(child, Attention):
-            #             # st()
-            #             # Unfreeze this attention layer
-            #             set_requires_grad(child, True)
-            #         elif len(list(child.children())) > 0:
-            #             # Recursively apply to child modules
-            #             unfreeze_attention_layers(child)
-            
-            # unfreeze_attention_layers(self.pipe.unet)
-            
-            # def unfreeze_attention_and_norm_layers(module, parent_name=""):
-            #     # This flag will be True if the last layer was an Attention layer
-            #     last_was_attention = False
-                
-            #     for child_name, child in module.named_children():
-            #         # Construct the full path name for current layer
-            #         full_name = f"{parent_name}.{child_name}" if parent_name else child_name
-                    
-            #         # Check if current module is an Attention or it is a normalization layer that follows an Attention layer
-            #         if isinstance(child, Attention):
-            #             set_requires_grad(child, True)
-            #             print(f"Unfrozen Layer: {full_name} (Attention)")
-            #             last_was_attention = True
-            #         elif isinstance(child, (nn.LayerNorm, nn.BatchNorm2d, nn.GroupNorm)) and last_was_attention:
-            #             set_requires_grad(child, True)
-            #             print(f"Unfrozen Layer: {full_name} (Normalization following Attention)")
-            #             last_was_attention = False  # Reset flag after processing the normalization layer
-            #         else:
-            #             last_was_attention = False  # Reset flag if it's not an attention or the correct norm layer
-            #             unfreeze_attention_and_norm_layers(child, full_name)  # Recurse into child modules
-
-
-            # # Apply to your model
-            
-            # unfreeze_attention_and_norm_layers(self.pipe.unet)
-            
-            # def set_transformer_grad(model):
-            #     for name, child in model.named_children():
-            #         print(name)
-            #         if isinstance(child, torch.nn.ModuleList) or 'transformer_blocks' in name:
-            #             set_transformer_grad(child)  # Recursively apply to all children
-            #         if 'transformer_blocks' in name:  # Check if it is a transformer block
-            #             for param in child.parameters():
-            #                 param.requires_grad = True  # Set requires_grad to True for all parameters in transformer blocks
-            #         elif 'attn' in name or 'ff' in name or 'norm' in name:  # Optionally check for specific block names
-            #             for param in child.parameters():
-            #                 param.requires_grad = True
-
-            # # Example of how to apply this function to your model
-            # set_transformer_grad(self.pipe.unet)
-
+           
             def unfreeze_transformer_layers(module):
                 for child_name, child in module.named_children():
                     if 'transformer_blocks' in child_name or isinstance(child, Attention):
@@ -525,26 +472,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             self.unet = self.pipe.unet.requires_grad_(True).train() 
        
        
-        # if opt.scheduler_type == "cosine":
-        #     # Assuming self.pipe.scheduler.config is your original FrozenDict configuration
-        #     original_config = dict(self.pipe.scheduler.config)
-
-        #     # Define the parameters that DDPMScheduler accepts
-        #     ddpm_params = {
-        #         'num_train_timesteps': original_config.get('num_train_timesteps', 1000),
-        #         'beta_start': original_config.get('beta_start', 0.00085),
-        #         'beta_end': original_config.get('beta_end', 0.012),
-        #         'beta_schedule': 'linear'  # explicitly set to 'cosine'
-        #     }
-
-        #     # Create the new scheduler with the updated configuration
-        #     # new_scheduler = DDPMScheduler(**ddpm_params)
-        #     from diffusers import LMSDiscreteScheduler
-        #     new_scheduler = LMSDiscreteScheduler(**ddpm_params)
-        #     self.pipe.scheduler = new_scheduler
-        #     print("We are using cosine scheduler")
-        #     st()
-        # else:
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
 
         self.decoder = UNetDecoder(self.vae, opt)
@@ -615,7 +542,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
             self.code_activation = lambda x: x
             self.code_activation_inverse = lambda x: x
-        # st()
+        # # st()
+        # if not os.path.exists(self.opt.workspace):
+        #     os.makedirs(self.opt.workspace)
+            
         with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
             print(self.unet, file=f)
       
@@ -901,16 +831,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     #     splatters = einops.rearrange(splatters, 'b (h2 h) (w2 w) c -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
     #     return splatters, loss_latent
     
-        
-    def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
-        # Gaussian shape: (B*6, 14, H, W)
-        # st()
+    def forward_inference(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
+
+        st()
         results = {}
         loss = 0
-       
-        # 1. optimize the splatters from the code: shape [1, 1, 3 or 1, 384, 256]
-        assert self.opt.codes_from_encoder
-      
+
         # latents_all_attr_list = []
         images_all_attr_list = []
         # encoder input: all the splatter attr pngs 
@@ -945,6 +871,262 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py"]:
             gt_latents = latents_all_attr_encoded
+        else:
+            gt_latents = None
+            # raise NotImplementedError
+        
+        B,C,H,W = gt_latents.shape
+         
+        # prepare cond and t
+        assert data['cond'].shape[0] == 1 # only handle actual bsz=1
+        cond = data['cond']
+        # cond = data['cond'].repeat(B,1,1,1)
+
+        guidance_scale = 1.5
+        
+        # unet 
+        with torch.no_grad():
+            # pipeline =  # .unet.requires_grad_(False).eval()
+            
+            prompt_embeds, cak = self.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
+            if self.opt.custom_pipeline in ["./zero123plus/pipeline_v7_seq.py"]:
+                # print(procmpt_embeds.shape)
+                # st()
+                prompt_embeds = torch.cat([prompt_embeds[0:1]]*gt_latents.shape[0] + [prompt_embeds[1:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
+                cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
+                
+            print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
+            self.pipe.scheduler.set_timesteps(30, device='cuda:0')
+            timesteps = self.pipe.scheduler.timesteps
+
+            latents  = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
+
+            domain_embeddings = torch.eye(5).to(latents.device)
+            domain_embeddings = torch.cat([
+                    torch.sin(domain_embeddings),
+                    torch.cos(domain_embeddings)
+                ], dim=-1)
+            
+        
+            # latents_init = latents.clone().detach()
+            single_step = True
+            if single_step:
+                debug_t = torch.tensor(200, dtype=torch.int64, device='cuda:0',)
+                noise = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
+                t = torch.ones((5,), device=gt_latents.device, dtype=torch.int)
+                latents = self.pipe.scheduler.add_noise(gt_latents, noise, t*debug_t)
+
+                timesteps = [debug_t]
+
+            for _, t in enumerate(timesteps):
+                print(f"enumerate(timesteps) t={t}")
+        
+                latent_model_input = torch.cat([latents] * 2)
+                # domain_embeddings = torch.cat([domain_embeddings] * 2)
+                latent_model_input = self.pipe.scheduler.scale_model_input(latent_model_input, t)
+
+                # predict the noise residual
+                noise_pred = self.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds,
+                    cross_attention_kwargs=cak,
+                    return_dict=False,
+                    class_labels=domain_embeddings,
+    
+                )[0]    
+
+                # perform guidance
+                if True:
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                
+                if single_step:
+                    latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=True).pred_original_sample# cond = data['cond'].repeat(B,1,1,1)
+                else:
+                    latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+
+
+            
+            from main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter import (
+                load_splatter_png_as_original_channel_images_to_encode, 
+                original_to_3Channel_splatter,
+                decode_single_latents,
+                get_splatter_images_from_decoded_dict,
+                render_from_decoded_images,
+                save_gs_rendered_images
+            )
+            
+            latents_all_attr_to_decode = latents
+            assert latents_all_attr_to_decode.shape == latents_all_attr_encoded.shape
+            
+            loss_latent = F.mse_loss(latents.detach(), gt_latents.detach()) 
+            results["loss_latent"] = loss_latent
+
+            
+            # to_encode_attributes_dict_init = {}
+        decoded_attr_3channel_image_list = []
+        decoded_attr_list = []
+        for i, attr_decoded in enumerate(ordered_attr_list):
+        
+            _latents_attr = latents_all_attr_to_decode[i:i+1]
+            
+            debug_latents = False
+            if debug_latents:
+                print("Taking the latents_all_attr_encoded of ", attr_decoded)
+                # _latents_attr = latents_all_attr_encoded[:,i*4:(i+1)*4] # passed
+                _latents_attr = latents_all_attr_encoded[i:i+1] # passed
+            
+            # decode
+            latents1 = unscale_latents(_latents_attr)
+            image = self.pipe.vae.decode(latents1 / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+            _decoded_3channel_image_attr = unscale_image(image)
+
+
+            # if save_path is not None:
+            #     _decoded_3channel_image_save = _decoded_3channel_image_attr.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+            #     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+            #     kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
+
+            # _decoded_3channel_image_attr = images_all_attr_batch[i:i+1] # passed
+            # ----- 
+            debug = False  # passed
+            if debug:
+                print("Directly using encoder input :", attr_decoded)
+                sp_image = data[attr_decoded]
+                si, ei = attr_map[attr_decoded]
+                if (ei - si) == 1:
+                    sp_image = sp_image.repeat(1,3,1,1)
+                _decoded_3channel_image_attr = sp_image
+               
+    
+            # decoded_attr_3channel_image_dict[attr_decoded] = _decoded_3channel_image_attr
+            # decoded_attr_dict[attr_decoded] = attr_3channel_image_to_original_splatter_attr(attr_decoded, _decoded_3channel_image_attr)
+            decoded_attr = attr_3channel_image_to_original_splatter_attr(attr_decoded, _decoded_3channel_image_attr)
+            decoded_attr_list.append(decoded_attr)
+            decoded_attr_3channel_image_list.append(_decoded_3channel_image_attr)
+            # to_encode_attributes_dict_init.update({attr_decoded:decoded_attr}) # splatter attributes in original range
+
+            # image = data[attr_decoded]
+            # decoded_attributes, _ = decode_single_latents(self.pipe, None, attr_to_encode=attr_decoded, mv_image=data[attr_decoded])
+            # to_encode_attributes_dict_init.update({attr_decoded:decoded_attributes}) # splatter attributes in original range
+        
+        if save_path is not None:
+            decoded_attr_3channel_image_batch = torch.cat(decoded_attr_3channel_image_list, dim=0)
+    
+            images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
+            images_to_save = (images_to_save + 1) * 0.5
+            images_to_save = np.clip(images_to_save, 0, 1)
+            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+            # images_to_save = images_to_save.transpose(0, 2, 3, 1).reshape(-1, images_to_save.shape[3],3) # .transpose(0, 3, 1, 4, 2).reshape(-1, images_to_save.shape[1] * images_to_save.shape[3], 3)
+            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
+       
+
+        splatter_mv = torch.cat(decoded_attr_list, dim=1) # [1, 14, 384, 256]
+
+        # ## reshape 
+        splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
+        results['splatters_from_code'] = splatters_to_render # [1, 6, 14, 256, 256]
+        gaussians = fuse_splatters(splatters_to_render)
+        
+        bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
+        
+        with torch.no_grad():
+            gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+        
+        pred_images = gs_results['image'] # [B, V, C, output_size, output_size]
+        pred_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
+
+        results['images_pred'] = pred_images
+        results['alphas_pred'] = pred_alphas
+        
+        gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
+        gt_masks = data['masks_output'] 
+
+        gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+
+            ## ------- end render ----------
+            
+            # ----- FIXME: calculate psnr shoud be at the end -----
+        # psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
+        # results['psnr'] = psnr.detach()
+        
+          
+        if self.opt.lambda_rendering > 0:
+            loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
+            results['loss_rendering'] = loss_mse_rendering
+            loss +=  self.opt.lambda_rendering * loss_mse_rendering
+            if self.opt.verbose_main:
+                print(f"loss rendering (with alpha):{loss_mse_rendering}")
+        elif self.opt.lambda_alpha > 0:
+            loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
+            results['loss_alpha'] = loss_mse_alpha
+            loss += self.opt.lambda_alpha * loss_mse_alpha
+            if self.opt.verbose_main:
+                print(f"loss alpha:{loss_mse_alpha}")
+            
+        if self.opt.lambda_lpips > 0:
+            loss_lpips = self.lpips_loss(
+                F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+                F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+            ).mean()
+            results['loss_lpips'] = loss_lpips
+            loss += self.opt.lambda_lpips * loss_lpips
+            if self.opt.verbose_main:
+                print(f"loss lpips:{loss_lpips}")
+        
+        # ----- rendering [end] -----
+        if isinstance(loss, int):
+            loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
+        results['loss'] = loss
+
+        psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
+        results['psnr'] = psnr.detach()
+
+       
+    
+        return results
+        
+    def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
+        # Gaussian shape: (B*6, 14, H, W)
+        # st()
+        results = {}
+        loss = 0
+       
+        # 1. optimize the splatters from the code: shape [1, 1, 3 or 1, 384, 256]
+        assert self.opt.codes_from_encoder
+      
+        # latents_all_attr_list = []
+        images_all_attr_list = []
+        # encoder input: all the splatter attr pngs 
+        for attr_to_encode in ordered_attr_list:
+            # print("latents_all_attr_list <-",attr_to_encode)
+            
+            sp_image = data[attr_to_encode]
+            si, ei = attr_map[attr_to_encode]
+            if (ei - si) == 1:
+                sp_image = sp_image.repeat(1,3,1,1)
+            
+            images_all_attr_list.append(sp_image)
+            
+        images_all_attr_batch = torch.cat(images_all_attr_list)
+        if save_path is not None:
+            
+            images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
+            images_to_save = (images_to_save + 1) * 0.5
+            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+            # images_to_save = images_to_save.transpose(0, 2, 3, 1).reshape(-1, images_to_save.shape[3],3) # .transpose(0, 3, 1, 4, 2).reshape(-1, images_to_save.shape[1] * images_to_save.shape[3], 3)
+            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_to_encode.jpg', images_to_save)
+            
+
+        # encode
+        sp_image_batch = scale_image(images_all_attr_batch)
+        sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
+        latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
+        # ----
+        
+        if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py"]:
+            gt_latents = latents_all_attr_encoded
             
         elif (self.opt.attr_to_learn is not None): # and (self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py", "./zero123plus/pipeline_v5.py"]):
             
@@ -970,12 +1152,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             cross_attention_kwargs_stu = cross_attention_kwargs        
        
         ## visualize noisy latent
+        ## visualize noisy latent
         if True: # training
-            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
+            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (1,), device=latents_all_attr_encoded.device).repeat(B)
             
             noise = torch.randn_like(gt_latents, device=gt_latents.device)
             noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
             # print(noisy_latents.shape)
+            # print(t)
             
             
             if self.opt.fixed_noise_level is not None:
@@ -1013,7 +1197,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             #     )
 
             # v-prediction with unet
-            st()
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
             alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
@@ -1407,14 +1590,20 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             results['psnr'] = psnr
         
           
+        _alpha_t = alpha_t.flatten()[0]
         if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
+            # print("loss_mse_rendering: ", loss_mse_rendering)
+            loss_mse_rendering *= _alpha_t**2 
+            # print("loss_mse_rendering (with w_t=alpha_t^2): ", loss_mse_rendering)
+
             results['loss_rendering'] = loss_mse_rendering
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
         elif self.opt.lambda_alpha > 0:
             loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
+            loss_mse_alpha *= _alpha_t**2 
             results['loss_alpha'] = loss_mse_alpha
             loss += self.opt.lambda_alpha * loss_mse_alpha
             if self.opt.verbose_main:
@@ -1423,6 +1612,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
 
         ## FIXME: it does not make sense to apply lpips on splatter, right?
+        st()
         if self.opt.lambda_lpips > 0:
             loss_lpips = self.lpips_loss(
                 # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
@@ -1433,6 +1623,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                 F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
+            loss_lpips *= _alpha_t**2 
             results['loss_lpips'] = loss_lpips
             loss += self.opt.lambda_lpips * loss_lpips
             if self.opt.verbose_main:

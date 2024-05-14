@@ -249,12 +249,12 @@ class UNet2DConditionModelCDAttn(ModelMixin, ConfigMixin, UNet2DConditionLoaders
         # #     "CrossAttnDownBlockMV2D",
         # #     "DownBlock2D"
         # # ]
-        # down_block_types = [
-        #     "CrossAttnDownBlockCrossDomain2D",
-        #     "CrossAttnDownBlockCrossDomain2D",
-        #     "CrossAttnDownBlockCrossDomain2D",
-        #     "DownBlock2D"
-        # ]
+        down_block_types = [
+            "CrossAttnDownBlockCrossDomain2D",
+            "CrossAttnDownBlockCrossDomain2D",
+            "CrossAttnDownBlockCrossDomain2D",
+            "DownBlock2D"
+        ]
         # mid_block_type = "UNetMidBlockMV2DCrossAttn"
         # # up_block_types = [
         # #     "UpBlock2D",

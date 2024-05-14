@@ -208,8 +208,8 @@ class ObjaverseDataset(Dataset):
        
         splatter_images_multi_views = []
         
-        # spaltter_files = glob.glob(os.path.join(splatter_uid, "splatter_*.ply")) # TODO: make this expresion more precise: only load the ply files with numbers ## FIXME: 
-        # for sf in spaltter_files:
+        # # spaltter_files = glob.glob(os.path.join(splatter_uid, "splatter_*.ply")) # TODO: make this expresion more precise: only load the ply files with numbers ## FIXME: 
+        # # for sf in spaltter_files:
         
         for input_id in vids[:self.opt.num_input_views]:
             sf = os.path.join(splatter_uid, f"splatter_{input_id-1}.ply")
@@ -268,6 +268,7 @@ class ObjaverseDataset(Dataset):
                 images_white.append(image_white)
             
             image = image[:3] * mask + (1 - mask) * self.opt.bg # [3, 512, 512], to white bg
+            # print("bg: ", self.opt.bg)
             image = image[[2,1,0]].contiguous() # bgr to rgb
             images.append(image)
             

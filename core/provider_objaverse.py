@@ -227,5 +227,6 @@ class ObjaverseDataset(Dataset):
 
         # results['vids'] = torch.tensor(final_vids)
         results['vids'] = final_vids
+        results['scene_name'] = uid.split('/')[-1]
 
         return results

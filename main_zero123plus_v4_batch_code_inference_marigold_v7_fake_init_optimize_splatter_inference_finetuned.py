@@ -32,7 +32,7 @@ import re
 
 import numpy
 from PIL import Image
-from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
+from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler, DDPMScheduler
 # from zero123plus.img_to_mv_v3_my_decoder import to_rgb_image, unscale_image, unscale_latents
 
 import einops
@@ -45,12 +45,13 @@ from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quatern
 from itertools import islice
 
 
+
 def to_rgb_image(maybe_rgba: Image.Image):
     if maybe_rgba.mode == 'RGB':
         return maybe_rgba
     elif maybe_rgba.mode == 'RGBA':
         rgba = maybe_rgba
-        img = numpy.random.randint(127, 128, size=[rgba.size[1], rgba.size[0], 3], dtype=numpy.uint8)
+        img = numpy.random.randint(255, 256, size=[rgba.size[1], rgba.size[0], 3], dtype=numpy.uint8)
         img = Image.fromarray(img, 'RGB')
         img.paste(rgba, mask=rgba.getchannel('A'))
         return img
@@ -1335,9 +1336,10 @@ def main():
             # `timestep_spacing` parameter is not supported in older versions of `diffusers`    
             # so there may be performance degradations
             # We recommend using `diffusers==0.20.2`
-            pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
-                pipeline.scheduler.config, timestep_spacing='trailing'
-            )
+            # pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
+            #     pipeline.scheduler.config, timestep_spacing='trailing'
+            # )
+            pipeline.scheduler = DDPMScheduler.from_config(pipeline.scheduler.config) # num_train_timesteps=1000
             # pipeline.scheduler = DDIMScheduler.from_config(
             #     pipeline.scheduler.config
             # )
@@ -1346,8 +1348,8 @@ def main():
             output_path = f"{opt.workspace}/zero123plus/outputs_v3_inference_my_decoder"
             
             pipeline.prepare()
-            # guidance_scale = 1.5
-            guidance_scale = 1
+            guidance_scale = 1.5
+            # guidance_scale = 1
 
 
        
@@ -1473,6 +1475,7 @@ def main():
                 os.makedirs(os.path.join(output_path, name), exist_ok=True)
 
                 img = to_rgb_image(Image.open(path))
+                # img = Image.open(path)
                 
                 img.save(os.path.join(output_path, f'{name}/cond.png'))
                 cond = [img]
@@ -1657,11 +1660,11 @@ def main():
                                     
                                 timesteps = model.pipe.scheduler.timesteps
                                 
-                                debug = True
+                                debug = False
                                 if debug:
-                                    debug_t = torch.tensor(50, dtype=torch.int64, device='cuda:0',)
+                                    debug_t = torch.tensor(500, dtype=torch.int64, device='cuda:0',)
                                     noise = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
-                                    t = torch.ones((5,), device=gt_latents.device, dtype=torch.int)
+                                    t = torch.ones((1,), device=gt_latents.device, dtype=torch.int)
                                     latents = model.pipe.scheduler.add_noise(gt_latents, noise, t*debug_t)
                                     
                                     timesteps = [debug_t]
@@ -1702,7 +1705,8 @@ def main():
                                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                                     # compute the previous noisy sample x_t -> x_t-1
-                                    if debug:
+                                    explicit_x0 = False
+                                    if explicit_x0:
                                         alphas_cumprod = model.pipe.scheduler.alphas_cumprod.to(
                                             device=latents.device, dtype=latents.dtype
                                         )
@@ -1711,10 +1715,12 @@ def main():
                                         noise_pred = latents * sigma_t.view(-1, 1, 1, 1) + noise_pred * alpha_t.view(-1, 1, 1, 1)
                                         
         
-                                    
                                         latents = (latents - noise_pred * sigma_t) / alpha_t
                                     else:
-                                        latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                                        if debug:
+                                            latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=True).pred_original_sample
+                                        else:
+                                            latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
                                     
                                 print(latents.shape)
                                        
@@ -1722,7 +1728,27 @@ def main():
                                     latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", B=data['cond'].shape[0], A=5, m=3, n=2)
                                     # latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
                                
-                                for attr_latents, attr in zip(latents, ordered_attr_list):
+                                _decode_list = ordered_attr_list
+                                # if (not debug) and opt.custom_pipeline in ["./zero123plus/pipeline_v7_seq.py"]:
+                                #     # v7_remap = {
+                                #     #     "pos": "rgbs",
+                                #     #     "opacity": "pos",
+                                #     #     "scale": "opacity",
+                                #     #     "rotation": "scale",
+                                #     #     "rgbs": "rotation",
+                                #     # }
+                                #     v7_remap = {
+                                #         "pos": "rotation",
+                                #         "opacity":"opacity",
+                                #         "scale":  "scale",
+                                #         "rotation": "pos", 
+                                #         "rgbs": "rgbs",
+                                #     }
+                                #     _decode_list = [v7_remap[attr] for attr in ordered_attr_list]
+                                #     print(_decode_list)
+                                #     # st()
+                                    
+                                for attr_latents, attr in zip(latents, _decode_list):
                                     
                                     decoded_attributes, decoded_images = decode_single_latents(pipeline_0123, attr_latents[None], attr_to_encode=attr)
                                     # NOTE: decoded_attributes is already mapped to their original range, not [0,1] or [-1,1]
@@ -1791,7 +1817,7 @@ def main():
                                     
                                 # st()
                             
-                                decoded_attributes, decoded_images = decode_single_latents(pipeline_0123, latents, attr_to_encode=attr)
+                                decoded_attributes, decoded_images = decode_single_latents(pipeline, latents, attr_to_encode=attr)
                                 # NOTE: decoded_attributes is already mapped to their original range, not [0,1] or [-1,1]
                                 decoded_3channel_attr_image_dict.update({attr:decoded_images}) # which is for visualization, in range [-1,1]
                                 decoded_attributes_dict.update({attr:decoded_attributes}) # splatter attributes in original range 

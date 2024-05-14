@@ -49,7 +49,6 @@ class LGM(nn.Module):
         self.opacity_act = lambda x: torch.sigmoid(x)
         # self.rot_act = F.normalize
         print("Fixed the rot")
-        st()
         self.rot_act = lambda x: F.normalize(x, dim=-1)
         self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
 
@@ -146,6 +145,7 @@ class LGM(nn.Module):
         ### ----- new -------
         if self.splatter_out_is_random and splatter_ckpt == None:
             ## ----- previous -------
+            st()
             images = images.view(B*V, C, H, W)
 
             x = self.unet(images) # [B*4, 14, h, w]

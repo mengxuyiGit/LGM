@@ -76,7 +76,6 @@ class ReferenceOnlyAttnProc(torch.nn.Module):
             res = torch.cat([res0, res])
         return res
 
-
 class RefOnlyNoisedUNet(torch.nn.Module):
     def __init__(self, unet: UNet2DConditionModel, train_sched: DDPMScheduler, val_sched: EulerAncestralDiscreteScheduler) -> None:
         super().__init__()

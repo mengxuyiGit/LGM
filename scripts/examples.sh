@@ -54,7 +54,8 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py b
     --resume pretrained/model_fp16_fixrot.safetensors --num_epochs 800 --fix_pretrained --prob_cam_jitter 0 \
     --lr 0.003 --num_input_views 6 --num_views 20 --use_adamW --lr_scheduler 'Plat' --lr_scheduler_patience 2 \
     --eval_iter 5 --save_iter 500 --desc 'batch' --data_path ${DATA_DIR_BATCH} \
-    --scene_start_index 0 --scene_end_index 5 --early_stopping 
+    --scene_start_index 0 --scene_end_index 5 --early_stopping
+
 
 # #### [MAR 29] Change the splatter rep to be depth and offset. Fast fitting - Batch process
 # accelerate launch --config_file acc_configs/gpu1.yaml main_pretrained_batch.py big \

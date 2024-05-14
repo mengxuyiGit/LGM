@@ -77,10 +77,16 @@
 # LOG_DIR="runs/marigold_unet/workspace_debug/20240429-013821-marigold-unet-w-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr1e-05-Plat5"
 # LOG_DIR="runs/marigold_unet/workspace_debug/20240429-014831-marigold-unet-w-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr1e-06-Plat5"
 # LOG_DIR="runs/marigold_unet/workspace_debug/20240429-020506-marigold-unet-w-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr1e-05-Plat5"
-LOG_DIR="runs/marigold_unet/workspace_debug/20240429-023105-marigold-unet-wo-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss-lr1e-06-Plat5"
+# LOG_DIR="runs/marigold_unet/workspace_debug/20240429-023105-marigold-unet-wo-rendering-loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss-lr1e-06-Plat5"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240516-8gpus-marigold-unet-v7_seq-POS-EMBED-only-train-attn-v-pred-white-bg-unified-t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240517-8gpus-marigold-unet-v7_seq-POS-EMBED-only-train-attn-v-pred-white-bg-unified-t-resume160-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_ovft/20240512-043034-marigold-unet-v7-seq-w_t_rendering_loss-ovft-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240518-8gpus-marigold-unet-v7_seq-POS-EMBED-resume160-rendering_loss_weight_alpha^2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5"
+# LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/lvis/workspace_debug/20240512-235539-v5_LGM_init_render320_scene_600_800_reg_encoder_input_every_iter_no_clip-loss_render1.0_lpips1.0-lr0.006-Plat"
+LOG_DIR="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/20240513-141546-longer_optimize_batch_decode-loss_render1.0_lpips1.0-lr0.006-Plat"
 
 
-TB_PORT=6157
+TB_PORT=6162
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
 
 TB_FOLDER=$1

@@ -535,7 +535,8 @@ def main():
             
             # checkpoint
             # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
-            if epoch > 0 and epoch % opt.save_iter == 0:
+            if (epoch > 0 or opt.resume is not None) and epoch % opt.save_iter == 0:
+            # if epoch % opt.save_iter == 0:
                 accelerator.wait_for_everyone()
                 accelerator.save_model(model, opt.workspace)
                 
@@ -578,13 +579,17 @@ def main():
                             
                             # ---- finish code init ----
 
-                        out = model(data, save_path=f'{opt.workspace}/eval_epoch_{epoch}', prefix=f"{accelerator.process_index}_{i}_")
+                        if opt.skip_training:
+                            out = model.forward_inference(data, save_path=f'{opt.workspace}/eval_epoch_{epoch}', prefix=f"{accelerator.process_index}_{i}_")
+                        else:
+                            out = model(data, save_path=f'{opt.workspace}/eval_epoch_{epoch}', prefix=f"{accelerator.process_index}_{i}_")
                 
 
                         psnr = out['psnr']
                         total_psnr += psnr.detach()
                         loss = out['loss']
                         total_loss += loss.detach()
+    
                         loss_latent = out['loss_latent']
                         total_loss_latent += loss_latent.detach()
                         if 'loss_splatter' in out.keys():

@@ -58,13 +58,12 @@ class UNet2DConditionModelCrossDomainAttn(torch.nn.Module):
         self.unet = UNet2DConditionModelCDAttn(
             block_out_channels = (320, 640, 1024, 1024),
             cross_attention_dim = 1024,
-            ) # .from_pretrained_2d(cfg.pretrained_model_name_or_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
+            )#.from_pretrained_2d(cfg.pretrained_model_name_or_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
         # self.unet = UNet2DConditionModel()
 
         with open("unet_UNet2DConditionModel.txt", "w") as f:
             print(self.unet, file=f)
         
-        # st()
         # copy the unet weights to the self.unet
         
         # check self.class_embedding
@@ -302,6 +301,8 @@ class UNet2DConditionModelCrossDomainAttn(torch.nn.Module):
                 if is_adapter and len(down_intrablock_additional_residuals) > 0:
                     sample += down_intrablock_additional_residuals.pop(0)
 
+            print(f"downblock -> {sample.shape}")
+            # print(f"downblock ->{res_samples.shape}")
             down_block_res_samples += res_samples
 
         if is_controlnet:
@@ -370,6 +371,8 @@ class UNet2DConditionModelCrossDomainAttn(torch.nn.Module):
                     res_hidden_states_tuple=res_samples,
                     upsample_size=upsample_size,
                 )
+                
+            print(f"upblock {i}-> {sample.shape}")
 
         # 6. post-process
         if self.unet.conv_norm_out:

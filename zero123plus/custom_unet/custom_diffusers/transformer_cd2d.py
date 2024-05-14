@@ -252,6 +252,7 @@ class Transformer2DCrossDomainModel(ModelMixin, ConfigMixin):
                 for _ in range(self.config.num_layers)
             ]
         )
+        from ipdb import set_trace as st; st()
 
         self.norm_out = nn.LayerNorm(self.inner_dim)
         self.out = nn.Linear(self.inner_dim, self.config.num_vector_embeds - 1)
@@ -408,6 +409,7 @@ class Transformer2DCrossDomainModel(ModelMixin, ConfigMixin):
             encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
 
+        print("Transformer2DCrossDomainModel (input) ->", hidden_states.shape)
         # 1. Input
         if self.is_input_continuous:
             batch_size, _, height, width = hidden_states.shape
@@ -456,6 +458,7 @@ class Transformer2DCrossDomainModel(ModelMixin, ConfigMixin):
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
                 )
+            print("Transformer2DCrossDomainModel ->", hidden_states.shape)
 
         # 3. Output
         if self.is_input_continuous:

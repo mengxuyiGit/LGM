@@ -1202,6 +1202,7 @@ class CrossAttnDownBlockCrossDomain2D(nn.Module):
                     temb,
                     **ckpt_kwargs,
                 )
+                print("CrossAttnDownBlockCrossDomain2D (resnet)-->", hidden_states.shape)
                 hidden_states = attn(
                     hidden_states,
                     encoder_hidden_states=encoder_hidden_states,
@@ -1212,6 +1213,7 @@ class CrossAttnDownBlockCrossDomain2D(nn.Module):
                 )[0]
             else:
                 hidden_states = resnet(hidden_states, temb)
+                print("CrossAttnDownBlockCrossDomain2D (resnet)-->", hidden_states.shape)
                 hidden_states = attn(
                     hidden_states,
                     encoder_hidden_states=encoder_hidden_states,
@@ -1226,6 +1228,8 @@ class CrossAttnDownBlockCrossDomain2D(nn.Module):
                 hidden_states = hidden_states + additional_residuals
 
             output_states = output_states + (hidden_states,)
+
+            print("CrossAttnDownBlockCrossDomain2D (attn)-->", hidden_states.shape)
 
         if self.downsamplers is not None:
             for downsampler in self.downsamplers:
