@@ -185,18 +185,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
             print(self.unet, file=f)
       
-    
-    def encode_image(self, image, is_zero123plus=True):
-        # st() # image: torch.Size([1, 3, 768, 512])
-
-        if is_zero123plus:
-            image = scale_image(image)
-            image = self.vae.encode(image).latent_dist.sample() * self.vae.config.scaling_factor
-            image = scale_latents(image)
-        else:
-            image = self.vae.encode(image, return_dict=False)[0] * self.vae.config.scaling_factor
-        return image
-
 
     def get_alpha(self, scheduler, t, device):
         alphas_cumprod = scheduler.alphas_cumprod.to(
@@ -237,19 +225,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         return splatter_optimizer
     
     
-        
     def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
         # Gaussian shape: (B*6, 14, H, W)
-        # st()
+
         results = {}
         loss = 0
-       
-        # 1. optimize the splatters from the code: shape [1, 1, 3 or 1, 384, 256]
-        # assert self.opt.codes_from_encoder
       
-        # latents_all_attr_list = []
-        images_all_attr_list = []
         # encoder input: all the splatter attr pngs 
+        images_all_attr_list = []
         for attr_to_encode in ordered_attr_list:
             # print("latents_all_attr_list <-",attr_to_encode)
             
@@ -273,30 +256,21 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # kiui.write_image(f'pure_noise_single_attr.jpg',  np.random.rand(*images_to_save[:128].shape))
             # st()
 
-        # encode
+        # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
-        # ----
-        
+    
         if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py"]:
             gt_latents = latents_all_attr_encoded
-            
-        elif (self.opt.attr_to_learn is not None): # and (self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py", "./zero123plus/pipeline_v5.py"]):
-            
-            attr_i = ordered_attr_list.index(self.opt.attr_to_learn)
-            print(f"{ordered_attr_list} - {attr_i} = {self.opt.attr_to_learn}")
-            gt_latents = latents_all_attr_encoded[attr_i:attr_i+1]
-                  
-        elif self.opt.cd_spatial_concat:
+        elif self.opt.cd_spatial_concat: # should use v2 pipeline
             gt_latents = einops.rearrange(latents_all_attr_encoded, "(B A) C (m H) (n W) -> B C (A H) (m n W)", B=data['cond'].shape[0], m=3, n=2)
-            
         else:  
-            gt_latents = latents_all_attr_encoded
-    
-        B,C,H,W = gt_latents.shape
-         
+            raise NotImplementedError
+        
+        
         # prepare cond and t
+        B,C,H,W = gt_latents.shape
         assert data['cond'].shape[0] == 1 # only handle actual bsz=1
         cond = data['cond'].repeat(B,1,1,1)
         
@@ -305,139 +279,62 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=1.0)
             cross_attention_kwargs_stu = cross_attention_kwargs        
        
-        ## visualize noisy latent
-        if True: # training
-            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (1,), device=latents_all_attr_encoded.device).repeat(B)
-            
-            noise = torch.randn_like(gt_latents, device=gt_latents.device)
-            noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
-            # print(noisy_latents.shape)
-            
-            if self.opt.fixed_noise_level is not None:
-                t = torch.ones_like(t).to(noisy_latents.device) * self.opt.fixed_noise_level
-                print(f"fixed noise level = {self.opt.fixed_noise_level}")
+        # same t for all domain
+        # TODO: adapt this to batch_Size > 1 to run larger batch size
+        t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (1,), device=latents_all_attr_encoded.device).repeat(B)
         
-            # domain_class = torch.tensor([0,0,0,0,1]).float().to(noisy_latents.device)
-            # domain_embeddings = domain_class[None].repeat(noisy_latents.shape[0],1)
-            domain_embeddings = torch.eye(5).to(noisy_latents.device)
-            if (self.opt.attr_to_learn is not None):
-                domain_embeddings = domain_embeddings[attr_i:attr_i+1]
-            elif self.opt.cd_spatial_concat:
-                domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
+        noise = torch.randn_like(gt_latents, device=gt_latents.device)
+        noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
+        # print(noisy_latents.shape)
         
-            domain_embeddings = torch.cat([
-                    torch.sin(domain_embeddings),
-                    torch.cos(domain_embeddings)
-                ], dim=-1)
-            
-            # st() # spatial concat
-            # x = self.predict_x0(
-            #     noisy_latents, text_embeddings, t=t, guidance_scale=1.0, 
-            #     cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus',
-            #     class_labels=domain_embeddings)
-            
-            # def extract_into_tensor(a, t, x_shape):
-            #     b, *_ = t.shape
-            #     out = a.gather(-1, t)
-            #     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
-
-            # def get_v(self, x, noise, t, sqrt_alphas_cumprod):
-            #     return (
-            #             extract_into_tensor(sqrt_alphas_cumprod, t, x.shape) * noise -
-            #             extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x.shape) * x
-            #     )
-
-            # v-prediction with unet
+        if self.opt.fixed_noise_level is not None:
+            t = torch.ones_like(t).to(noisy_latents.device) * self.opt.fixed_noise_level
+            print(f"fixed noise level = {self.opt.fixed_noise_level}")
     
-            v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
-
-            alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
-                device=noisy_latents.device, dtype=noisy_latents.dtype
-            )
-            alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
-            sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
-            noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
-            
-            v_target = alpha_t * noise - sigma_t * gt_latents
-        
-            x = (noisy_latents - noise_pred * sigma_t) / alpha_t
-        
-        else:
-            noisy_latents = torch.randn_like(gt_latents, device=gt_latents.device)
-            domain_embeddings = torch.eye(5).to(noisy_latents.device)
+        domain_embeddings = torch.eye(5).to(noisy_latents.device)
+        if self.opt.cd_spatial_concat:
             domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
-            domain_embeddings = torch.cat([
-                    torch.sin(domain_embeddings),
-                    torch.cos(domain_embeddings)
-                ], dim=-1)
-            # latents_init = latents.clone().detach()
-            self.pipe.scheduler.set_timesteps(30, device='cuda:0')
-            # if opt.one_step_diffusion is not None:
-            #     pipeline.scheduler.set_timesteps(opt.one_step_diffusion, device='cuda:0')
-                
-            timesteps = self.pipe.scheduler.timesteps
-            for _, t in enumerate(timesteps):
-                print(f"enumerate(timesteps) t={t}")
-                # st()
-                latent_model_input = torch.cat([latents] * 2)
-                latent_model_input = pipeline.scheduler.scale_model_input(latent_model_input, t)
+        
+        # add poe embedding on domain embedding
+        domain_embeddings = torch.cat([
+                torch.sin(domain_embeddings),
+                torch.cos(domain_embeddings)
+            ], dim=-1)
+        
+        # st()
 
-                # predict the noise residual
-                noise_pred = pipeline.unet(
-                    latent_model_input,
-                    t,
-                    encoder_hidden_states=prompt_embeds,
-                    cross_attention_kwargs=cak,
-                    return_dict=False,
-                    class_labels=domain_embeddings,
-                )[0]
+        # def extract_into_tensor(a, t, x_shape):
+        #     b, *_ = t.shape
+        #     out = a.gather(-1, t)
+        #     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
+        # def get_v(self, x, noise, t, sqrt_alphas_cumprod):
+        #     return (
+        #             extract_into_tensor(sqrt_alphas_cumprod, t, x.shape) * noise -
+        #             extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x.shape) * x
+        #     )
 
+        # v-prediction with unet
+        v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
+
+        # get v_target
+        alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
+            device=noisy_latents.device, dtype=noisy_latents.dtype
+        )
+        alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
+        sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
+        v_target = alpha_t * noise - sigma_t * gt_latents
+        
         # calbculate loss
-        # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
-        # weight = 1
-        # loss = (weight * ((noise - noise_pred) ** 2)).mean()
-        
-        # loss_latent = F.mse_loss(x, gt_latents) 
-        loss_latent = F.mse_loss(v_pred, v_target) 
-        
-        # ------- 
-        
-        # # new simple prediction
-        # # v-prediction with unet
-        # v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs).sample
-
-        # alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
-        #     device=noisy_latents.device, dtype=noisy_latents.dtype
-        # )
-        # alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
-        # sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
-        # noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
-
-        # # calculate loss
-        # # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
-        # weight = 1
-        # loss_latent = (weight * ((noise - noise_pred) ** 2)).mean()
-
-        # x = (noisy_latents - noise_pred * sigma_t) / alpha_t
-        
-        
-        
-        # if self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py", "./zero123plus/pipeline_v5.py"]:
-        #     # x = torch.cat([latents_all_attr_encoded[:,:-4], x], dim=1)
-        #     x = torch.cat([latents_all_attr_encoded[:,:latent_si], x, latents_all_attr_encoded[:,latent_ei:]], dim=1)
-
-        # else:
-        #     x.data[:,:-4] = latents_all_attr_encoded.data[:,:-4]
-        
-        # # ------ 
+            # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
+        loss_latent = F.mse_loss(v_pred, v_target)     
         results['loss_latent'] = loss_latent * self.opt.lambda_latent
-        # results['loss_latent'] = torch.zeros_like(loss_latent) # no latent loss supervision
-          
-        
+
+        # calculate x0 from v_pred
+        noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
+        x = (noisy_latents - noise_pred * sigma_t) / alpha_t
+      
         # decode latents into attrbutes again
-        # decoded_attr_3channel_image_dict = {}
-        # decoded_attr_dict = {}
         decoded_attr_list = []
         
         from main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter import (
@@ -448,66 +345,17 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             render_from_decoded_images,
             save_gs_rendered_images
         )
-        
-        # ---- begin vis noisy latent ---
-
-        # with torch.no_grad():
-        #     to_encode_attributes_dict_init = {}
-        #     for i, attr_decoded in enumerate(ordered_attr_list):
-                
-        #         _latents_attr = x[:,i*4:(i+1)*4]
-        #         debug_latents = False
-        #         if debug_latents:
-        #             print("Taking the latents_all_attr_encoded of ", attr_decoded)
-        #             _latents_attr = latents_all_attr_encoded[:,i*4:(i+1)*4] # passed
-                
-        #         # decode
-        #         latents1 = unscale_latents(_latents_attr)
-        #         image = self.pipe.vae.decode(latents1 / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
-        #         _decoded_3channel_image_attr = unscale_image(image)
-        #         # ----- 
-        #         debug = False  # passed
-        #         if debug:
-        #             print("Directly using encoder input :", attr_decoded)
-        #             sp_image = data[attr_decoded]
-        #             si, ei = attr_map[attr_decoded]
-        #             if (ei - si) == 1:
-        #                 sp_image = sp_image.repeat(1,3,1,1)
-        #             _decoded_3channel_image_attr = sp_image
-
-        #         # decoded_attr_3channel_image_dict[attr_decoded] = _decoded_3channel_image_attr
-        #         # decoded_attr_dict[attr_decoded] = attr_3channel_image_to_original_splatter_attr(attr_decoded, _decoded_3channel_image_attr)
-        #         decoded_attr = attr_3channel_image_to_original_splatter_attr(attr_decoded, _decoded_3channel_image_attr)
-        #         # decoded_attr_list.append(decoded_attr)
-        #         to_encode_attributes_dict_init.update({attr_decoded:decoded_attr}) # splatter attributes in original range
-
-                    
-        #     with torch.no_grad():
-        #         splatters_to_render = get_splatter_images_from_decoded_dict(to_encode_attributes_dict_init, lgm_model=None, data=data, group_scale=False)
-        #             # bg_color =  torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-        #         global_bg_color = torch.ones(3, dtype=torch.float32, device=x.device) * 0.5
-        #         gs_results = render_from_decoded_images(self.gs, splatters_to_render, data=data, bg_color=global_bg_color)
-        #         # save rendering results
-        #         name = "zjdebug_to_encode"
-        #         save_gs_rendered_images(gs_results, fpath=os.path.join(self.opt.workspace, f'{name}/noisy_latent'))
-
        
-        # ---- end vis noisy latent ---
-        if (self.opt.attr_to_learn is not None):
-            latents_all_attr_to_decode = torch.cat([latents_all_attr_encoded[:attr_i], x, latents_all_attr_encoded[attr_i+1:]], dim=0)
-            
-        elif self.opt.cd_spatial_concat:
+        if self.opt.cd_spatial_concat:
             latents_all_attr_to_decode = einops.rearrange(x, "B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
-    
         else:
             latents_all_attr_to_decode = x
-        
         assert latents_all_attr_to_decode.shape == latents_all_attr_encoded.shape
 
-        # to_encode_attributes_dict_init = {}
+       
+    #     TODOL: make this into batch process
         decoded_attr_3channel_image_list = []
         for i, attr_decoded in enumerate(ordered_attr_list):
-        
             _latents_attr = latents_all_attr_to_decode[i:i+1]
             
             debug_latents = False
@@ -521,30 +369,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             image = self.pipe.vae.decode(latents1 / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
             _decoded_3channel_image_attr = unscale_image(image)
 
-
             # if save_path is not None:
             #     _decoded_3channel_image_save = _decoded_3channel_image_attr.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
             #     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
             #     kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-
-            # _decoded_3channel_image_attr = images_all_attr_batch[i:i+1] # passed
-            # ----- 
-            debug = False  # passed
-            if debug:
-                print("Directly using encoder input :", attr_decoded)
-                sp_image = data[attr_decoded]
-                si, ei = attr_map[attr_decoded]
-                if (ei - si) == 1:
-                    sp_image = sp_image.repeat(1,3,1,1)
-                _decoded_3channel_image_attr = sp_image
-               
     
-            # decoded_attr_3channel_image_dict[attr_decoded] = _decoded_3channel_image_attr
-            # decoded_attr_dict[attr_decoded] = attr_3channel_image_to_original_splatter_attr(attr_decoded, _decoded_3channel_image_attr)
             decoded_attr = attr_3channel_image_to_original_splatter_attr(attr_decoded, _decoded_3channel_image_attr)
             decoded_attr_list.append(decoded_attr)
             decoded_attr_3channel_image_list.append(_decoded_3channel_image_attr)
-            # to_encode_attributes_dict_init.update({attr_decoded:decoded_attr}) # splatter attributes in original range
 
             # image = data[attr_decoded]
             # decoded_attributes, _ = decode_single_latents(self.pipe, None, attr_to_encode=attr_decoded, mv_image=data[attr_decoded])
@@ -552,49 +384,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         if save_path is not None:
             decoded_attr_3channel_image_batch = torch.cat(decoded_attr_3channel_image_list, dim=0)
-    
             images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = np.clip(images_to_save, 0, 1)
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            # images_to_save = images_to_save.transpose(0, 2, 3, 1).reshape(-1, images_to_save.shape[3],3) # .transpose(0, 3, 1, 4, 2).reshape(-1, images_to_save.shape[1] * images_to_save.shape[3], 3)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
        
-       
-        # ## zhongji debuga
-        # zjdebug = False
-        # if zjdebug:
-           
-        #     # load_path = "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold/workspace_optimize/20240425-232904-v5_LGM_init_render320_scene_200_400_reg_encoder_input_every_iter_no_clip-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.006-Plat/zero123plus/outputs_v3_inference_my_decoder/201_35a2ad3d90ce4f5791b442caadf7036d/300"
-        #     # splatter_original_Channel_image_to_encode = load_splatter_png_as_original_channel_images_to_encode(load_path, device=x.device, suffix="to_encode", ext="png")
-        #     # # st()
-        #     # splatter_3Channel_image_to_encode = original_to_3Channel_splatter(splatter_original_Channel_image_to_encode)
-        #     # # for key, value in splatter_3Channel_image_to_encode.items():
-        #     # #     print(f"get {key} from data to splatter_3Channel_image_to_encode")
-        #     # #     splatter_3Channel_image_to_encode[key] = data[key]
-
-        #     # to_encode_attributes_dict_init = {}
-        #     # # for attr, _ in splatter_3Channel_image_to_encode.items():
-        #     # for attr in ordered_attr_list:
-        #     #     image = data[attr]
-        #     #     decoded_attributes, _ = decode_single_latents(self.pipe, None, attr_to_encode=attr, mv_image=image)
-        #     #     to_encode_attributes_dict_init.update({attr:decoded_attributes}) # splatter attributes in original range
-        #     print(to_encode_attributes_dict_init.keys())
-            
-        #     with torch.no_grad():
-        #         splatters_to_render = get_splatter_images_from_decoded_dict(to_encode_attributes_dict_init, lgm_model=None, data=data, group_scale=False)
-        #          # bg_color =  torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-        #         global_bg_color = torch.ones(3, dtype=torch.float32, device=x.device) * 0.5
-        #         gs_results = render_from_decoded_images(self.gs, splatters_to_render, data=data, bg_color=global_bg_color)
-        #         # save rendering results
-        #         name = "zjdebug_to_encode"
-        #         save_gs_rendered_images(gs_results, fpath=os.path.join(self.opt.workspace, f'{name}/init'))
-        #     st()
-
-        
-        # ## ------- splatter -> gaussian ------- 
-        # attr_image_list = [decoded_attr_dict[attr] for attr in ordered_attr_list ]
-        # [print(t.shape) for t in attr_image_list]
 
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [1, 14, 384, 256]
 
@@ -606,251 +401,91 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.training: # random bg for training
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
         else:
-            # if self.opt.data_mode == "srn_cars":
-            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device)
-            # else:
-                # bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-                
-        # if opt.data_mode == "srn_cars":
-        #     bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) 
-        # else:
-        #     bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * 0.5
-        # print("rgb: ", gaussians[...,11:].shape, gaussians[...,11:].min(), gaussians[...,11:].max())
-        # gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
-    
-        # gs_results = render_from_decoded_images(gs, splatters_to_render, data=data, bg_color=global_bg_color)
-        # save rendering results
-        # save_gs_rendered_images(gs_results, fpath=os.path.join(output_path, f'{name}/init'))
+            bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * self.opt.bg # white bg
 
+        #  render & calculate rendering loss
             
-        # pred_splatters, loss_latent = self.forward_splatters_with_activation(data['input'],  data['cond'], latents=data['codes']) # [B, N, 14] # (B, 6, 14, H, W) # [B, H, W, 3], condition image: [1, 320, 320, 3]
-        
-        # results['loss_latent'] = loss_latent
-        
-        # results['splatters_from_code'] = pred_splatters # [1, 6, 14, 256, 256]
-        # if self.opt.verbose_main:
-        #     print(f"model splatters_pred: {pred_splatters.shape}")
-        
-        
-        # # NOTE: when optimizing the splatter and code together, we do not need the loss from gt splatter images
-        # if self.opt.lambda_splatter > 0 and splatter_guidance:
-            
-        #     # print(f"Splatter guidance epoch. Use splatters_to_optimize to supervise the code pred splatters")
-        #     # gt_splatters =  data['splatters_to_optimize'] # [1, 6, 14, 128, 128]
-            
-        #     if self.opt.decode_splatter_to_128:
-        #         gt_splatters =  data['splatters_output']
-        #     else:
-        #         gt_splatters_low_res =  data['splatters_output']
-        #         gt_splatters =  torch.stack([F.interpolate(sp, self.splatter_size[-2:]) for sp in gt_splatters_low_res], dim=0)
-        #     # print(f"gt splatter size:{gt_splatters.shape}")
-           
-        #     # NOTE: discard the below of downsampling pred, but use upsampling gt
-        #     # if gt_splatters.shape[-2:] != pred_splatters.shape[-2:]:
-        #     #     print("pred_splatters:", pred_splatters.shape)
-        #     #     B, V, C, H, W, = pred_splatters.shape
-        #     #     pred_splatters_gt_size = einops.rearrange(pred_splatters, "b v c h w -> (b v) c h w")
-        #     #     pred_splatters_gt_size = F.interpolate(pred_splatters_gt_size, size=gt_splatters.shape[-2:], mode='bilinear', align_corners=False) # we move this to calculating splatter loss only, while we keep this high res splatter for rendering
-        #     #     pred_splatters_gt_size = einops.rearrange(pred_splatters_gt_size, "(b v) c h w -> b v c h w", b=B, v=V)
-        #     #     st()
-                
-        #     # else:
-        #     #     pred_splatters_gt_size = pred_splatters
-            
-        #     gs_loss_mse_dict = self.gs_weighted_mse_loss(pred_splatters, gt_splatters)
-        #     loss_mse = gs_loss_mse_dict['total']
-        
-        #     results['loss_splatter'] = loss_mse
-        #     loss = loss + self.opt.lambda_splatter * loss_mse
-        #     # also log the losses for each attributes
-        #     results['gs_loss_mse_dict'] = gs_loss_mse_dict
-         
-        # ## ------- splatter -> gaussian ------- 
-        # gaussians = fuse_splatters(pred_splatters) # this is the gaussian from code
-        
-        
-        
-        if self.opt.render_gt_splatter:
-            print("Render GT splatter --> load splatters then fuse")
-            gaussians = fuse_splatters(data['splatters_output'])
-            # print("directly load fused gaussian ply")
-            # gaussians = self.gs.load_ply('/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_6100_0/fused.ply').to(pred_splatters.device)
-            # gaussians = gaussians.unsqueeze(0)
-            
-            if self.opt.perturb_rot_scaling:
-                # scaling: 4-7
-                # gaussians[...,4:7] = 0.006 * torch.rand_like(gaussians[...,4:7])
-                # rot: 7-11
-                # gaussians[...,7:11] = F.normalize(-1 + 2 * torch.zeros_like(gaussians[...,7:11]))
-                # print("small scale")
-                pass
-                
-            
-            if self.opt.discard_small_opacities: # only for gt debug
-                opacity = gaussians[...,3:4]
-                mask = opacity.squeeze(-1) >= 0.005
-                gaussians = gaussians[mask].unsqueeze(0)
-       
-        elif len(self.opt.gt_replace_pred) > 0: 
-            ### check rgb output from zero123++
-            # gt_splatters =  data['splatters_output'] # [1, 6, 14, 128, 128]
-           
-            ### this will work
-            # gaussians = fuse_splatters(data['splatters_output'])
-            # print(f"replace --> assign")
-            
-            ### this will NOT work!!!!?
-            gt_gaussians = fuse_splatters(data['splatters_output'])
-            st()
-            gaussians[..., :] = gt_gaussians[..., :]
-            # del gt_gaussians
-            print(f"replace --> slicing")
-            
-            
-        # if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 or (not self.training):
-        # if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 and self.training:
-        if True:
-            if self.opt.verbose_main:
-                print(f"Render when self.training = {self.training}")
-                
-            ## ------- begin render ----------
-            # use the other views for rendering and supervision
-            if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 and self.training:
+        ## ------- begin render ----------
+        # use the other views for rendering and supervision
+        if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 and self.training:
+            gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+        else:
+            with torch.no_grad():
                 gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
-            else:
-                with torch.no_grad():
-                    gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
-            
-            pred_images = gs_results['image'] # [B, V, C, output_size, output_size]
-            pred_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
-
-            results['images_pred'] = pred_images
-            results['alphas_pred'] = pred_alphas
-            
-            gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
-            gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
-            
-            
-            # get gt_mask from gt gaussian rendering
-            if self.opt.data_mode == "srn_cars":
-                gt_masks = self.gs.render(fuse_splatters(data['splatters_output']), data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)['alpha']
-
-            gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
-            
-            # # save training pairs
-            # pair_images = torch.cat([gt_images, pred_images]).detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-            # pair_images = pair_images.transpose(0, 3, 1, 4, 2).reshape(-1, pair_images.shape[1] * pair_images.shape[3], 3)
-            # kiui.write_image(f'{self.opt.workspace}/train_gt_pred_images.jpg', pair_images)
-            # st()
-            
-
-            ## ------- end render ----------
-            
-            # ----- FIXME: calculate psnr shoud be at the end -----
-            psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
-            results['psnr'] = psnr
         
+        pred_images = gs_results['image'] # [B, V, C, output_size, output_size]
+        pred_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
+
+        results['images_pred'] = pred_images
+        results['alphas_pred'] = pred_alphas
+        
+        gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
+        gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+        
+        # get gt_mask from gt gaussian rendering
+        if self.opt.data_mode == "srn_cars":
+            gt_masks = self.gs.render(fuse_splatters(data['splatters_output']), data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)['alpha']
+
+        gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+        
+        # # save training pairs
+        # pair_images = torch.cat([gt_images, pred_images]).detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+        # pair_images = pair_images.transpose(0, 3, 1, 4, 2).reshape(-1, pair_images.shape[1] * pair_images.shape[3], 3)
+        # kiui.write_image(f'{self.opt.workspace}/train_gt_pred_images.jpg', pair_images)
+        # st()
+        ## ------- end render ----------
+
+        # Calculate losses
         if self.opt.rendering_loss_use_weight_t:
             _alpha_t = alpha_t.flatten()[0]
-            _weight_t = _alpha_t ** 2
-            # print(f"_weight_t of {t[0].item()}: ", _weight_t)
+            _rendering_w_t = _alpha_t ** 2 # TODOL make this to adapt B>1
+            # print(f"_rendering_w_t of {t[0].item()}: ", _rendering_w_t)
         else:
-            _weight_t = 1
+            _rendering_w_t = 1
           
         if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
-            loss_mse_rendering *= _weight_t
+            loss_mse_rendering *= _rendering_w_t
             results['loss_rendering'] = loss_mse_rendering
-            # results['loss_rendering_weight_t'] = loss_mse_rendering
+            # results['loss_rendering_rendering_w_t'] = loss_mse_rendering
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
-                
         elif self.opt.lambda_alpha > 0:
             loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
-            loss_mse_alpha *= _weight_t
+            loss_mse_alpha *= _rendering_w_t
             results['loss_alpha'] = loss_mse_alpha
-            # results['loss_alpha_weight_t'] = loss_mse_alpha
+            # results['loss_alpha_rendering_w_t'] = loss_mse_alpha
             loss += self.opt.lambda_alpha * loss_mse_alpha
             if self.opt.verbose_main:
                 print(f"loss alpha:{loss_mse_alpha}")
             
-    
-        ## FIXME: it does not make sense to apply lpips on splatter, right?
         if self.opt.lambda_lpips > 0:
             loss_lpips = self.lpips_loss(
                 # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
                 # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
                 # downsampled to at most 256 to reduce memory cost
 
-                # FIXME: change the dim to 14 for splatter imaegs
                 F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                 F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
-            loss_lpips *= _weight_t
+            loss_lpips *= _rendering_w_t
             results['loss_lpips'] = loss_lpips
             # results['loss_lpips_weight-t'] = loss_lpips
             loss += self.opt.lambda_lpips * loss_lpips
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
         
-        # ----- rendering [end] -----
-        psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
-        results['psnr'] = psnr.detach()
         if isinstance(loss, int):
             loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
         results['loss'] = loss
         
-        # #### 2. loss on the splatters to be optimized
-        # if 'splatters_to_optimize' in data:
-        #     loss_splatter_cache = 0
-        #     splatters_to_optimize = data['splatters_to_optimize']
-        #     assert (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0
-        #     gaussians_opt = fuse_splatters(splatters_to_optimize)
-
-        #     gs_results_opt = self.gs.render(gaussians_opt, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
-        #     pred_images_opt = gs_results_opt['image'] # [B, V, C, output_size, output_size]
-        #     pred_alphas_opt = gs_results_opt['alpha'] # [B, V, 1, output_size, output_size]
-
-        #     results['images_opt'] = pred_images_opt
-        #     results['alphas_opt'] = pred_alphas_opt
-            
-        #     gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
-        #     gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
-        #     gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
-
-        #     ## ------- end render ----------
-            
-        #     # ----- FIXME: calculate psnr shoud be at the end -----
-        #     psnr_opt = -10 * torch.log10(torch.mean((pred_images_opt.detach() - gt_images) ** 2))
-        #     results['psnr_opt'] = psnr_opt
-
-        #     if self.opt.lambda_rendering > 0: # FIXME: currently using the same set of rendering loss for code and splatter cache
-        #         loss_mse_rendering_opt = F.mse_loss(pred_images_opt, gt_images) + F.mse_loss(pred_alphas_opt, gt_masks)
-        #         results['loss_rendering_opt'] = loss_mse_rendering_opt
-        #         loss_splatter_cache = loss_splatter_cache + self.opt.lambda_rendering * loss_mse_rendering_opt
-        #         if self.opt.verbose_main:
-        #             print(f"loss rendering - splatter cache - (with alpha):{loss_mse_rendering_opt}")
-        #     elif self.opt.lambda_alpha > 0:
-        #         loss_mse_alpha_opt = F.mse_loss(pred_alphas_opt, gt_masks)
-        #         results['loss_alpha_opt'] = loss_mse_alpha_opt
-        #         loss_splatter_cache = loss_splatter_cache + self.opt.lambda_alpha * loss_mse_alpha_opt
-        #         if self.opt.verbose_main:
-        #             print(f"loss alpha - splatter cache - :{loss_mse_alpha_opt}")
-                    
-        #     if self.opt.lambda_lpips > 0:
-        #         loss_lpips_opt = self.lpips_loss(
-        #             F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-        #             F.interpolate(pred_images_opt.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-        #         ).mean()
-        #         results['loss_lpips_opt'] = loss_lpips_opt
-        #         loss_splatter_cache = loss_splatter_cache + self.opt.lambda_lpips * loss_lpips_opt
-        #         if self.opt.verbose_main:
-        #             print(f"loss lpips:{loss_lpips_opt}")
-                    
-        #     results['loss_splatter_cache'] = loss_splatter_cache
-        # else:
-        #     assert False
+        
+        # Calculate metrics
+        # TODO: add other metrics such as SSIM
+        psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
+        results['psnr'] = psnr.detach()
+        
         
         return results
     
