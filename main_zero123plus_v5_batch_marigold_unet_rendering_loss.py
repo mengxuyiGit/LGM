@@ -117,11 +117,6 @@ def main():
         os.makedirs(opt.workspace, exist_ok=True)
         writer = tensorboard.SummaryWriter(opt.workspace)
     print(f"workspace: {opt.workspace}")
-    
-    
-    if not opt.codes_from_encoder:
-        opt.code_dir = os.path.join(opt.workspace, 'code_dir')
-        print(f"Codes are saved to:{opt.code_dir}")
 
     if accelerator.is_main_process:
         src_snapshot_folder = os.path.join(opt.workspace, 'src')
@@ -279,30 +274,11 @@ def main():
                     print(f"data['input']:{data['input'].shape}")
                     
                 with accelerator.accumulate(model):
-                    if not opt.codes_from_encoder:
-                        ## ---- load or init code here ----
-                        if num_gpus==1:
-                            # codes_before_act_list_grad_, codes, code_optimizers = model.load_scenes(opt.code_dir, data)
-                            codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
-                        else:
-                            # codes_before_act_list_grad_, codes, code_optimizers = model.module.load_scenes(opt.code_dir, data)
-                            codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
-                        # for code_optimizer in code_optimizers:
-                        #     # print("code_optimizer.zero_grad()")
-                        #     code_optimizer.zero_grad()
-                        
-                        data['codes'] = codes
-                
-                        # ---- finish code init ----
-
                     optimizer.zero_grad()
-
                     step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
-                    
                     # # Store initial weights before the update
                     # initial_weights = store_initial_weights(model.unet)
-
 
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                     # st()
@@ -339,7 +315,6 @@ def main():
                     if opt.lr_scheduler != 'Plat':
                         scheduler.step()
                         
-                   
                     
                     total_loss += loss.detach()
                     total_psnr += psnr.detach()
@@ -438,20 +413,8 @@ def main():
                         if i > num_samples_eval:
                             break
                     
-                        if not opt.codes_from_encoder:
-                            ## ---- load or init code here ----
-                            if num_gpus==1:
-                                codes = model.load_scenes(opt.code_dir, data, eval_mode=True)
-                            else:
-                                codes = model.module.load_scenes(opt.code_dir, data, eval_mode=True)
-                            
-                            data['codes'] = codes
-                            
-                            # ---- finish code init ----
-
                         out = model(data, save_path=f'{opt.workspace}/eval_epoch_{epoch}', prefix=f"{accelerator.process_index}_{i}_")
                 
-
                         psnr = out['psnr']
                         total_psnr += psnr.detach()
                         loss = out['loss']
@@ -469,7 +432,6 @@ def main():
                 
                         
                         # save some images
-                        # if accelerator.is_main_process:
                         if True:
                             gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                             gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
@@ -511,23 +473,15 @@ def main():
                                     attr_map = {key: (si, ei, color_pair) for key, si, ei, color_pair in zip (gt_attr_keys, start_indices, end_indices, color_pairs)}
                     
                                     for attr in opt.plot_attribute_histgram:
-                                    
                                         start_i, end_i, (gt_color, pred_color) = attr_map[attr]
-                                        # if opt.verbose_main:
-                                        #     print(f"plot {attr} in dim ({start_i}, {end_i})")
-                                        
                                         gt_attr_flatten =  gt_gaussians[..., start_i:end_i] # [B, L, C]
                                         pred_attr_flatten = gaussians[..., start_i:end_i]
-                                        
                                         if attr in ['scale', 'opacity']:
                                             gt_attr_flatten = torch.log(gt_attr_flatten).permute(0,2,1) # [B, C, L]
                                             pred_attr_flatten = torch.log(pred_attr_flatten).permute(0,2,1) 
                                             gt_attr_flatten = gt_attr_flatten.flatten().detach().cpu().numpy()
                                             pred_attr_flatten = pred_attr_flatten.flatten().detach().cpu().numpy()
-
-                                            
-                                        else:
-                                            ## cannot flatten due to their meaning
+                                        else: ## cannot flatten due to their meaning
                                             print(f"not support the plotting of __{attr}__ yet")
                                             continue
                                         
@@ -561,14 +515,6 @@ def main():
 
                     total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
                     if accelerator.is_main_process:
-                        # total_psnr /= len(test_dataloader)
-                        # total_loss /= len(test_dataloader)
-                        # total_loss_latent /= len(test_dataloader)
-                        # total_loss_splatter /= len(test_dataloader)
-                        # total_loss_rendering /= len(test_dataloader)
-                        # total_loss_alpha /= len(test_dataloader)
-                        # total_loss_lpips /= len(test_dataloader)
-                        
                         total_psnr /= num_samples_eval
                         total_loss /= num_samples_eval
                         total_loss_latent /= num_samples_eval
@@ -578,8 +524,6 @@ def main():
                         total_loss_lpips /= num_samples_eval
                         
                         accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                        # writer.add_scalar('eval/loss', total_loss.item(), epoch)
-                        # writer.add_scalar('eval/loss_latent', total_loss_latent.item(), epoch)
                         writer.add_scalar('eval/loss_latent', total_loss_latent.item(), epoch)
                         writer.add_scalar('eval/loss_other_than_latent', total_loss.item(), epoch)
                         writer.add_scalar('eval/psnr', total_psnr.item(), epoch)

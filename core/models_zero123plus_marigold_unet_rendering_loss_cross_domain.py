@@ -490,7 +490,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         loss = 0
        
         # 1. optimize the splatters from the code: shape [1, 1, 3 or 1, 384, 256]
-        assert self.opt.codes_from_encoder
+        # assert self.opt.codes_from_encoder
       
         # latents_all_attr_list = []
         images_all_attr_list = []
