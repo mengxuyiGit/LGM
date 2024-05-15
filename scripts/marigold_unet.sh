@@ -146,7 +146,7 @@ DATA_DIR_BATCH_VAE_SPLATTER_ROOT="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/ru
 
 # [MAY 06: overfit single scene, all attributes, with cross domain attention]
 # export CUDA_VISIBLE_DEVICES=1
-accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_ovft \
+accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_debug \
     --lr 1e-4 --num_epochs 10001 --eval_iter 100 --save_iter 200 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
