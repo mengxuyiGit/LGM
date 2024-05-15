@@ -34,6 +34,26 @@ import warnings
 from accelerate.utils import broadcast
 import re
 
+def store_initial_weights(model):
+    """Stores the initial weights of the model for later comparison."""
+    initial_weights = {}
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            initial_weights[name] = param.data.clone()
+    return initial_weights
+
+def compare_weights(initial_weights, model):
+    """Compares the initial weights to the current weights to check for updates."""
+    updated = False
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            # Check if the current parameter is different from the initial
+            if not torch.equal(initial_weights[name], param.data):
+                print(f"Weight updated: {name}")
+                updated = True
+    if not updated:
+        print("No weights were updated.")
+        
 
 def main():    
 
@@ -286,12 +306,34 @@ def main():
         drop_last=False,
     )
     
-    # TODO: check model.decoder params not in optimizer
-    model.decoder.requires_grad_(False).eval()
 
     # optimizer TODO: can i directly use the second line?
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # before
-    optimizer = torch.optim.AdamW(model.unet.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # TODO: lr can be 1e-3??
+    
+    # optimizer = torch.optim.AdamW(model.unet.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # TODO: lr can be 1e-3??
+    # 
+    def print_grad_status(module, module_path="", file_path="grad_status.txt"):
+        with open(file_path, 'w') as file:
+            for name, param in module.named_parameters():
+                print(f"{module_path + name} -> requires_grad={param.requires_grad}", file=file)
+
+    # Usage example
+    
+    print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_before.txt")
+    print("before ")
+    
+    model.unet.requires_grad_(True)
+    parameters_list = []
+    for name, para in model.unet.named_parameters():
+        if 'transformer_blocks' in name:
+            parameters_list.append(para)
+            para.requires_grad = True
+        else:
+            para.requires_grad = False
+
+    print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_after.txt")
+    print("after ")
+    
+    optimizer = torch.optim.AdamW(parameters_list, lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # TODO: lr can be 1e-3??
     
 
     # scheduler (per-iteration)
@@ -369,6 +411,11 @@ def main():
 
                     step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
+                    
+                    # # Store initial weights before the update
+                    # initial_weights = store_initial_weights(model.unet)
+
+
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                     # st()
                     del data
@@ -380,21 +427,21 @@ def main():
                     accelerator.backward(lossback)
                     # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
-                    # debug
-                    # Check gradients of the unet parameters
+                    # # debug
+                    # # Check gradients of the unet parameters
                     # print(f"check unet parameters")
                     # for name, param in model.unet.named_parameters():
                     #     if param.requires_grad and param.grad is not None:
                     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    # st()
+                    # # st()
                 
                     # print(f"check other model parameters")
                     # for name, param in model.named_parameters():
                     #     if param.requires_grad and param.grad is not None and "unet" not in name:
                     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     # st()
-                    # TODO: CHECK decoder not have grad, especially deocder.others
-                    # TODO: and check self.scale_bias
+                    # # TODO: CHECK decoder not have grad, especially deocder.others
+                    # # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:
@@ -403,6 +450,33 @@ def main():
                     optimizer.step()
                     if opt.lr_scheduler != 'Plat':
                         scheduler.step()
+                        
+                    # def print_accelerator_optimizer_parameters(accelerator, model):
+                    #     """Prints parameters managed by an AcceleratedOptimizer."""
+                    #     named_parameters = dict(model.named_parameters())
+                    #     # Access the wrapped optimizer
+                    #     optimizer = accelerator.optimizer
+                    #     for param_group in optimizer.param_groups:
+                    #         print("Parameter Group:")
+                    #         for param in param_group['params']:
+                    #             for name, p in named_parameters.items():
+                    #                 if p is param:
+                    #                     print(f"  - {name}: shape {param.shape}, requires_grad={param.requires_grad}")
+
+
+                    # # Assuming model and optimizer are already defined
+                    # print_accelerator_optimizer_parameters(accelerator, model)
+                    # st()
+
+                    # for param_group in optimizer.param_groups:
+                    #     for param in param_group['params']:
+                    #         # You can check parameters here, like their grad
+                    #         print(param, param.grad)
+                    # st()
+                            
+                    # # Check if weights have been updated after the optimizer step
+                    # compare_weights(initial_weights, model.unet)
+                    # st()
                     
                     # ## optimize and save code here
                     # if not opt.codes_from_encoder:
@@ -455,7 +529,6 @@ def main():
                         
                     if 'loss_lpips' in out.keys():
                         total_loss_lpips += out['loss_lpips'].detach()
-                
 
 
                 # if accelerator.is_main_process:
@@ -529,7 +602,7 @@ def main():
                 #         writer.add_scalar(f'train/loss(weighted)_{key}', total_attr_loss, epoch)
                 
                 if opt.lr_scheduler == 'Plat' and opt.lr_schedule_by_train:
-                    scheduler.step(total_loss)
+                    # scheduler.step(total_loss)
                     writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch)
             
             
@@ -718,7 +791,7 @@ def main():
                         writer.add_scalar('eval/loss_lpips', total_loss_lpips, epoch)
 
                         if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
-                            scheduler.step(total_loss)
+                        #     scheduler.step(total_loss)
                             writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
     
 
