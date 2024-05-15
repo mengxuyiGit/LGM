@@ -4,16 +4,9 @@ import random
 
 import torch
 from core.options import AllConfigs
-# from core.models_zero123plus import Zero123PlusGaussian, gt_attr_keys, start_indices, end_indices, fuse_splatters
-# from core.models_zero123plus_code import Zero123PlusGaussianCode
-# from core.models_zero123plus_code_unet_rendering_loss import Zero123PlusGaussianCodeUnet
-from core.models_zero123plus_marigold_unet_rendering_loss import Zero123PlusGaussianMarigoldUnet, fuse_splatters
 from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain, fuse_splatters
 from core.dataset_v5_marigold import gt_attr_keys, start_indices, end_indices
-
-# from core.models_fix_pretrained import LGM
-
-# from core.dataset_v4_batch import ObjaverseDataset as Dataset
+from core.dataset_v5_marigold import ObjaverseDataset as Dataset
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from safetensors.torch import load_file
@@ -75,20 +68,9 @@ def main():
         gradient_accumulation_steps=opt.gradient_accumulation_steps,
         kwargs_handlers=[ddp_kwargs],
     )
-    
-    if opt.model_type == "Zero123PlusGaussianMarigoldUnet":
-        model =  Zero123PlusGaussianMarigoldUnet(opt)
-    elif opt.model_type == "Zero123PlusGaussianMarigoldUnetCrossDomain":
-        model =  Zero123PlusGaussianMarigoldUnetCrossDomain(opt)
-    else:
-        assert False, opt.model_type 
-
-    from core.dataset_v5_marigold import ObjaverseDataset as Dataset
-    
-    
-    if opt.data_mode == "srn_cars":
-        raise not NotImplementedError
-        from core.dataset_v4_code_srn import SrnCarsDataset as Dataset
+  
+    assert opt.model_type == "Zero123PlusGaussianMarigoldUnetCrossDomain", "Invalid model type"
+    model =  Zero123PlusGaussianMarigoldUnetCrossDomain(opt)
     
     # Create workspace
     ## check the number of GPUs
@@ -367,6 +349,7 @@ def main():
                 total_loss_alpha /= len(train_dataloader)
                 total_loss_lpips /= len(train_dataloader)
                 
+                # TODO: only print this under verbose mode
                 accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
                 writer.add_scalar('train/loss_latent', total_loss_latent.item(), epoch) # for comparison with no rendering loss
                 writer.add_scalar('train/loss_other_than_latent', total_loss.item(), epoch)
