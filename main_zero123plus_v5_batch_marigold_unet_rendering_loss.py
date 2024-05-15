@@ -28,6 +28,7 @@ from accelerate.utils import broadcast
 import re
 
 from utils.format_helper import get_workspace_name
+from utils.io_helper import print_grad_status
 
 def store_initial_weights(model):
     """Stores the initial weights of the model for later comparison."""
@@ -153,12 +154,7 @@ def main():
     )
     
 
-    # optimizer 
-    def print_grad_status(module, module_path="", file_path="grad_status.txt"):
-        with open(file_path, 'w') as file:
-            for name, param in module.named_parameters():
-                print(f"{module_path + name} -> requires_grad={param.requires_grad}", file=file)
-
+    # optimizer
     print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_before.txt")
     print("before ")
     
