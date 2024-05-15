@@ -153,29 +153,29 @@ def main():
     )
     
 
-    # optimizer TODO: can i directly use the second line?
-    
-    # optimizer = torch.optim.AdamW(model.unet.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # TODO: lr can be 1e-3??
-    # 
+    # optimizer 
     def print_grad_status(module, module_path="", file_path="grad_status.txt"):
         with open(file_path, 'w') as file:
             for name, param in module.named_parameters():
                 print(f"{module_path + name} -> requires_grad={param.requires_grad}", file=file)
 
-    # Usage example
-    
     print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_before.txt")
     print("before ")
     
     model.unet.requires_grad_(True)
     parameters_list = []
-    for name, para in model.unet.named_parameters():
-        if 'transformer_blocks' in name:
+    if opt.only_train_attention:
+        for name, para in model.unet.named_parameters():
+            if 'transformer_blocks' in name:
+                parameters_list.append(para)
+                para.requires_grad = True
+            else:
+                para.requires_grad = False
+    else:
+        for name, para in model.unet.named_parameters():
             parameters_list.append(para)
             para.requires_grad = True
-        else:
-            para.requires_grad = False
-
+            
     print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_after.txt")
     print("after ")
     
