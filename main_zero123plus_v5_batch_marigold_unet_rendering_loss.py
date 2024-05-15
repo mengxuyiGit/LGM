@@ -34,6 +34,8 @@ import warnings
 from accelerate.utils import broadcast
 import re
 
+from utils.format_helper import get_workspace_name
+
 def store_initial_weights(model):
     """Stores the initial weights of the model for later comparison."""
     initial_weights = {}
@@ -55,21 +57,8 @@ def compare_weights(initial_weights, model):
         print("No weights were updated.")
         
 
-def main():    
-
-# your training loop here
-
-
+def main(): 
     import sys
-
-    # # Your additional path
-    # # your_path = "/home/xuyimeng/Repo/LGM"
-    # your_path = " /home/chenwang/xuyi_runs"
-
-    # # Add your path to sys.path
-    # sys.path.append(your_path)
-
-
     opt = tyro.cli(AllConfigs)
     
     if opt.set_random_seed:
@@ -86,17 +75,6 @@ def main():
         gradient_accumulation_steps=opt.gradient_accumulation_steps,
         kwargs_handlers=[ddp_kwargs],
     )
-
-    # # model
-    # if opt.model_type == 'Zero123PlusGaussian':
-    #     model = Zero123PlusGaussian(opt)
-    #     from core.dataset_v4_batch import ObjaverseDataset as Dataset
-    # elif opt.model_type == 'Zero123PlusGaussianCode':
-    #     model = Zero123PlusGaussianCode(opt)
-    #     from core.dataset_v4_code import ObjaverseDataset as Dataset
-    # elif opt.model_type == 'Zero123PlusGaussianCodeUnet':
-    #     model = Zero123PlusGaussianCodeUnet(opt)
-    #     from core.dataset_v4_code import ObjaverseDataset as Dataset
     
     if opt.model_type == "Zero123PlusGaussianMarigoldUnet":
         model =  Zero123PlusGaussianMarigoldUnet(opt)
@@ -112,11 +90,12 @@ def main():
         raise not NotImplementedError
         from core.dataset_v4_code_srn import SrnCarsDataset as Dataset
     
-
-    # Check the number of GPUs
+    # Create workspace
+    ## check the number of GPUs
     num_gpus = accelerator.num_processes
     if accelerator.is_main_process:
         print(f"Num gpus: {num_gpus}")
+    ## create time-ordered prefix
     if num_gpus <= 1:
         time_str = datetime.now().strftime("%Y%m%d-%H%M%S")
     else:
@@ -130,106 +109,15 @@ def main():
         cur_run_id = max(prev_run_ids, default=-1) + 1
         time_str = f'{cur_run_id:05d}'
         accelerator.wait_for_everyone()
-    
-    # c.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
-    # assert not os.path.exists(c.run_dir)
-
-    
-    # # gathered_info = accelerator.all_gather(info_to_share)
-    # accelerator.wait_for_everyone()
-    # time_str = ''.join(chr(int(item)) for item in time_tensor.tolist())
-    # print(time_str)
-    
-    # # Use torch.distributed to broadcast the workspace to all processes
-    # time_str = torch.tensor(time_str.encode(), dtype=torch.uint8)
-    # dist.broadcast(workspace, 0)  # Assuming rank 0 is the main process
-
-    # workspace = workspace.decode()
-        
-    loss_str = 'loss'
-    # assert (opt.lambda_rendering + opt.lambda_splatter + opt.lambda_lpips > 0), 'Must have at least one loss'
-    if opt.lambda_rendering > 0:
-        loss_str+=f'_render{opt.lambda_rendering}'
-    elif opt.lambda_alpha > 0:
-        loss_str+=f'_alpha{opt.lambda_alpha}'
-    if opt.lambda_splatter > 0:
-        loss_str+=f'_splatter{opt.lambda_splatter}'
-    if opt.lambda_lpips > 0:
-        loss_str+=f'_lpips{opt.lambda_lpips}'
-
-    desc = opt.desc
-    if opt.splatter_guidance_interval > 0:
-        desc += f"-sp_guide_{opt.splatter_guidance_interval}"
-    if opt.codes_from_encoder:
-        desc += "-codes_from_encoder"
-    else:
-        optimizer_cfg = opt.optimizer.copy()
-        desc += f"-codes_lr{optimizer_cfg['lr']}"
-        
-    desc += f"-{opt.decoder_mode}"
-    if opt.decode_splatter_to_128:
-        desc += "-pred128"
-        if opt.decoder_upblocks_interpolate_mode is not None:
-            desc += f"_{opt.decoder_upblocks_interpolate_mode}"
-            if opt.decoder_upblocks_interpolate_mode!="last_layer" and opt.replace_interpolate_with_avgpool:
-                desc += "_avgpool"
-        
-    ## the following may not exists, thus directly added to opt.desc if exists
-    if len(opt.attr_use_logrithm_loss) > 0:
-        loss_special = '-logrithm'
-        for key in opt.attr_use_logrithm_loss:
-            loss_special += f"_{key}"
-        desc += loss_special
-    
-    if len(opt.normalize_scale_using_gt) > 0:
-        loss_special = '-norm'
-        for key in opt.normalize_scale_using_gt:
-            loss_special += f"_{key}"
-        desc += loss_special
-        
-    if opt.train_unet:
-        desc += '-train_unet'
-    if opt.skip_predict_x0:
-        desc += '-skip_predict_x0'
-    if opt.num_views != 20:
-        desc += f'-numV{opt.num_views}'
-    
-    opt.workspace = os.path.join(opt.workspace, f"{time_str}-{desc}-{loss_str}-lr{opt.lr}-{opt.lr_scheduler}")
-    if opt.lr_scheduler == 'Plat':
-            opt.workspace += f"{opt.lr_scheduler_patience}"
-    
+    ## create folder
+    opt.workspace = get_workspace_name(opt, time_str, num_gpus)
     if accelerator.is_main_process:
         assert not os.path.exists(opt.workspace)
         print(f"makdir: {opt.workspace}")
         os.makedirs(opt.workspace, exist_ok=True)
         writer = tensorboard.SummaryWriter(opt.workspace)
-    
-    # real_workspace = sorted(os.listdir(os.path.dirname(opt.workspace)))[-1]
-    # opt.workspace = real_workspace
     print(f"workspace: {opt.workspace}")
-
-    # # broadcast the opt.workspace to all processes
-    # workspace_tensor = torch.tensor(list(opt.workspace.encode()), device="cuda", dtype=torch.uint8)
-    # workspace_info = {'workspace tensor': workspace_tensor}
-
-    # # Broadcast the workspace_info dictionary
-    # workspace_info = broadcast(workspace_info, from_process=0)
-
-    # # Decode the workspace string from the tensor
-    # opt.workspace = bytes(workspace_info['workspace tensor'].tolist()).decode()
-
-    # # Convert workspace string to a tensor
-    # workspace_tensor = torch.tensor(bytearray(opt.workspace, 'utf-8'), dtype=torch.uint8).to("cuda")
-    # # Broadcast the tensor
-    # broadcasted_workspace_tensor = broadcast(workspace_tensor)
-    # # Decode the tensor back to a string
-    # decoded_workspace = broadcasted_workspace_tensor.cpu().numpy().tobytes().decode('utf-8')
-
-    # # Use the decoded workspace
-    # opt.workspace = decoded_workspace
-    # print(f"Decoded workspace: {opt.workspace}")
     
-    # accelerator.wait_for_everyone() 
     
     if not opt.codes_from_encoder:
         opt.code_dir = os.path.join(opt.workspace, 'code_dir')
@@ -451,70 +339,7 @@ def main():
                     if opt.lr_scheduler != 'Plat':
                         scheduler.step()
                         
-                    # def print_accelerator_optimizer_parameters(accelerator, model):
-                    #     """Prints parameters managed by an AcceleratedOptimizer."""
-                    #     named_parameters = dict(model.named_parameters())
-                    #     # Access the wrapped optimizer
-                    #     optimizer = accelerator.optimizer
-                    #     for param_group in optimizer.param_groups:
-                    #         print("Parameter Group:")
-                    #         for param in param_group['params']:
-                    #             for name, p in named_parameters.items():
-                    #                 if p is param:
-                    #                     print(f"  - {name}: shape {param.shape}, requires_grad={param.requires_grad}")
-
-
-                    # # Assuming model and optimizer are already defined
-                    # print_accelerator_optimizer_parameters(accelerator, model)
-                    # st()
-
-                    # for param_group in optimizer.param_groups:
-                    #     for param in param_group['params']:
-                    #         # You can check parameters here, like their grad
-                    #         print(param, param.grad)
-                    # st()
-                            
-                    # # Check if weights have been updated after the optimizer step
-                    # compare_weights(initial_weights, model.unet)
-                    # st()
-                    
-                    # ## optimize and save code here
-                    # if not opt.codes_from_encoder:
-                    #     ## 1. do optimization step 
-                    #     # --- for codes ---
-                    #     if epoch > 0:
-                    #         for code_optimizer in code_optimizers: # NOTE: value changed
-                    #             code_optimizer.step()
-                    #     else:  
-                    #         before_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
-                            
-                    #         ### insert optimization step
-                    #         for code_optimizer in code_optimizers: # NOTE: value changed
-                    #             code_optimizer.step()
-                            
-                    #         after_optimization_params = [codes_before_act.clone().detach() for codes_before_act in codes_before_act_list_grad_]
-                    #         parameters_changed = any(
-                    #             not torch.equal(before, after) for before, after in zip(before_optimization_params, after_optimization_params)
-                    #         )
-                    #         if parameters_changed:
-                    #             print("Parameters have changed after optimization step.")
-                    #         else:
-                    #             print("Parameters have not changed after optimization step. Are you sure you do not optimize code?")
-                    #             st()
-                    
-                        # ## 2. save optimized code and splatter images
-                        # if num_gpus==1:
-                        #     model.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
-                        #                 scene_names=data['scene_name'],
-                        #                 code_optimizer_list=code_optimizers
-                        #                 )
-                        
-                        # else:
-                        #     model.module.save_scenes(opt.code_dir, code_list_=codes_before_act_list_grad_, 
-                        #                 scene_names=data['scene_name'],
-                        #                 code_optimizer_list=code_optimizers)
-                        
-                        # # --- finish saving the code ----
+                   
                     
                     total_loss += loss.detach()
                     total_psnr += psnr.detach()
@@ -558,20 +383,6 @@ def main():
             total_loss = accelerator.gather_for_metrics(total_loss).mean()
             total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
             total_loss_latent = accelerator.gather_for_metrics(total_loss_latent).mean()
-
-            # if 'loss_splatter' in out.keys():
-            #     total_loss_splatter = accelerator.gather_for_metrics(total_loss_splatter).mean().item()
-            # if 'loss_rendering' in out.keys():
-            #     total_loss_rendering = accelerator.gather_for_metrics(total_loss_rendering).mean().item()
-            # elif 'loss_alpha' in out.keys():
-            #     total_loss_alpha = accelerator.gather_for_metrics(total_loss_alpha).mean().item()
-            
-            # if 'loss_lpips' in out.keys():
-            #     total_loss_lpips = accelerator.gather_for_metrics(total_loss_lpips).mean().item()
-            # if opt.log_gs_loss_mse_dict:
-            #     for key in gt_attr_keys:
-            #         total_gs_loss_mse_dict[key] = accelerator.gather_for_metrics(total_gs_loss_mse_dict[key]).mean().item()
-                    
             if accelerator.is_main_process:
                 total_loss /= len(train_dataloader)
                 total_loss_latent /= len(train_dataloader)
@@ -582,8 +393,6 @@ def main():
                 total_loss_lpips /= len(train_dataloader)
                 
                 accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                # writer.add_scalar('train/loss', total_loss.item(), epoch)
-                # writer.add_scalar('train/loss_latent', total_loss_latent.item(), epoch)
                 writer.add_scalar('train/loss_latent', total_loss_latent.item(), epoch) # for comparison with no rendering loss
                 writer.add_scalar('train/loss_other_than_latent', total_loss.item(), epoch)
                 writer.add_scalar('train/psnr', total_psnr.item(), epoch)
@@ -591,16 +400,6 @@ def main():
                 writer.add_scalar('train/loss_rendering', total_loss_rendering, epoch)
                 writer.add_scalar('train/loss_alpha', total_loss_alpha, epoch)
                 writer.add_scalar('train/loss_lpips', total_loss_lpips, epoch)
-                # if opt.log_gs_loss_mse_dict:
-                #     for key in gt_attr_keys:
-                #         total_attr_loss = total_gs_loss_mse_dict[key]
-                #         # if key in opt.attr_use_logrithm_loss:
-                #         #     total_attr_loss = total_gs_loss_mse_dict[f"{key}_before_log"]
-                #         #     print(f"we log {key}_before_log")
-                #         # else:
-                #         #     total_attr_loss = total_gs_loss_mse_dict[key]
-                #         writer.add_scalar(f'train/loss(weighted)_{key}', total_attr_loss, epoch)
-                
                 if opt.lr_scheduler == 'Plat' and opt.lr_schedule_by_train:
                     # scheduler.step(total_loss)
                     writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch)
@@ -634,7 +433,6 @@ def main():
                     total_loss_lpips = 0
                     
                     print(f"Save to run dir: {opt.workspace}")
-                    # for i, data in enumerate(test_dataloader):
                     num_samples_eval = 50
                     for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval epoch {epoch}"):
                         if i > num_samples_eval:
