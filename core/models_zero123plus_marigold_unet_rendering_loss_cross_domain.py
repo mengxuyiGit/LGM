@@ -339,12 +339,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         self.opacity_act = lambda x: torch.sigmoid(x)
         self.rot_act = F.normalize
-        if self.opt.decoder_mode == "v1_fix_rgb":
-            self.rgb_act = lambda x: x
-        elif self.opt.decoder_mode == "v1_fix_rgb_remove_unscale":
-            self.rgb_act = lambda x: unscale_image(x)
-        else:
-            self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
+        # if self.opt.decoder_mode == "v1_fix_rgb":
+        #     self.rgb_act = lambda x: x
+        # elif self.opt.decoder_mode == "v1_fix_rgb_remove_unscale":
+        #     self.rgb_act = lambda x: unscale_image(x)
+        # else:
+        #     self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
 
         # LPIPS loss
         if self.opt.lambda_lpips > 0:
