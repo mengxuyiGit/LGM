@@ -339,40 +339,34 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         self.opacity_act = lambda x: torch.sigmoid(x)
         self.rot_act = F.normalize
-        # if self.opt.decoder_mode == "v1_fix_rgb":
-        #     self.rgb_act = lambda x: x
-        # elif self.opt.decoder_mode == "v1_fix_rgb_remove_unscale":
-        #     self.rgb_act = lambda x: unscale_image(x)
-        # else:
-        #     self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
-
+       
         # LPIPS loss
         if self.opt.lambda_lpips > 0:
             self.lpips_loss = LPIPS(net='vgg')
             self.lpips_loss.requires_grad_(False)
         
-        ## specific for code optimization
-        self.code_size = (self.pipe.unet.config.in_channels, 3 * opt.latent_resolution, 2 * opt.latent_resolution) # 4, 120, 80
-        splatter_resolution = 8 * opt.latent_resolution
-        splatter_channels = 14 # directly using xyz without offset. Otherwise 15
-        self.splatter_size = (splatter_channels, splatter_resolution, splatter_resolution)
+        # ## specific for code optimization
+        # self.code_size = (self.pipe.unet.config.in_channels, 3 * opt.latent_resolution, 2 * opt.latent_resolution) # 4, 120, 80
+        # splatter_resolution = 8 * opt.latent_resolution
+        # splatter_channels = 14 # directly using xyz without offset. Otherwise 15
+        # self.splatter_size = (splatter_channels, splatter_resolution, splatter_resolution)
        
-        if opt.init_from_mean:
-            self.register_buffer('init_code', torch.zeros(self.code_size))
-        else:
-            self.init_code = None
+        # if opt.init_from_mean:
+        #     self.register_buffer('init_code', torch.zeros(self.code_size))
+        # else:
+        #     self.init_code = None
         
-        self.init_scale=1e-4
-        self.mean_scale=1.0
+        # self.init_scale=1e-4
+        # self.mean_scale=1.0
 
-        if opt.use_tanh_code_activation:
-            print(f"[WARN]: USE tanh for code activation, which is not good for diffusion training")
-            self.code_activation = lambda x: torch.tanh(x)
-            self.code_activation_inverse = lambda x: torch.atanh(x)
-        else:
-            self.code_activation = lambda x: x
-            self.code_activation_inverse = lambda x: x
-        # st()
+        # if opt.use_tanh_code_activation:
+        #     print(f"[WARN]: USE tanh for code activation, which is not good for diffusion training")
+        #     self.code_activation = lambda x: torch.tanh(x)
+        #     self.code_activation_inverse = lambda x: torch.atanh(x)
+        # else:
+        #     self.code_activation = lambda x: x
+        #     self.code_activation_inverse = lambda x: x
+        # # st()
         with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
             print(self.unet, file=f)
       
@@ -435,29 +429,29 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 del state_dict[k]
         return state_dict
     
-    def get_init_code_(self, num_scenes=None, device=None):
-        code_ = torch.empty(
-            self.code_size if num_scenes is None else (num_scenes, *self.code_size),
-            device=device, requires_grad=True, dtype=torch.float32)
-        if self.init_code is None:
-            code_.data.uniform_(-self.init_scale, self.init_scale)
-        else:
-            code_.data[:] = self.code_activation.inverse(self.init_code * self.mean_scale)
-        return code_
+    # def get_init_code_(self, num_scenes=None, device=None):
+    #     code_ = torch.empty(
+    #         self.code_size if num_scenes is None else (num_scenes, *self.code_size),
+    #         device=device, requires_grad=True, dtype=torch.float32)
+    #     if self.init_code is None:
+    #         code_.data.uniform_(-self.init_scale, self.init_scale)
+    #     else:
+    #         code_.data[:] = self.code_activation.inverse(self.init_code * self.mean_scale)
+    #     return code_
     
-    def get_init_code_from_0123_encoder(self, images, num_scenes=None, device=None):
+    # def get_init_code_from_0123_encoder(self, images, num_scenes=None, device=None):
         
-        if num_scenes is None: # images: [6, 3, 320, 320] 
-            images = images[None]
-        assert images.dim() == 5 # to contain the batch dim
+    #     if num_scenes is None: # images: [6, 3, 320, 320] 
+    #         images = images[None]
+    #     assert images.dim() == 5 # to contain the batch dim
         
-        # make input 6 views into a 3x2 grid
-        images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
-        # init code from pretrained zero123++ encoder
-        code_ = self.encode_image(images) # [b, 4, 120, 80]
-        if num_scenes is None:
-            code_ = code_.squeeze(0)
-        return code_
+    #     # make input 6 views into a 3x2 grid
+    #     images = einops.rearrange(images, 'b (h2 w2) c h w -> b c (h2 h) (w2 w)', h2=3, w2=2) 
+    #     # init code from pretrained zero123++ encoder
+    #     code_ = self.encode_image(images) # [b, 4, 120, 80]
+    #     if num_scenes is None:
+    #         code_ = code_.squeeze(0)
+    #     return code_
     
     def build_optimizer(self, code_):
         optimizer_cfg = self.opt.optimizer.copy()
