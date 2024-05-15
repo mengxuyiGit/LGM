@@ -54,55 +54,7 @@ def to_rgb_image(maybe_rgba: Image.Image):
         return img
     else:
         raise ValueError("Unsupported image type.", maybe_rgba.mode)
-
-def predict_noise0_diffuser(unet, noisy_latents, text_embeddings, t, 
-    guidance_scale=1.0, cross_attention_kwargs={}, scheduler=None, lora_v=False, model='sd', class_labels=None):
-    batch_size = noisy_latents.shape[0]
-    latent_model_input = torch.cat([noisy_latents] * 2)
-    latent_model_input = scheduler.scale_model_input(latent_model_input, t)
-
-    if type(t) == int:
-        t = torch.tensor([t] * batch_size, device=noisy_latents.device)
-    # https://github.com/threestudio-project/threestudio/blob/77de7d75c34e29a492f2dda498c65d2fd4a767ff/threestudio/models/guidance/stable_diffusion_vsd_guidance.py#L512
-    alphas_cumprod = scheduler.alphas_cumprod.to(
-        device=noisy_latents.device, dtype=noisy_latents.dtype
-    )
-    alpha_t = alphas_cumprod[t] ** 0.5
-    sigma_t = (1 - alphas_cumprod[t]) ** 0.5
     
-    if guidance_scale == 1.:
-        cak = {}
-        if cross_attention_kwargs is not None:
-            for key in cross_attention_kwargs:
-                if isinstance(cross_attention_kwargs[key], torch.Tensor):
-                    # cak[key] = cross_attention_kwargs[key][batch_size:]
-                    cak[key] = cross_attention_kwargs[key] # NOTE: adapt to pipeline_v4
-                else:
-                    cak[key] = cross_attention_kwargs[key]
-        print(noisy_latents.shape)
-        # noise_pred = unet(noisy_latents, t, encoder_hidden_states=text_embeddings[batch_size:], cross_attention_kwargs=cak).sample
-        noise_pred = unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cak, 
-                          class_labels=class_labels).sample
-        if lora_v or scheduler.config.prediction_type == 'v_prediction':
-            # assume the output of unet is v-pred, convert to noise-pred now
-            noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + noise_pred * alpha_t.view(-1, 1, 1, 1)
-    
-    else:
-        t = torch.cat([t] * 2)
-        st()
-        # predict the noise residual
-        noise_pred = unet(latent_model_input, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs).sample
-        if lora_v or scheduler.config.prediction_type == 'v_prediction':
-            # assume the output of unet is v-pred, convert to noise-pred now
-            st()
-            noise_pred = latent_model_input * torch.cat([sigma_t] * 2, dim=0).view(-1, 1, 1, 1) + noise_pred * torch.cat([alpha_t] * 2, dim=0).view(-1, 1, 1, 1)
-        # perform guidance
-        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-        if model == 'unet_if':
-            noise_pred_text, predicted_variance = noise_pred_text.split(3, dim=1)
-            noise_pred_uncond, _ = noise_pred_uncond.split(3, dim=1)
-        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-    return noise_pred
 
 from itertools import chain
 def optimizer_set_state(optimizer, state_dict):
@@ -158,72 +110,6 @@ def attr_3channel_image_to_original_splatter_attr(attr_to_encode, mv_image):
         return sp_image_o
     
     
-class DownsampleModuleOnlyConvAvgPool(nn.Module):
-    def __init__(self, input_channels, output_channels, input_resolution, output_resolution, use_activation_at_downsample=True):
-        super(DownsampleModuleOnlyConvAvgPool, self).__init__()
-
-        # Calculate the number of downsampling operations needed
-
-        layers = []
-        current_channels = input_channels
-        
-        layers.append(nn.Conv2d(current_channels, output_channels, kernel_size=3, stride=2, padding=1))
-           
-        layers.append(nn.AdaptiveAvgPool2d((3*output_resolution, 2*output_resolution)))
-
-        self.downsample_layers = nn.Sequential(*layers)
-    
-    
-    def forward(self, x):
-        return self.downsample_layers(x)
-      
-        
-        
-        
-class DownsampleModule(nn.Module):
-    def __init__(self, input_channels, output_channels, input_resolution, output_resolution, use_activation_at_downsample=True):
-        super(DownsampleModule, self).__init__()
-
-        # Calculate the number of downsampling operations needed
-        num_downsamples = int(torch.log2(torch.tensor(input_resolution / output_resolution)))
-
-        layers = []
-        current_channels = input_channels
-        num_groups = input_channels
-        
-        # for _ in range(num_downsamples - 1):  # We leave one less downsample to use adaptive pooling later
-        for _ in range(num_downsamples):
-            layers.append(nn.Conv2d(current_channels, current_channels * 2, kernel_size=3, stride=2, padding=1))
-            current_channels *= 2
-            # layers.append(nn.BatchNorm2d(current_channels * 2))
-            # layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.GroupNorm(num_groups, current_channels, eps=1e-06, affine=True))
-            layers.append(nn.SiLU())
-
-        layers.append(nn.Conv2d(current_channels, output_channels, kernel_size=3, stride=1, padding=1))
-      
-        if use_activation_at_downsample:
-            # layers.append(nn.BatchNorm2d(output_channels))
-            # layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.GroupNorm(num_groups, output_channels, eps=1e-06, affine=True))
-            layers.append(nn.SiLU())
-        
-        # layers.append(nn.AdaptiveAvgPool2d((output_resolution, output_resolution)))
-        layers.append(nn.AdaptiveAvgPool2d((3*output_resolution, 2*output_resolution)))
-
-        self.downsample_layers = nn.Sequential(*layers)
-        
-
-    def forward(self, x):
-        return self.downsample_layers(x)
-        # for ly in self.downsample_layers:
-        #     print(f"---{ly._get_name()}---")
-        #     print(f"input size:{x.shape}")
-        #     x = ly(x)
-        #     print(f"output size:{x.shape}")
-        # st()
-        # return x
-
 class Interpolate(nn.Module):
     def __init__(self, size, mode='bilinear', align_corners=False):
         super(Interpolate, self).__init__()
@@ -247,20 +133,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # Load zero123plus model
         import sys
         sys.path.append('./zero123plus')
-        
-        # TODO:[BEGIN] check this part about requires grad -----------
-
-
+    
         self.pipe = DiffusionPipeline.from_pretrained(
             opt.model_path,
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
-
-        # self.pipe = DiffusionPipeline.from_pretrained(
-        #     "sudo-ai/zero123plus-v1.1", custom_pipeline="/mnt/kostas-graid/sw/envs/chenwang/workspace/diffgan/training/modules/zero123plus.py",
-        #     torch_dtype=torch.float32
-        # ).to('cuda')
-
+        
         self.pipe.prepare() 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet
@@ -327,36 +205,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         alpha_t = alphas_cumprod[t] ** 0.5
         sigma_t = (1 - alphas_cumprod[t]) ** 0.5
         return alpha_t, sigma_t
-    
-    def predict_x0(self, noisy_latents, text_embeddings, t, 
-            guidance_scale=1.0, cross_attention_kwargs={}, 
-            scheduler=None, lora_v=False, model='sd',
-             class_labels=None):
-        alpha_t, sigma_t = self.get_alpha(scheduler, t, noisy_latents.device)
-        # print(f"t={t}, alpha_t, sigma_t:{alpha_t, sigma_t}")
-        noise_pred = predict_noise0_diffuser(
-            self.unet, noisy_latents, text_embeddings, t=t,
-            guidance_scale=guidance_scale, cross_attention_kwargs=cross_attention_kwargs, 
-            scheduler=scheduler, model=model,
-            class_labels=class_labels,
-        )
-        # return (noisy_latents - noise_pred * sigma_t) / alpha_t
-        return (noisy_latents - noise_pred * sigma_t.reshape(-1, 1, 1, 1)) / alpha_t.reshape(-1, 1, 1, 1)
-    
-    def predict_eps(self, noisy_latents, text_embeddings, t, 
-            guidance_scale=1.0, cross_attention_kwargs={}, 
-            scheduler=None, lora_v=False, model='sd'):
-        assert NotImplementedError, "Need to add classlabels"
-        alpha_t, sigma_t = self.get_alpha(scheduler, t, noisy_latents.device)
-        # print(f"t={t}, alpha_t, sigma_t:{alpha_t, sigma_t}")
-        noise_pred = predict_noise0_diffuser(
-            self.unet, noisy_latents, text_embeddings, t=t,
-            guidance_scale=guidance_scale, cross_attention_kwargs=cross_attention_kwargs, 
-            scheduler=scheduler, model=model
-        )
-        x = (noisy_latents - noise_pred * sigma_t.reshape(-1, 1, 1, 1)) / alpha_t.reshape(-1, 1, 1, 1)
-        return {"noise_pred": noise_pred, "x0": x}
-      
 
     def state_dict(self, **kwargs):
         # remove lpips_loss
