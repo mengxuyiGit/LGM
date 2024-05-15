@@ -110,26 +110,6 @@ def main():
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
-    # resume
-    # if opt.resume_unet is not None and not opt.decoder_mode.startswith("v1_fix_rgb"):
-    #     print(f"Resume Unet from ckpt: {opt.resume_unet}")
-    #     if opt.resume_unet.endswith('safetensors'):
-    #         ckpt = load_file(opt.resume_unet, device='cpu')
-    #     else:
-    #         ckpt = torch.load(opt.resume_unet, map_location='cpu')
-        
-    #     # tolerant load (only load matching shapes)
-    #     # model.load_state_dict(ckpt, strict=False)
-    #     state_dict = model.state_dict()
-    #     for k, v in ckpt.items():
-    #         if k in state_dict: 
-    #             if state_dict[k].shape == v.shape:
-    #                 state_dict[k].copy_(v)
-    #             else:
-    #                 accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
-    #         else:
-    #             accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
-    # elif opt.resume is not None and not opt.decoder_mode.startswith("v1_fix_rgb"):
     if opt.resume is not None:
         print(f"Resume from ckpt: {opt.resume}")
         if opt.resume.endswith('safetensors'):
