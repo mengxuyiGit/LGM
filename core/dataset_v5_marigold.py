@@ -378,6 +378,7 @@ class ObjaverseDataset(Dataset):
         #     vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
         if self.training:
             vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(56).tolist()
+            # vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + [1]*56
         else:
             vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 56).tolist()
 
@@ -413,7 +414,7 @@ class ObjaverseDataset(Dataset):
         splatter_original_Channel_mvimage_dict = load_splatter_png_as_original_channel_images_to_encode(splatter_uid, suffix="to_encode", ext="png")
         results.update(splatter_original_Channel_mvimage_dict)
         
-        
+        # print("vids:", vids)
         for vid in vids:
 
             image_path = os.path.join(uid, f'{vid:03d}.png')

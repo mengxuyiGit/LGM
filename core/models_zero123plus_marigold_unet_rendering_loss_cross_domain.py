@@ -176,13 +176,7 @@ class DownsampleModuleOnlyConvAvgPool(nn.Module):
     
     def forward(self, x):
         return self.downsample_layers(x)
-        # for ly in self.downsample_layers:
-        #     print(f"---{ly._get_name()}---")
-        #     print(f"input size:{x.shape}")
-        #     x = ly(x)
-        #     print(f"output size:{x.shape}")
-        # st()
-        # return x
+      
         
         
         
@@ -219,70 +213,6 @@ class DownsampleModule(nn.Module):
 
         self.downsample_layers = nn.Sequential(*layers)
         
-        # ## v2
-        # # Define the layers for downsampling
-        # layers = [
-        #     # First downsampling
-        #     nn.Conv2d(input_channels, input_channels, kernel_size=3, stride=2, padding=1),
-        #     nn.ReLU(),
-        #     # # Second downsampling
-        #     # nn.Conv2d(input_channels, input_channels, kernel_size=3, stride=2, padding=1),
-        #     # nn.ReLU(),
-        #     # Adaptive pooling to reach the exact output size
-        #     nn.AdaptiveAvgPool2d((output_resolution, output_resolution))
-        # ]
-        
-        # # Combine all layers into a Sequential model
-        # self.downsample_layers = nn.Sequential(*layers)
-        
-        
-        ## ---- v3 -------
-        #  # Initialize module list
-        # modules = []
-        # current_resolution = input_resolution
-        # current_channels = input_channels
-
-        # # Define the number of groups for GroupNorm, it must be a divisor of the number of channels
-        # # We are choosing 32 because it's commonly used in practice and assuming the channels will be divisible by 32
-        # num_groups = input_channels
-
-        # # Adjust the number of channels to be divisible by the number of groups
-        # if current_channels % num_groups != 0:
-        #     adjusted_channels = (current_channels // num_groups + 1) * num_groups
-        #     modules.append(nn.Conv2d(current_channels, adjusted_channels, kernel_size=1))
-        #     modules.append(nn.GroupNorm(num_groups, adjusted_channels, eps=1e-06, affine=True))
-        #     modules.append(nn.SiLU())
-        #     current_channels = adjusted_channels
-
-        # # Add downsampling layers
-        # next_resolution = current_resolution
-        # while next_resolution > output_resolution:
-        #     current_resolution = next_resolution
-            
-        #     # Define a block with Conv2D, GroupNorm and SiLU (Swish) activation
-        #     modules.append(nn.Conv2d(current_channels, current_channels * 2, kernel_size=3, stride=2, padding=1))
-        #     modules.append(nn.GroupNorm(num_groups, current_channels * 2, eps=1e-06, affine=True))
-        #     modules.append(nn.SiLU())
-
-        #     # Update current resolution and channels
-        #     # Calculate the next resolution, making sure it doesn't go below the target
-        #     next_resolution = max(output_resolution, current_resolution // 2)
-            
-        #     current_channels *= 2
-
-        # # If the number of channels doesn't match the target output_channels, add a 1x1 convolution
-        # if current_channels != output_channels:
-        #     modules.append(nn.Conv2d(current_channels, output_channels, kernel_size=1))
-        #     modules.append(nn.GroupNorm(num_groups, output_channels, eps=1e-06, affine=True))
-        #     modules.append(nn.SiLU())
-    
-        # print(f"current_resolution({current_resolution}) != output_resolution({output_resolution}) : {current_resolution != output_resolution}")
-        # # If the resolution is still not matched (for non-power-of-2 scaling), use adaptive average pooling
-        # if current_resolution != output_resolution:
-        #     print("Init an adaptive pooling layer")
-        #     modules.append(nn.AdaptiveAvgPool2d((output_resolution, output_resolution)))
-
-        # self.downsample_layers = nn.Sequential(*modules)
 
     def forward(self, x):
         return self.downsample_layers(x)
@@ -305,101 +235,6 @@ class Interpolate(nn.Module):
         x = F.interpolate(x, size=self.size, mode=self.mode, align_corners=self.align_corners)
         return x
 
-# From: https://github.com/huggingface/diffusers/blob/v0.26.3/src/diffusers/models/autoencoders/autoencoder_kl.py#L35
-class UNetDecoder(nn.Module):
-    def __init__(self, vae, opt):
-        super(UNetDecoder, self).__init__()
-        self.vae = vae
-        self.decoder = vae.decoder
-
-        if opt.decode_splatter_to_128:
-            
-            # 1. no additional downsample layers
-            if opt.decoder_upblocks_interpolate_mode is not None:
-
-                if opt.decoder_upblocks_interpolate_mode == "last_layer":
-                    self.decoder.up_blocks[-1].upsamplers = nn.ModuleList([]) 
-                    self.decoder.up_blocks[-1].upsamplers.append(Interpolate(size=(128*3, 128*2), mode="nearest"))
-
-                else:
-                    find_interpolate_index={
-                        "interpolate_upsample": 1,
-                        "interpolate_downsample": 2,
-                    }
-                    interpolate_block_ind = find_interpolate_index[opt.decoder_upblocks_interpolate_mode]
-                    for i, up_block in enumerate(self.decoder.up_blocks):
-                        if i > interpolate_block_ind:
-                            up_block.upsamplers = nn.ModuleList([]) 
-                        elif i == interpolate_block_ind:
-                            if opt.replace_interpolate_with_avgpool:
-                                up_block.upsamplers = nn.ModuleList([nn.AdaptiveAvgPool2d((3*128, 2*128))]) 
-                            else:
-                                up_block.upsamplers = nn.ModuleList([Interpolate(size=(128*3, 128*2), mode="nearest")]) 
-                            
-            
-                self.downsample_module = lambda x: x
-                
-            # 2-4. use additional downsample layers, not good
-            elif opt.downsample_mode == "DownsampleModule":
-                self.downsample_module = DownsampleModule(input_channels=14, output_channels=14, input_resolution=320, output_resolution=128,
-                                                use_activation_at_downsample=opt.use_activation_at_downsample)
-            elif opt.downsample_mode == "AvgPool":
-                self.downsample_module = nn.AdaptiveAvgPool2d((3*128, 2*128))
-            elif opt.downsample_mode == "ConvAvgPool":
-                self.downsample_module = DownsampleModuleOnlyConvAvgPool(input_channels=14, output_channels=14, input_resolution=320, output_resolution=128,
-                                                use_activation_at_downsample=opt.use_activation_at_downsample)
-            else:
-                assert NotImplementedError
-        else:
-            self.downsample_module = lambda x: x
-        
-        
-      
-        self.decoder = self.decoder.requires_grad_(False).eval()
-        
-        self.others = nn.Conv2d(128, 11, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        # print(self.decoder)
-        # if opt.verbose or opt.verbose_main:
-        if True:
-            print(f"opt.decoder_mode : {opt.decoder_mode}")    
-            
-            decoder_requires_grad = any(p.requires_grad for p in self.decoder.parameters()) ## check decoder requires grad
-            print(f"UNet Decoder vae.decoder requires grad: {decoder_requires_grad}")
-
-            others_requires_grad = any(p.requires_grad for p in self.others.parameters()) ## check decoder requires grad
-            print(f"UNet Decoder others requires grad: {others_requires_grad}")
-            # st()
-        
-        
-    
-    def forward(self, z):
-        sample = self.vae.post_quant_conv(z)
-        latent_embeds = None
-        sample = self.decoder.conv_in(sample)
-        upscale_dtype = next(iter(self.decoder.up_blocks.parameters())).dtype
-        sample = self.decoder.mid_block(sample, latent_embeds)
-        sample = sample.to(upscale_dtype)
-        # up
-        for i, up_block in enumerate(self.decoder.up_blocks):
-            # print(f"{i}th upblock input: {sample.shape}")
-            sample = up_block(sample, latent_embeds)
-        
-        # print(f"{i}th upblock output: {sample.shape}")
-        # st()
-        
-        sample = self.decoder.conv_norm_out(sample)
-        sample = self.decoder.conv_act(sample)
-        rgb = self.decoder.conv_out(sample)
-        others = self.others(sample)
-        
-        splatters_320 = torch.cat([others, rgb], dim=1)
-        splatters_128 = self.downsample_module(splatters_320)
-        # print(f"splatters_320:{splatters_320.shape}")
-        # print(f"splatters_128:{splatters_128.shape}")
-        # st()
-        return splatters_128
-        # return rgb
-        
         
 class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     def __init__(
@@ -431,124 +266,46 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
         print("Unet is trainable")
         if opt.only_train_attention:
-            def set_requires_grad(module, value):
-                for param in module.parameters():
-                    param.requires_grad = value
+            # def set_requires_grad(module, value):
+            #     for param in module.parameters():
+            #         param.requires_grad = value
                    
-            # Freeze all parameters first
-            set_requires_grad(self.pipe.unet, False)
+            # # Freeze all parameters first
+            # set_requires_grad(self.pipe.unet, False)
             
-            from diffusers.models.attention_processor import Attention
-            # Function to selectively unfreeze attention layers
-            # def unfreeze_attention_layers(module):
+            # from diffusers.models.attention_processor import Attention
+            # def unfreeze_transformer_layers(module):
             #     for child_name, child in module.named_children():
-            #         if isinstance(child, Attention):
-            #             # st()
-            #             # Unfreeze this attention layer
-            #             set_requires_grad(child, True)
-            #         elif len(list(child.children())) > 0:
-            #             # Recursively apply to child modules
-            #             unfreeze_attention_layers(child)
-            
-            # unfreeze_attention_layers(self.pipe.unet)
-            
-            # def unfreeze_attention_and_norm_layers(module, parent_name=""):
-            #     # This flag will be True if the last layer was an Attention layer
-            #     last_was_attention = False
-                
-            #     for child_name, child in module.named_children():
-            #         # Construct the full path name for current layer
-            #         full_name = f"{parent_name}.{child_name}" if parent_name else child_name
-                    
-            #         # Check if current module is an Attention or it is a normalization layer that follows an Attention layer
-            #         if isinstance(child, Attention):
-            #             set_requires_grad(child, True)
-            #             print(f"Unfrozen Layer: {full_name} (Attention)")
-            #             last_was_attention = True
-            #         elif isinstance(child, (nn.LayerNorm, nn.BatchNorm2d, nn.GroupNorm)) and last_was_attention:
-            #             set_requires_grad(child, True)
-            #             print(f"Unfrozen Layer: {full_name} (Normalization following Attention)")
-            #             last_was_attention = False  # Reset flag after processing the normalization layer
+            #         if 'transformer_blocks' in child_name or isinstance(child, Attention):
+            #             for param in child.parameters():
+            #                 param.requires_grad = True  # Set requires_grad to True for all parameters in the transformer blocks or Attention layers
             #         else:
-            #             last_was_attention = False  # Reset flag if it's not an attention or the correct norm layer
-            #             unfreeze_attention_and_norm_layers(child, full_name)  # Recurse into child modules
-
-
-            # # Apply to your model
-            
-            # unfreeze_attention_and_norm_layers(self.pipe.unet)
-            
-            # def set_transformer_grad(model):
-            #     for name, child in model.named_children():
-            #         print(name)
-            #         if isinstance(child, torch.nn.ModuleList) or 'transformer_blocks' in name:
-            #             set_transformer_grad(child)  # Recursively apply to all children
-            #         if 'transformer_blocks' in name:  # Check if it is a transformer block
-            #             for param in child.parameters():
-            #                 param.requires_grad = True  # Set requires_grad to True for all parameters in transformer blocks
-            #         elif 'attn' in name or 'ff' in name or 'norm' in name:  # Optionally check for specific block names
-            #             for param in child.parameters():
-            #                 param.requires_grad = True
+            #             unfreeze_transformer_layers(child)  # Recursively apply to child modules
 
             # # Example of how to apply this function to your model
-            # set_transformer_grad(self.pipe.unet)
-
-            def unfreeze_transformer_layers(module):
-                for child_name, child in module.named_children():
-                    if 'transformer_blocks' in child_name or isinstance(child, Attention):
-                        for param in child.parameters():
-                            param.requires_grad = True  # Set requires_grad to True for all parameters in the transformer blocks or Attention layers
-                    else:
-                        unfreeze_transformer_layers(child)  # Recursively apply to child modules
-
-            # Example of how to apply this function to your model
-            unfreeze_transformer_layers(self.pipe.unet)
+            # unfreeze_transformer_layers(self.pipe.unet)
             
-            # def print_grad_status(module, module_path=""):
-            #     for name, param in module.named_parameters():
-            #         print(f"{module_path + name} -> requires_grad={param.requires_grad}")
+            # # def print_grad_status(module, module_path=""):
+            # #     for name, param in module.named_parameters():
+            # #         print(f"{module_path + name} -> requires_grad={param.requires_grad}")
 
-            # print("\nFinal grad status of all parameters:")
-            # print_grad_status(self.pipe.unet)
+            # # print("\nFinal grad status of all parameters:")
+            # # print_grad_status(self.pipe.unet)
 
-            def print_grad_status(module, module_path="", file_path="grad_status.txt"):
-                with open(file_path, 'w') as file:
-                    for name, param in module.named_parameters():
-                        print(f"{module_path + name} -> requires_grad={param.requires_grad}", file=file)
+            # def print_grad_status(module, module_path="", file_path="grad_status.txt"):
+            #     with open(file_path, 'w') as file:
+            #         for name, param in module.named_parameters():
+            #             print(f"{module_path + name} -> requires_grad={param.requires_grad}", file=file)
 
-            # Usage example
-            print_grad_status(self.pipe.unet, file_path=f"{opt.workspace}/model_grad_status.txt")
+            # # Usage example
+            # print_grad_status(self.pipe.unet, file_path=f"{opt.workspace}/model_grad_status.txt")
             
-            self.unet = self.pipe.unet
+            self.unet = self.pipe.unet # handled in the main_**.py
             
         else:
             self.unet = self.pipe.unet.requires_grad_(True).train() 
        
-       
-        # if opt.scheduler_type == "cosine":
-        #     # Assuming self.pipe.scheduler.config is your original FrozenDict configuration
-        #     original_config = dict(self.pipe.scheduler.config)
-
-        #     # Define the parameters that DDPMScheduler accepts
-        #     ddpm_params = {
-        #         'num_train_timesteps': original_config.get('num_train_timesteps', 1000),
-        #         'beta_start': original_config.get('beta_start', 0.00085),
-        #         'beta_end': original_config.get('beta_end', 0.012),
-        #         'beta_schedule': 'linear'  # explicitly set to 'cosine'
-        #     }
-
-        #     # Create the new scheduler with the updated configuration
-        #     # new_scheduler = DDPMScheduler(**ddpm_params)
-        #     from diffusers import LMSDiscreteScheduler
-        #     new_scheduler = LMSDiscreteScheduler(**ddpm_params)
-        #     self.pipe.scheduler = new_scheduler
-        #     print("We are using cosine scheduler")
-        #     st()
-        # else:
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
-
-        self.decoder = UNetDecoder(self.vae, opt)
-        self.decoder.requires_grad_(False).eval()
         
         # TODO:[END] check this part about requires grad -----------
     
@@ -631,18 +388,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             image = self.vae.encode(image, return_dict=False)[0] * self.vae.config.scaling_factor
         return image
 
-    def decode_latents(self, latents, is_zero123plus=True):
-        if is_zero123plus:
-            latents = unscale_latents(latents)
-            latents = latents / self.vae.config.scaling_factor
-            # image = self.vae.decode(latents, return_dict=False)[0]
-            image = self.decoder(latents)
-            if self.opt.decoder_mode == "v1_fix_rgb_remove_unscale": 
-                return image # do unscale for rgb only in rgb_act
-            image = unscale_image(image)
-        else:
-            image = self.vae.decode(latents, return_dict=False)[0]
-        return image
 
     def get_alpha(self, scheduler, t, device):
         alphas_cumprod = scheduler.alphas_cumprod.to(
@@ -737,170 +482,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         return splatter_optimizer
     
     
-    # def forward_splatters_with_activation_train_unet(self, cond, latents):
-    #     st()
-      
-    #     B = cond.shape[0]
-        
-    #     with torch.no_grad():
-    #         text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=4.0)
-    #         cross_attention_kwargs_stu = cross_attention_kwargs
-        
-    #     # TODO: [BEGIN] training and loss on latent code
-     
-    #     if latents is None:
-    #         raise ValueError("Latents must be provided for the diffusion training process")
-
-    #     gt_latents = latents
-    #     guidance_scale = 1.0
-        
-    #     t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents.device)
-    #     noise = torch.randn_like(latents, device=latents.device)
-    #     noisy_latents = self.pipe.scheduler.add_noise(latents, noise, t)
-      
-    #     pred = "eps"
-    #     if pred == "x0":
-    #         x = self.predict_x0(
-    #             noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
-    #             cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-        
-    #         # do loss on x and gt_latents
-    #         loss_latent = F.mse_loss(x, gt_latents)
-    #     elif pred == "eps":
-    #         res = self.predict_eps(
-    #             noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
-    #             cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-    #         # do loss on x and gt_latents
-    #         loss_latent = F.mse_loss(noise, res["noise_pred"])
-    #         x = res["x0"]
-        
-        
-    #     return loss_latent
-        
-        
-        
-    # def forward_splatters_with_activation(self, images, cond, latents=None):
-    #     B, V, C, H, W = images.shape
-    #     # print(f"images.shape in forward+spaltter:{images.shape}") # SAME as the input_size
-        
-    #     with torch.no_grad():
-    #         text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=1.0)
-    #         cross_attention_kwargs_stu = cross_attention_kwargs
-        
-    #     # TODO: [BEGIN] training and loss on latent code
-    #     st()
-     
-    #     if latents is None:
-    #         raise ValueError("Latents must be provided for the diffusion training process")
-
-
-    #     gt_latents = latents
-    #     guidance_scale = 1.0
-        
-    #     # cw
-    #     # st()
-    #     if self.opt.scheduler_type == "cosine":
-    #         t = torch.randint(0, self.pipe.scheduler.timesteps.max().to(torch.int).item(), (B,), device=latents.device)
-    #     else:
-    #         t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents.device)
-    #     noise = torch.randn_like(latents, device=latents.device)
-    #     noisy_latents = self.pipe.scheduler.add_noise(latents, noise, t)
-          
-    #     # print(noisy_latents.shape)
-    #     # st()
-    
-    #     pred = "eps"
-    #     if pred == "x0":
-    #         x = self.predict_x0(
-    #             noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
-    #             cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-        
-    #         # do loss on x and gt_latents
-    #         # add w(t) for loss: only for predict x0, not for v_pred or eps
-    #         loss_latent = F.mse_loss(x, gt_latents)
-    #     elif pred == "eps":
-    #         res = self.predict_eps(
-    #             noisy_latents, text_embeddings, t=t, guidance_scale=guidance_scale, 
-    #             cross_attention_kwargs=cross_attention_kwargs, scheduler=self.pipe.scheduler, model='zero123plus')
-    #         # do loss on x and gt_latents
-    #         loss_latent = F.mse_loss(noise, res["noise_pred"])
-    #         x = res["x0"]
-     
-    #     # TODO: [END] training and loss on latent code
-        
-    #     x = self.decode_latents(x) # (B, 14, H, W)
-        
-    #     # TODO: whether need the following gaussian prediction and 
-
-    #     x = x.permute(0, 2, 3, 1)
-        
-    #     pos = self.pos_act(x[..., :3]) # [B, N, 3]
-    #     opacity = self.opacity_act(x[..., 3:4])
-    #     scale = self.scale_act(x[..., 4:7])
-    #     rotation = self.rot_act(x[..., 7:11])
-    #     rgbs = self.rgb_act(x[..., 11:])
-        
-    #     if self.opt.verbose_main:
-    #         print(f"self.scale bias: {self.scale_bias}")
-    #         print(f"scale after clamp: max={torch.log(scale.max())}, min={torch.log(scale.min())}")
-        
-    #     device = x.device
-    #     for attr in self.opt.normalize_scale_using_gt:
-    #         st()
-    #         if self.opt.verbose_main:
-    #             print(f"Normalizing attr {attr} in forward splatttre")
-    #         if attr == 'opacity':
-    #             pred_attr_flatten = opacity
-    #             gt_std = torch.tensor([[[3.2988]]], device=device)
-    #             gt_mean = torch.tensor([[[-4.7325]]], device=device)
-    #         elif attr == 'scale':
-    #             pred_attr_flatten = scale
-    #             gt_std = torch.tensor([[[1.0321],
-    #                 [0.9340],
-    #                 [1.0183]]], device=device)
-    #             gt_mean = torch.tensor([[[-5.7224],
-    #                 [-5.5628],
-    #                 [-5.4192]]], device=device)
-
-    #         else:
-    #             raise ValueError ("This attribute is not supported for normalization")
-            
-    #         # gt_attr_flatten = torch.log(gt_attr_flatten).permute(0,2,1) # [B, C, L]
-    #         b, H, W, c = pred_attr_flatten.shape
-    
-    #         pred_attr_flatten = einops.rearrange(pred_attr_flatten, 'b H W c -> b c (H W)') # # [B, C, L]
-    #         pred_attr_flatten = torch.log(pred_attr_flatten)
-            
-        
-    #         # # Assuming train_data has shape (B, C, L)
-    #         # gt_mean = torch.mean(gt_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
-    #         # gt_std = torch.std(gt_attr_flatten, dim=(0, 2), keepdim=True)
-
-    #         pred_mean = torch.mean(pred_attr_flatten, dim=(0, 2), keepdim=True) # [1, C, 1]
-    #         pred_std = torch.std(pred_attr_flatten, dim=(0, 2), keepdim=True)
-
-    #         # Normalize input_tensor to match the distribution of gt
-        
-    #         normalized_pred = (pred_attr_flatten - pred_mean) / (pred_std + 1e-5)  # Adding a small epsilon for numerical stability
-
-    #         # If you want the normalized_input to have the same mean and std as gt_tensor
-    #         pred_attr_flatten = normalized_pred * gt_std + gt_mean
-
-    #         pred_attr_flatten = torch.exp(pred_attr_flatten) # because the norm is on the log scale
-    #         pred_attr_flatten = einops.rearrange(pred_attr_flatten, 'b c (H W) -> b H W c', H=H, W=W) # [B, C, L]
-            
-    #         if attr == 'opacity':
-    #             opacity = pred_attr_flatten 
-    #         elif attr == 'scale':
-    #             scale = pred_attr_flatten
-    #         else:
-    #             raise ValueError ("This attribute is not supported for normalization")
-
-    #     splatters = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
-        
-    #     splatters = einops.rearrange(splatters, 'b (h2 h) (w2 w) c -> b (h2 w2) c h w', h2=3, w2=2) # (B, 6, 14, H, W)
-    #     return splatters, loss_latent
-    
         
     def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
         # Gaussian shape: (B*6, 14, H, W)
@@ -976,7 +557,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             noise = torch.randn_like(gt_latents, device=gt_latents.device)
             noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
             # print(noisy_latents.shape)
-            
             
             if self.opt.fixed_noise_level is not None:
                 t = torch.ones_like(t).to(noisy_latents.device) * self.opt.fixed_noise_level
@@ -1114,7 +694,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             save_gs_rendered_images
         )
         
-         # ---- begin vis noisy latent ---
+        # ---- begin vis noisy latent ---
 
         # with torch.no_grad():
         #     to_encode_attributes_dict_init = {}
@@ -1394,11 +974,20 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
             gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
-             # get gt_mask from gt gaussian rendering
+            
+            
+            # get gt_mask from gt gaussian rendering
             if self.opt.data_mode == "srn_cars":
                 gt_masks = self.gs.render(fuse_splatters(data['splatters_output']), data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)['alpha']
 
             gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+            
+            # # save training pairs
+            # pair_images = torch.cat([gt_images, pred_images]).detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+            # pair_images = pair_images.transpose(0, 3, 1, 4, 2).reshape(-1, pair_images.shape[1] * pair_images.shape[3], 3)
+            # kiui.write_image(f'{self.opt.workspace}/train_gt_pred_images.jpg', pair_images)
+            # st()
+            
 
             ## ------- end render ----------
             
