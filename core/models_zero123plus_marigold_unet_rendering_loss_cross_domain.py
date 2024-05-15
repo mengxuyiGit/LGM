@@ -264,16 +264,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         self.pipe.prepare() 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet
-    
-        # print("Unet is trainable")
-        # if opt.only_train_attention:
-        #     self.unet = self.pipe.unet # handled in the main_**.py
-        # else:
-        #     self.unet = self.pipe.unet.requires_grad_(True).train() 
        
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
-        
-        # TODO:[END] check this part about requires grad -----------
     
         # Gaussian Renderer
         self.gs = GaussianRenderer(opt)
