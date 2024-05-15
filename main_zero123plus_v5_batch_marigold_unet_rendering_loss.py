@@ -222,8 +222,6 @@ def main():
             # if splatter_guidance:
             #     print(f"splatter_guidance in epoch: {epoch}")
                     
-            # for i, data in enumerate(train_dataloader):
-            
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
             
                 if i > 0 and opt.skip_training:
@@ -416,60 +414,6 @@ def main():
                             # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                             # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
                             
-                            
-
-                            if len(opt.plot_attribute_histgram) > 0:
-                                for splatters_pred_key in ['splatters_from_code']:
-                                    if splatters_pred_key == 'splatters_from_code':
-                                        splatters = out[splatters_pred_key]
-                                    else:
-                                        raise NotImplementedError
-                                    
-                                    gaussians = fuse_splatters(splatters)
-                                    gt_gaussians = fuse_splatters(data['splatters_output'])
-                                    
-                                    color_pairs = [('pink', 'teal'), ("red", "green"), ("orange", "blue"), ('purple', 'yellow'), ('cyan', 'brown')]
-
-                                    attr_map = {key: (si, ei, color_pair) for key, si, ei, color_pair in zip (gt_attr_keys, start_indices, end_indices, color_pairs)}
-                    
-                                    for attr in opt.plot_attribute_histgram:
-                                        start_i, end_i, (gt_color, pred_color) = attr_map[attr]
-                                        gt_attr_flatten =  gt_gaussians[..., start_i:end_i] # [B, L, C]
-                                        pred_attr_flatten = gaussians[..., start_i:end_i]
-                                        if attr in ['scale', 'opacity']:
-                                            gt_attr_flatten = torch.log(gt_attr_flatten).permute(0,2,1) # [B, C, L]
-                                            pred_attr_flatten = torch.log(pred_attr_flatten).permute(0,2,1) 
-                                            gt_attr_flatten = gt_attr_flatten.flatten().detach().cpu().numpy()
-                                            pred_attr_flatten = pred_attr_flatten.flatten().detach().cpu().numpy()
-                                        else: ## cannot flatten due to their meaning
-                                            print(f"not support the plotting of __{attr}__ yet")
-                                            continue
-                                        
-                                        # Manually define bin edges
-                                        bin_edges = np.linspace(min(min(gt_attr_flatten), min(pred_attr_flatten)), max(max(gt_attr_flatten), max(pred_attr_flatten)), num=50)
-
-                                        plt.hist(gt_attr_flatten, bins=bin_edges, color=gt_color, alpha=0.7, label=f'{attr}_gt')
-                                        plt.hist(pred_attr_flatten, bins=bin_edges, color=pred_color, alpha=0.3, label=f'{attr}_pred')
-                                        
-                                        # Add labels and legend
-                                        plt.xlabel('Value')
-                                        plt.ylabel('Frequency')
-                                        plt.legend()
-
-                                        # Save the plot as an image file (e.g., PNG)
-                                        name = f'histogram_batch{accelerator.process_index}_{i}_{splatters_pred_key}_{attr}'
-                                        if attr == "scale":
-                                            name += f"_{opt.scale_act}_bias{opt.scale_act_bias}"
-                                        
-                                        if opt.normalize_scale_using_gt:
-                                            name += "normed_on_gt"
-                                            
-                                        plt.title(f'{name}')
-                                        plt.savefig(f'{opt.workspace}/eval_epoch_{epoch}/{name}.jpg')
-                                    
-                                        # Clear the figure
-                                        plt.clf()
-                                
                 
                     torch.cuda.empty_cache()
 
