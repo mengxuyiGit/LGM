@@ -334,7 +334,7 @@ def main():
                 writer.add_scalar('train/loss_alpha', total_loss_alpha, epoch)
                 writer.add_scalar('train/loss_lpips', total_loss_lpips, epoch)
                 if opt.lr_scheduler == 'Plat' and opt.lr_schedule_by_train:
-                    # scheduler.step(total_loss)
+                    scheduler.step(total_loss)
                     writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch)
             
             
@@ -437,7 +437,7 @@ def main():
                         writer.add_scalar('eval/loss_lpips', total_loss_lpips, epoch)
 
                         if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
-                        #     scheduler.step(total_loss)
+                            scheduler.step(total_loss)
                             writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
     
 
