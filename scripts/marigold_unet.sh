@@ -149,19 +149,19 @@ DATA_DIR_BATCH_VAE_SPLATTER_ROOT="/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/ru
 accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_debug \
     --lr 1e-4 --num_epochs 10001 --eval_iter 100 --save_iter 200 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
-    --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+    --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 7 \
     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'debug_dev_cleanCodeForZero1toG' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
-    --set_random_seed --batch_size 1 --num_workers 1 \
+    --desc 'debug_bsz2_dev_cleanCodeForZero1toG' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --set_random_seed --batch_size 2 --num_workers 1 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --scale_clamp_max -2 --scale_clamp_min -10 \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain --data_path_vae_splatter ${DATA_DIR_BATCH_VAE_SPLATTER_ROOT} \
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
-    --overfit_one_scene --bg 1.0 --only_train_attention --rendering_loss_use_weight_t
+    --bg 1.0 --only_train_attention --rendering_loss_use_weight_t 
     # --fixed_noise_level 300
-    # --rendering_loss_use_weight_t
+    # --rendering_loss_use_weight_t  --overfit_one_scene 
 
 # # [MAY 15] train all scenes with constant large lr
 # accelerate launch --main_process_port 29514 --config_file acc_configs/gpu8.yaml main_zero123plus_v5_batch_marigold_unet_rendering_loss.py big --workspace runs/marigold_unet/workspace_CD_train \
