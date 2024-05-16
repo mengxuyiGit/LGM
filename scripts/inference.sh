@@ -290,7 +290,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_
     --lr 6e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'LARGE-LR-dev_cleanCodeForZero1toG-weight_t-pos-embed-sqeuence-cat-train-epoch200-30steps' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+    --desc 'SCHEDULE-LR-dev_cleanCodeForZero1toG-weight_t-pos-embed-sqeuence-cat-train-epoch280-30steps' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
@@ -302,7 +302,8 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_
     --scene_start_index 5  --scene_end_index 100 \
     --load_suffix "to_encode" --load_ext "png" --load_iter 1000 \
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" \
-    --resume "runs/marigold_unet/workspace_CD_train/20240519-LARGE-LR-Attn-only_attn-rendering_w_t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_300/model.safetensors"
+    --resume "runs/marigold_unet/workspace_CD_train/20240520-SCHEDULE-LR-Attn-only_attn-rendering_w_t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_280/model.safetensors"
+    # --resume "runs/marigold_unet/workspace_CD_train/20240519-LARGE-LR-Attn-only_attn-rendering_w_t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_300/model.safetensors"
     # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240518-8gpus-marigold-unet-v7_seq-POS-EMBED-resume160-rendering_loss_weight_alpha^2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_200/model.safetensors"
 
 

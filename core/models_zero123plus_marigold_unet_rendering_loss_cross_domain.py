@@ -277,7 +277,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
     
         
-        save_path = f"{self.opt.workspace}/verify_bsz2"
+        # save_path = f"{self.opt.workspace}/verify_bsz2"
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
@@ -322,7 +322,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.fixed_noise_level is not None:
             t = torch.ones_like(t).to(t.device) * self.opt.fixed_noise_level
             print(f"fixed noise level = {self.opt.fixed_noise_level}")
-        print("t=",t)
+        # print("t=",t)
         
         noise = torch.randn_like(gt_latents, device=gt_latents.device)
         noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
@@ -419,7 +419,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             decoded_attr_list.append(decoded_attr)
 
         if save_path is not None:
-            print('Saving to ', save_path)
+            # print('Saving to ', save_path)
             decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
             images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
