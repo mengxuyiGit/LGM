@@ -50,7 +50,7 @@ def to_rgb_image(maybe_rgba: Image.Image):
         return maybe_rgba
     elif maybe_rgba.mode == 'RGBA':
         rgba = maybe_rgba
-        img = numpy.random.randint(127, 128, size=[rgba.size[1], rgba.size[0], 3], dtype=numpy.uint8)
+        img = numpy.random.randint(255, 256, size=[rgba.size[1], rgba.size[0], 3], dtype=numpy.uint8)
         img = Image.fromarray(img, 'RGB')
         img.paste(rgba, mask=rgba.getchannel('A'))
         return img
@@ -935,7 +935,7 @@ def calculate_loss(model, gs_results, data, save_gt_path=None):
     if opt.data_mode == "srn_cars":
         gt_images = gt_images * gt_masks + (1 - gt_masks)# NOTE: white bg
     else:
-        gt_images = gt_images * gt_masks + (1 - gt_masks) * 0.5 # NOTE: gray bg
+        gt_images = gt_images * gt_masks + (1 - gt_masks) * opt.bg # NOTE: gray bg
     if save_gt_path!=None:
         gt_images_save = gt_images.detach().cpu().numpy().transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
         kiui.write_image(os.path.join(save_gt_path, 'calculate_loss_image_gt.jpg'), gt_images_save)
@@ -1346,8 +1346,8 @@ def main():
             output_path = f"{opt.workspace}/zero123plus/outputs_v3_inference_my_decoder"
             
             pipeline.prepare()
-            # guidance_scale = 1.5
-            guidance_scale = 1
+            guidance_scale = 1.5
+            # guidance_scale = 1
 
 
        
@@ -1646,7 +1646,6 @@ def main():
                                 prompt_embeds, cak = model.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
                                 if opt.custom_pipeline in ["./zero123plus/pipeline_v7_seq.py"]:
                                     # print(procmpt_embeds.shape)
-                                    # st()
                                     prompt_embeds = torch.cat([prompt_embeds[0:1]]*gt_latents.shape[0] + [prompt_embeds[1:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
                                     cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
                                     
