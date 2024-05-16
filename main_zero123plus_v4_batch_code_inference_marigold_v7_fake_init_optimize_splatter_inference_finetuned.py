@@ -1656,7 +1656,7 @@ def main():
                                     
                                 timesteps = model.pipe.scheduler.timesteps
                                 
-                                debug = True
+                                debug = False
                                 if debug:
                                     debug_t = torch.tensor(50, dtype=torch.int64, device='cuda:0',)
                                     noise = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
