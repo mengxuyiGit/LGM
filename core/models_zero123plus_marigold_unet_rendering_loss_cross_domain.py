@@ -109,6 +109,35 @@ def attr_3channel_image_to_original_splatter_attr(attr_to_encode, mv_image):
             
         return sp_image_o
     
+def denormalize_and_activate(attr, mv_image):
+    # mv_image: B C H W
+    
+    sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
+    
+    if attr == "scale":
+        sp_min, sp_max = sp_min_max_dict["scale"]
+        sp_image_o = sp_image_o.clip(0,1) 
+        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+        sp_image_o = torch.exp(sp_image_o)
+        # print(f"Decoded attr [unscaled] {attr}: min={sp_image_o.min()} max={sp_image_o.max()}")
+
+    elif attr == "pos":
+        sp_min, sp_max = sp_min_max_dict[attr]
+        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+        sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
+
+    elif attr == "rotation": 
+        ag = einops.rearrange(sp_image_o, 'b c h w -> b h w c')
+        quaternion = axis_angle_to_quaternion(ag)
+        sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')
+      
+
+    start_i, end_i = attr_map[attr]
+    if end_i - start_i == 1:
+        sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
+        
+    return sp_image_o
+
     
 class Interpolate(nn.Module):
     def __init__(self, size, mode='bilinear', align_corners=False):
@@ -243,13 +272,16 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             images_all_attr_list.append(sp_image)
             
-        images_all_attr_batch = torch.cat(images_all_attr_list)
-        if save_path is not None:
-            
+        images_all_attr_batch = torch.stack(images_all_attr_list)
+        A, B, _, _, _ = images_all_attr_batch.shape
+        images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
+    
+        
+        save_path = f"{self.opt.workspace}/verify_bsz2"
+        if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            # images_to_save = images_to_save.transpose(0, 2, 3, 1).reshape(-1, images_to_save.shape[3],3) # .transpose(0, 3, 1, 4, 2).reshape(-1, images_to_save.shape[1] * images_to_save.shape[3], 3)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_to_encode.jpg', images_to_save)
             
             # kiui.write_image(f'pure_noise_spatial_concat.jpg', np.random.rand(*images_to_save.shape))
@@ -270,9 +302,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         
         # prepare cond and t
-        B,C,H,W = gt_latents.shape
-        assert data['cond'].shape[0] == 1 # only handle actual bsz=1
-        cond = data['cond'].repeat(B,1,1,1)
+        # B, _, _, _ = data['cond'].shape
+        # A = 5
+        BA,C,H,W = gt_latents.shape # should be (B A) c h w
+        
+        assert (BA == B * A) or (self.opt.cd_spatial_concat)
+        cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:])
         
         # unet 
         with torch.no_grad():
@@ -281,27 +316,30 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
        
         # same t for all domain
         # TODO: adapt this to batch_Size > 1 to run larger batch size
-        t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (1,), device=latents_all_attr_encoded.device).repeat(B)
+        t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
+        t = t.unsqueeze(1).repeat(1,A).view(-1)
+          
+        if self.opt.fixed_noise_level is not None:
+            t = torch.ones_like(t).to(t.device) * self.opt.fixed_noise_level
+            print(f"fixed noise level = {self.opt.fixed_noise_level}")
+        print("t=",t)
         
         noise = torch.randn_like(gt_latents, device=gt_latents.device)
         noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
         # print(noisy_latents.shape)
-        
-        if self.opt.fixed_noise_level is not None:
-            t = torch.ones_like(t).to(noisy_latents.device) * self.opt.fixed_noise_level
-            print(f"fixed noise level = {self.opt.fixed_noise_level}")
-    
+      
         domain_embeddings = torch.eye(5).to(noisy_latents.device)
         if self.opt.cd_spatial_concat:
             domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
         
-        # add poe embedding on domain embedding
+        # add pos embedding on domain embedding
         domain_embeddings = torch.cat([
                 torch.sin(domain_embeddings),
                 torch.cos(domain_embeddings)
             ], dim=-1)
         
-        # st()
+        # repeat for batch
+        domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:])
 
         # def extract_into_tensor(a, t, x_shape):
         #     b, *_ = t.shape
@@ -314,7 +352,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         #             extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x.shape) * x
         #     )
 
-        # v-prediction with unet
+        # v-prediction with unet: (B A) 4 48 32
         v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
         # get v_target
@@ -323,10 +361,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         )
         alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
         sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
-        v_target = alpha_t * noise - sigma_t * gt_latents
+        v_target = alpha_t * noise - sigma_t * gt_latents # (B A) 4 48 32
+    
         
         # calbculate loss
             # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
+        # reshape back to the batch to calculate loss?? loss is of shape [] without batch dim?
         loss_latent = F.mse_loss(v_pred, v_target)     
         results['loss_latent'] = loss_latent * self.opt.lambda_latent
 
@@ -334,8 +374,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
         x = (noisy_latents - noise_pred * sigma_t) / alpha_t
       
-        # decode latents into attrbutes again
-        decoded_attr_list = []
+      
         
         from main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter import (
             load_splatter_png_as_original_channel_images_to_encode, 
@@ -353,50 +392,47 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         assert latents_all_attr_to_decode.shape == latents_all_attr_encoded.shape
 
        
-    #     TODOL: make this into batch process
-        decoded_attr_3channel_image_list = []
-        for i, attr_decoded in enumerate(ordered_attr_list):
-            _latents_attr = latents_all_attr_to_decode[i:i+1]
-            
-            debug_latents = False
-            if debug_latents:
-                print("Taking the latents_all_attr_encoded of ", attr_decoded)
-                # _latents_attr = latents_all_attr_encoded[:,i*4:(i+1)*4] # passed
-                _latents_attr = latents_all_attr_encoded[i:i+1] # passed
-            
-            # decode
-            latents1 = unscale_latents(_latents_attr)
-            image = self.pipe.vae.decode(latents1 / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
-            _decoded_3channel_image_attr = unscale_image(image)
-
-            # if save_path is not None:
-            #     _decoded_3channel_image_save = _decoded_3channel_image_attr.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-            #     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-            #     kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-    
-            decoded_attr = attr_3channel_image_to_original_splatter_attr(attr_decoded, _decoded_3channel_image_attr)
-            decoded_attr_list.append(decoded_attr)
-            decoded_attr_3channel_image_list.append(_decoded_3channel_image_attr)
-
-            # image = data[attr_decoded]
-            # decoded_attributes, _ = decode_single_latents(self.pipe, None, attr_to_encode=attr_decoded, mv_image=data[attr_decoded])
-            # to_encode_attributes_dict_init.update({attr_decoded:decoded_attributes}) # splatter attributes in original range
+        # TODO: make this into batch process
+        # decode
+        latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
+      
+        # image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+        # TODO: remove this for loop for jiatao, use this above batch process
+        image_all_attr_to_decode_list_temp = []
+        # # FIXME: hardcode downsample to test batchsize = 2
+        # latents_all_attr_to_decode = latents_all_attr_to_decode[:,:,::2,::2]
+        for b in range (B):
+            _b_image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode[b*A:(b+1)*A] / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+            image_all_attr_to_decode_list_temp.append(_b_image_all_attr_to_decode)
+        image_all_attr_to_decode = torch.cat(image_all_attr_to_decode_list_temp, dim=0)
         
+        image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
+
+        # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
+        image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
+        
+        # decode latents into attrbutes again
+        decoded_attr_list = []
+        for i, _attr in enumerate(ordered_attr_list):
+            batch_attr_image = image_all_attr_to_decode[i]
+            decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+            decoded_attr_list.append(decoded_attr)
+
         if save_path is not None:
-            decoded_attr_3channel_image_batch = torch.cat(decoded_attr_3channel_image_list, dim=0)
+            print('Saving to ', save_path)
+            decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
             images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = np.clip(images_to_save, 0, 1)
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
-       
 
-        splatter_mv = torch.cat(decoded_attr_list, dim=1) # [1, 14, 384, 256]
+        splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
 
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
-        results['splatters_from_code'] = splatters_to_render # [1, 6, 14, 256, 256]
-        gaussians = fuse_splatters(splatters_to_render)
+        results['splatters_from_code'] = splatters_to_render # [B, 6, 14, 256, 256]
+        gaussians = fuse_splatters(splatters_to_render) # B, N, 14
         
         if self.training: # random bg for training
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
