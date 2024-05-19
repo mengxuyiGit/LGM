@@ -379,6 +379,7 @@ class ObjaverseDataset(Dataset):
         if self.training:
             vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(56).tolist()
             # vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + [1]*56
+            # vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + [1]*56
         else:
             vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 56).tolist()
 
