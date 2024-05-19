@@ -231,6 +231,8 @@ class Options:
     cd_spatial_concat: bool = False
     only_train_attention: bool = False
     rendering_loss_use_weight_t: bool = False
+
+    finetune_decoder: bool = False
     
 
 # all the default settings

@@ -170,7 +170,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         self.pipe.prepare() 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
-        self.unet = self.pipe.unet
+        self.unet = self.pipe.unet.requires_grad_(False).eval()
+    
        
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
     
@@ -211,8 +212,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             self.lpips_loss.requires_grad_(False)
         
 
-        with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
-            print(self.unet, file=f)
+        # with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
+        #     print(self.unet, file=f)
       
 
     def get_alpha(self, scheduler, t, device):
@@ -307,91 +308,99 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         BA,C,H,W = gt_latents.shape # should be (B A) c h w
         
         assert (BA == B * A) or (self.opt.cd_spatial_concat)
-        cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:])
         
-        # unet 
-        with torch.no_grad():
-            text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=1.0)
-            cross_attention_kwargs_stu = cross_attention_kwargs        
-       
-        # same t for all domain
-        # TODO: adapt this to batch_Size > 1 to run larger batch size
-        t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
-        t = t.unsqueeze(1).repeat(1,A).view(-1)
-          
-        if self.opt.fixed_noise_level is not None:
-            t = torch.ones_like(t).to(t.device) * self.opt.fixed_noise_level
-            print(f"fixed noise level = {self.opt.fixed_noise_level}")
-        # print("t=",t)
         
-        noise = torch.randn_like(gt_latents, device=gt_latents.device)
-        noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
-        # print(noisy_latents.shape)
+        if self.opt.train_unet:
+            cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
+            
+            # unet 
+            with torch.no_grad():
+                text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=1.0)
+                cross_attention_kwargs_stu = cross_attention_kwargs        
+        
+            # same t for all domain
+            # TODO: adapt this to batch_Size > 1 to run larger batch size
+            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
+            t = t.unsqueeze(1).repeat(1,A).view(-1)
+            
+            if self.opt.fixed_noise_level is not None:
+                t = torch.ones_like(t).to(t.device) * self.opt.fixed_noise_level
+                print(f"fixed noise level = {self.opt.fixed_noise_level}")
+            # print("t=",t)
+            
+            noise = torch.randn_like(gt_latents, device=gt_latents.device)
+            noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
+            # print(noisy_latents.shape)
+        
+            domain_embeddings = torch.eye(5).to(noisy_latents.device)
+            if self.opt.cd_spatial_concat:
+                domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
+            
+            # add pos embedding on domain embedding
+            domain_embeddings = torch.cat([
+                    torch.sin(domain_embeddings),
+                    torch.cos(domain_embeddings)
+                ], dim=-1)
+            
+            # repeat for batch
+            domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:])
+
+            # v-prediction with unet: (B A) 4 48 32
+            v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
+
+            # get v_target
+            alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
+                device=noisy_latents.device, dtype=noisy_latents.dtype
+            )
+            alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
+            sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
+            v_target = alpha_t * noise - sigma_t * gt_latents # (B A) 4 48 32
+        
+            
+            # calbculate loss
+                # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
+            # reshape back to the batch to calculate loss?? loss is of shape [] without batch dim?
+            loss_latent = F.mse_loss(v_pred, v_target)     
+            results['loss_latent'] = loss_latent * self.opt.lambda_latent
+
+            # calculate x0 from v_pred
+            noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
+            x = (noisy_latents - noise_pred * sigma_t) / alpha_t
       
-        domain_embeddings = torch.eye(5).to(noisy_latents.device)
-        if self.opt.cd_spatial_concat:
-            domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
+
+            
+            # from main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter import (
+            #     load_splatter_png_as_original_channel_images_to_encode, 
+            #     original_to_3Channel_splatter,
+            #     decode_single_latents,
+            #     get_splatter_images_from_decoded_dict,
+            #     render_from_decoded_images,
+            #     save_gs_rendered_images
+            # )
         
-        # add pos embedding on domain embedding
-        domain_embeddings = torch.cat([
-                torch.sin(domain_embeddings),
-                torch.cos(domain_embeddings)
-            ], dim=-1)
-        
-        # repeat for batch
-        domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:])
+            if self.opt.cd_spatial_concat:
+                latents_all_attr_to_decode = einops.rearrange(x, "B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
+            else:
+                latents_all_attr_to_decode = x
+            assert latents_all_attr_to_decode.shape == latents_all_attr_encoded.shape
+            
+            
+            # Calculate rendering losses weights
+            if self.opt.rendering_loss_use_weight_t:
+                _alpha_t = alpha_t.flatten()[0]
+                _rendering_w_t = _alpha_t ** 2 # TODOL make this to adapt B>1
+                # print(f"_rendering_w_t of {t[0].item()}: ", _rendering_w_t)
+            else:
+                _rendering_w_t = 1
 
-        # def extract_into_tensor(a, t, x_shape):
-        #     b, *_ = t.shape
-        #     out = a.gather(-1, t)
-        #     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
-
-        # def get_v(self, x, noise, t, sqrt_alphas_cumprod):
-        #     return (
-        #             extract_into_tensor(sqrt_alphas_cumprod, t, x.shape) * noise -
-        #             extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x.shape) * x
-        #     )
-
-        # v-prediction with unet: (B A) 4 48 32
-        v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
-
-        # get v_target
-        alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
-            device=noisy_latents.device, dtype=noisy_latents.dtype
-        )
-        alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
-        sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
-        v_target = alpha_t * noise - sigma_t * gt_latents # (B A) 4 48 32
-    
-        
-        # calbculate loss
-            # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
-        # reshape back to the batch to calculate loss?? loss is of shape [] without batch dim?
-        loss_latent = F.mse_loss(v_pred, v_target)     
-        results['loss_latent'] = loss_latent * self.opt.lambda_latent
-
-        # calculate x0 from v_pred
-        noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
-        x = (noisy_latents - noise_pred * sigma_t) / alpha_t
-      
-      
-        
-        from main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter import (
-            load_splatter_png_as_original_channel_images_to_encode, 
-            original_to_3Channel_splatter,
-            decode_single_latents,
-            get_splatter_images_from_decoded_dict,
-            render_from_decoded_images,
-            save_gs_rendered_images
-        )
-       
-        if self.opt.cd_spatial_concat:
-            latents_all_attr_to_decode = einops.rearrange(x, "B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
         else:
-            latents_all_attr_to_decode = x
-        assert latents_all_attr_to_decode.shape == latents_all_attr_encoded.shape
+            
+            latents_all_attr_to_decode = gt_latents
 
-       
+            _rendering_w_t = 1
+
+        st()
+        
         # TODO: make this into batch process
         # decode
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
@@ -471,13 +480,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # st()
         ## ------- end render ----------
 
-        # Calculate losses
-        if self.opt.rendering_loss_use_weight_t:
-            _alpha_t = alpha_t.flatten()[0]
-            _rendering_w_t = _alpha_t ** 2 # TODOL make this to adapt B>1
-            # print(f"_rendering_w_t of {t[0].item()}: ", _rendering_w_t)
-        else:
-            _rendering_w_t = 1
+        
           
         if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
