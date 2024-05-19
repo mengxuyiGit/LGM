@@ -94,8 +94,6 @@ def return_final_scene(scene_workspace, acceptable_epoch, verbose=False):
             # check content
             # return the correct folder
             return item
-
-   
     return None
 
     # ---------
@@ -137,6 +135,7 @@ def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix=
             # print(f"splatter_dir: {splatter_dir}")
             # print(f"{attr}_{suffix}.{ext}")
             im_path = os.path.join(splatter_dir, f"{attr}_{suffix}.{ext}")
+            print(f"Loading {im_path}")
         # except:
         #     print(f"splatter_dir: {splatter_dir}")
         #     print(f"{attr}_{suffix}.{ext}")
@@ -156,7 +155,7 @@ def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix=
             image = transform(image)
             
         elif ext in ["pt"]:
-            image = torch.load(im_path).detach().clone()
+            image = torch.load(im_path).detach().clone().cpu()
             image = (image + 1) * 0.5
             print(image.requires_grad, image.grad)
             
@@ -191,7 +190,6 @@ def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix=
         
         ## do mapping of value from [0,1] to [-1,1]
         if value.min() < 0 or value.max()>1:
-            # st()
             assert ext == "pt" # FIXME: change this back
             value = torch.clip(value, 0, 1)
             print("Clipping the value of pt tensor")
@@ -256,16 +254,21 @@ class ObjaverseDataset(Dataset):
             if scene_name in self.data_path_vae_splatter.keys():
                 continue
             
-            final_optimized = return_final_scene(scene_path, acceptable_epoch=300, verbose=True)
-            if final_optimized == None:
-                print(f"scene {scene_name} is not optimized to the end point")
-                print(scene_path)
-                st()
+            
+            if opt.train_unet:
+                # Load the final optimized splatter image
+                final_optimized = return_final_scene(scene_path, acceptable_epoch=300, verbose=True)
+                if final_optimized == None:
+                    print(f"scene {scene_name} is not optimized to the end point")
+                    print(scene_path)
+                    st()
+                    continue
+                vae_splatter_folder = os.path.join(scene_path, final_optimized)
+            else:
+                # Load the LGM init 
+                vae_splatter_folder = os.path.join(scene_path, '0')
+                print(f'Loading {vae_splatter_folder} to finetune decoder')
                 
-                continue
-            
-            
-            vae_splatter_folder = os.path.join(scene_path, final_optimized)
 
     
             if len(os.listdir(vae_splatter_folder)) == 22:
@@ -305,9 +308,7 @@ class ObjaverseDataset(Dataset):
                     st()
                     
                 self.data_path_rendering[scene_name] = rendering_folder
-                # print(vae_splatter_folder, len(os.listdir(vae_splatter_folder)) == 22)
-                # st()
-
+               
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
         
         # self.items = [k for k in self.data_path_splatter_gt.keys()]
@@ -319,14 +320,14 @@ class ObjaverseDataset(Dataset):
                 # print(f"[WARN]: always fetch the 0th item. For debug use only")
                 # self.items = all_items[:1]
                 print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[1:2]
+                self.items = all_items[0:1]
         else:
             self.items = all_items
             if self.opt.overfit_one_scene:
                 # print(f"[WARN]: always fetch the 0th item. For debug use only")
                 # self.items = all_items[:1]
                 print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[1:2]
+                self.items = all_items[0:1]
         
         
         # naive split
@@ -390,28 +391,8 @@ class ObjaverseDataset(Dataset):
         cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
         results['cond'] = cond.astype(np.uint8)
 
-        # load splatter gt
-        # splatter_uid = self.items_splatter_gt[idx]
-       
-        splatter_images_multi_views = []
-        
-        # for input_id in vids[:self.opt.num_input_views]:
-        #     sf = os.path.join(splatter_uid, f"splatter_{input_id-1}.ply")
-        #     if self.opt.verbose:
-        #         print(f"sf:{sf}")
-        #     splatter_im = load_ply(sf)
-        #     splatter_images_multi_views.append(splatter_im)
-        
-        # splatter_images_mv = torch.stack(splatter_images_multi_views, dim=0) # # [6, 16384, 14]
-        # splatter_res = int(math.sqrt(splatter_images_mv.shape[-2]))
-        # # print(f"splatter_res: {splatter_res}")
-        # ## when saving the splatter image in model_fix_pretrained.py: x = einops.rearrange(self.splatter_out, 'b v c h w -> b v (h w) c')
-        # splatter_images_mv = einops.rearrange(splatter_images_mv, 'v (h w) c -> v c h w', h=splatter_res, w=splatter_res)
-        # results['splatters_output'] = splatter_images_mv
-        # # print(results['splatters_output'].shape) # [6, 14, 128, 128])
-         
-        # print("Load splatter png from ", splatter_uid)
-        splatter_original_Channel_mvimage_dict = load_splatter_png_as_original_channel_images_to_encode(splatter_uid, suffix="to_encode", ext="png")
+        # Load decomposed splatter attribute images
+        splatter_original_Channel_mvimage_dict = load_splatter_png_as_original_channel_images_to_encode(splatter_uid, suffix="to_encode", ext="pt")
         results.update(splatter_original_Channel_mvimage_dict)
         
         # print("vids:", vids)
@@ -425,26 +406,8 @@ class ObjaverseDataset(Dataset):
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
-            
             c2w = orbit_camera(-cam['elevation'], cam['azimuth'], radius=cam['radius'])
             c2w = torch.from_numpy(c2w)
-            # try:
-            #     # TODO: load data (modify self.client here)
-            #     image = np.frombuffer(self.client.get(image_path), np.uint8)
-            #     image = torch.from_numpy(cv2.imdecode(image, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255) # [512, 512, 4] in [0, 1]
-            #     c2w = [float(t) for t in self.client.get(camera_path).decode().strip().split(' ')]
-            #     c2w = torch.tensor(c2w, dtype=torch.float32).reshape(4, 4)
-            # except Exception as e:
-            #     # print(f'[WARN] dataset {uid} {vid}: {e}')
-            #     continue
-            
-            # # TODO: you may have a different camera system
-            # # blender world + opencv cam --> opengl world & cam
-            # c2w[1] *= -1
-            # c2w[[1, 2]] = c2w[[2, 1]]
-            # c2w[:3, 1:3] *= -1 # invert up and forward direction
-
-            # scale up radius to fully use the [-1, 1]^3 space!
             c2w[:3, 3] *= 1.5 / self.opt.cam_radius  # 1.5 is the default scale
           
             image = image.permute(2, 0, 1) # [4, 512, 512]

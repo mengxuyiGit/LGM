@@ -51,6 +51,10 @@ def compare_weights(initial_weights, model):
         print("No weights were updated.")
         
 
+# Set the start method to 'spawn'
+import torch.multiprocessing as mp
+mp.set_start_method('spawn', force=True)
+
 def main(): 
     import sys
     opt = tyro.cli(AllConfigs)
