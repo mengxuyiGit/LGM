@@ -308,9 +308,35 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         BA,C,H,W = gt_latents.shape # should be (B A) c h w
         
         assert (BA == B * A) or (self.opt.cd_spatial_concat)
+
+        
+        if save_path is not None:    
+            images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
+            images_to_save = (images_to_save + 1) * 0.5
+            st()
+            # st()
+            images_to_save = np.clip(images_to_save, -1e-10, 1)
+            images_to_save = images_to_save[3:4]
+            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_before_unet1_clip-01.jpg', images_to_save)
+
+            st()
+            
+            
+        if save_path is not None:
+            # print('Saving to ', save_path)
+            # decoded_attr_3channel_image_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W ", B=B, A=A)
+            images_to_save = images_all_attr_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
+            images_to_save = (images_to_save + 1) * 0.5
+            images_to_save = np.clip(images_to_save, 0, 1)
+            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_before_unet2.jpg', images_to_save)
+            Image.save()
+            Image.fromarray
         
         
         if self.opt.train_unet:
+            print('Doing unet prediction')
             cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
             
             # unet 
@@ -399,10 +425,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
             _rendering_w_t = 1
 
-        st()
         
         # TODO: make this into batch process
-        # decode
+        # vae.decode
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
       
         # image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
@@ -416,6 +441,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         image_all_attr_to_decode = torch.cat(image_all_attr_to_decode_list_temp, dim=0)
         
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
+
+        debug = True
+        if debug:
+            # use the png/pt saved during splatter optimization --> failed: not smooth pattern
+            image_all_attr_to_decode = images_all_attr_batch 
+            
 
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
