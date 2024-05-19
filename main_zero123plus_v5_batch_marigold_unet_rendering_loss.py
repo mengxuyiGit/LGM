@@ -155,24 +155,42 @@ def main():
     
 
     # optimizer
-    print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_before.txt")
+    print_grad_status(model, file_path=f"{opt.workspace}/model_grad_status_before.txt")
     print("before ")
     
-    model.unet.requires_grad_(True)
-    parameters_list = []
-    if opt.only_train_attention:
-        for name, para in model.unet.named_parameters():
-            if 'transformer_blocks' in name:
-                parameters_list.append(para)
-                para.requires_grad = True
-            else:
-                para.requires_grad = False
-    else:
-        for name, para in model.unet.named_parameters():
+    assert not (opt.finetune_decoder and opt.train_unet)
+    if opt.finetune_decoder:
+    
+        # model.vae.decoder.requires_grad_(True)
+        # st()
+        parameters_list = []
+        for name, para in model.vae.decoder.named_parameters():
             parameters_list.append(para)
             para.requires_grad = True
-            
-    print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_after.txt")
+       
+        
+    elif opt.train_unet:
+        # print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_before.txt")
+        # print("before ")
+        
+        model.unet.requires_grad_(True)
+        parameters_list = []
+        if opt.only_train_attention:
+            for name, para in model.unet.named_parameters():
+                if 'transformer_blocks' in name:
+                    parameters_list.append(para)
+                    para.requires_grad = True
+                else:
+                    para.requires_grad = False
+        else:
+            for name, para in model.unet.named_parameters():
+                parameters_list.append(para)
+                para.requires_grad = True
+    
+    else:
+        raise NotImplementedError("Only train VAE or UNet")
+                
+    print_grad_status(model, file_path=f"{opt.workspace}/model_grad_status_after.txt")
     print("after ")
     
     optimizer = torch.optim.AdamW(parameters_list, lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # TODO: lr can be 1e-3??
@@ -238,12 +256,12 @@ def main():
                     # initial_weights = store_initial_weights(model.unet)
 
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
-                    # st()
+                
                     del data
                     loss = out['loss']
                     psnr = out['psnr']
-                    loss_latent = out['loss_latent']
-
+                    loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
+                    
                     lossback = loss + loss_latent
                     accelerator.backward(lossback)
                     # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
@@ -377,7 +395,7 @@ def main():
                         total_psnr += psnr.detach()
                         loss = out['loss']
                         total_loss += loss.detach()
-                        loss_latent = out['loss_latent']
+                        loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
                         total_loss_latent += loss_latent.detach()
                         if 'loss_splatter' in out.keys():
                             total_loss_splatter += out['loss_splatter'].detach()
