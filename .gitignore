@@ -1,5 +1,7 @@
 runs/*
+LGM/*
 LGM/runs/*
+LGM/runs/LGM_optimize_splatter/*
 *.png
 *.jpg
 *.ply
