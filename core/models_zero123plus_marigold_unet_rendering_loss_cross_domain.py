@@ -383,6 +383,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
         
+        # debug = False
+        # if debug:
+        #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+        
         # decode latents into attrbutes again
         decoded_attr_list = []
         for i, _attr in enumerate(ordered_attr_list):

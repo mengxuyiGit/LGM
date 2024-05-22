@@ -129,11 +129,11 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             
     for attr_to_encode in ordered_attr_list:
         # print("latents_all_attr_list <-",attr_to_encode)
-        # sp_image = data[attr_to_encode]
         si, ei = attr_map[attr_to_encode]
         
         sp_image = splatter_mv[si:ei]
-        print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+        # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+
         #  map to 0,1
         if attr_to_encode in ["pos"]:
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
@@ -146,12 +146,12 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
             sp_image = sp_image.clip(0,1)
         elif  attr_to_encode == "rotation":
-            print("processing rotation: ", si, ei)
+            # print("processing rotation: ", si, ei)
             assert (ei - si) == 4
             quat = einops.rearrange(sp_image, 'c h w -> h w c')
             axis_angle = quaternion_to_axis_angle(quat)
             sp_image = einops.rearrange(axis_angle, 'h w c -> c h w')
-            print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+            # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
             # sp_min, sp_max = -3, 3
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
@@ -161,8 +161,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
         # map to [-1,1]
         sp_image = sp_image * 2 - 1
         
-        print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
-        # assert sp_image.shape[:2] == (1,3)
+        # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
         assert sp_image.shape[0] == 3
         splatter_3Channel_image[attr_to_encode] = sp_image.detach().cpu()
     
@@ -198,7 +197,7 @@ class ObjaverseDataset(Dataset):
     
             scene_name = scene_path.split('/')[-1]
             scene_range = scene_path.split('/')[-4]
-            print("scene name:", scene_name)
+            # print("scene name:", scene_name)
             if scene_name in self.data_path_vae_splatter.keys():
                 continue
             
@@ -227,7 +226,6 @@ class ObjaverseDataset(Dataset):
                 # self.items = all_items[:1]
                 print(f"[WARN]: always fetch the 1th item. For debug use only")
                 self.items = all_items[0:1]
-        
         
         # naive split
         # if self.training:
@@ -293,9 +291,9 @@ class ObjaverseDataset(Dataset):
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
         
         results.update(splatter_original_Channel_mvimage_dict)
-        for attr_to_encode in ordered_attr_list:
-            sp_image = results[attr_to_encode]
-            print(f"[just updated dataloader]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+        # for attr_to_encode in ordered_attr_list:
+        #     sp_image = results[attr_to_encode]
+        #     print(f"[just updated dataloader]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
         
         # print("vids:", vids)
         for vid in vids:
@@ -304,7 +302,7 @@ class ObjaverseDataset(Dataset):
             camera_path = os.path.join(uid, f'{vid:03d}.npy')
 
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
-            # print("images shape: ", image.shape) # 320x320x4
+            # print("images shape: ", image.shape) # 320x320x4 for LVIS 46K too
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
@@ -441,10 +439,9 @@ class ObjaverseDataset(Dataset):
 
         results['scene_name'] = scene_name
         # print(f"returning scene_name:{scene_name}")
-
         
-        for attr_to_encode in ordered_attr_list:
-            sp_image = results[attr_to_encode]
-            print(f"[end of dataloader]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+        # for attr_to_encode in ordered_attr_list:
+        #     sp_image = results[attr_to_encode]
+        #     print(f"[end of dataloader]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
             
         return results
