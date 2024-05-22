@@ -233,6 +233,7 @@ class Options:
     rendering_loss_use_weight_t: bool = False
 
     finetune_decoder: bool = False
+    max_train_steps: int = 30000
     
 
 # all the default settings
