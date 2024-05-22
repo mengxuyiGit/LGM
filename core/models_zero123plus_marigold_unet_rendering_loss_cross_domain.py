@@ -124,6 +124,7 @@ def denormalize_and_activate(attr, mv_image):
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
         sp_image_o = torch.exp(sp_image_o)
     elif attr == "opacity":
+        sp_image_o = sp_image_o.clip(0,1) 
         sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
     elif attr == "rotation": 
         # sp_image_o = sp_image_o.clip(0,1) 
@@ -472,13 +473,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         image_all_attr_to_decode = torch.cat(image_all_attr_to_decode_list_temp, dim=0)
         
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
-
-     
-        debug = True
-        if debug:
-            # use the png/pt saved during splatter optimization --> failed: not smooth pattern
-            image_all_attr_to_decode = images_all_attr_batch 
-            print("image_all_attr_to_decode = images_all_attr_batch")
+        image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1) # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
 
 
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
@@ -486,49 +481,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         # decode latents into attrbutes again
         decoded_attr_list = []
-        # use_new_activation = True
-        # if use_new_activation:
-        # if debug:
-        #     images_all_attr_list = image_all_attr_to_decode
-        #     print("debug mode: same norm and act as load_splatter_mv_pt")
-        #     assert len(ordered_attr_list) == len(images_all_attr_list)
-        #     for i, _attr in enumerate(ordered_attr_list):
-        #         si, ei = attr_map[_attr]
-
-        #         #  v1
-        #         sp_image = images_all_attr_list[i]
-
-        #         # [-1,1] to [0,1]
-        #         sp_image =( sp_image + 1) * 0.5
-                
-        #         print(f"[debug-begin 0~1]{_attr}: {sp_image.min(), sp_image.max()}")
-                
-        #         if _attr == "pos":  
-        #             sp_min, sp_max = sp_min_max_dict[_attr]
-        #             sp_image = sp_image * (sp_max - sp_min) + sp_min
-        #             print(f"Now we assume pos ranges from {sp_min, sp_max}")
-        #         elif _attr == "opacity":
-        #             sp_image = torch.mean(sp_image, dim=1, keepdim=True)
-        #         elif _attr == "scale":
-        #             sp_min, sp_max = sp_min_max_dict[_attr]
-        #             sp_image = sp_image * (sp_max - sp_min) + sp_min
-        #             sp_image = torch.exp(sp_image)
-        #         elif (ei - si) == 4:
-        #             sp_min, sp_max = sp_min_max_dict[_attr]
-        #             sp_image = sp_image * (sp_max - sp_min) + sp_min # axis angle are between [-1,1]
-        #             ag = einops.rearrange(sp_image, 'b c h w -> b h w c')
-        #             quaternion = axis_angle_to_quaternion(ag)
-        #             sp_image = einops.rearrange(quaternion, 'b h w c -> b c h w')
-                
-        #         # # v2
-        #         # sp_image = splatter_mv[:,si:ei]
-                    
-        #         print(f"[debug-end]{_attr}: {sp_image.min(), sp_image.max()}")
-        #         decoded_attr_list.append(sp_image)
-            
-        #     print("Skip activation on the loaded spaltter mv")
-
-        # else:
+       
         for i, _attr in enumerate(ordered_attr_list):
             batch_attr_image = image_all_attr_to_decode[i]
             print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
@@ -542,21 +495,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
             images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
-            # images_to_save = np.clip(images_to_save, 0, 1)
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
 
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-        
-        # splatter_mv = torch.load("splatters_mv_02.pt")
-        
-        # replace_attr = "rotation"
-        # print(f"replacing {replace_attr}")
-        # _si, _ei = attr_map[replace_attr]
-        # splatter_mv[:,_si:_ei] = splatter_mv_bad[:,_si:_ei]
-        # st()
-
-        
 
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
