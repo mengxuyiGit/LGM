@@ -235,7 +235,6 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             sp_image = sp_image.repeat(3,1,1)
         elif attr_to_encode == "scale":
             sp_image = torch.log(sp_image)
-            # sp_min, sp_max = -10, -2
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
             sp_image = sp_image.clip(0,1)

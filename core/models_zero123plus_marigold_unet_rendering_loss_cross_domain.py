@@ -114,30 +114,27 @@ def denormalize_and_activate(attr, mv_image):
     
     sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
     
-    if attr == "scale":
-        sp_min, sp_max = sp_min_max_dict["scale"]
-        sp_image_o = sp_image_o.clip(0,1) 
-        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        sp_image_o = torch.exp(sp_image_o)
-        # print(f"Decoded attr [unscaled] {attr}: min={sp_image_o.min()} max={sp_image_o.max()}")
-
-    elif attr == "pos":
+    if attr == "pos":
         sp_min, sp_max = sp_min_max_dict[attr]
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
-
+        # sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
+    elif attr == "scale":
+        sp_min, sp_max = sp_min_max_dict["scale"]
+        # sp_image_o = sp_image_o.clip(0,1) 
+        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+        sp_image_o = torch.exp(sp_image_o)
+    elif attr == "opacity":
+        sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
     elif attr == "rotation": 
+        # sp_image_o = sp_image_o.clip(0,1) 
+        sp_min, sp_max = sp_min_max_dict["rotation"]
+        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
         ag = einops.rearrange(sp_image_o, 'b c h w -> b h w c')
         quaternion = axis_angle_to_quaternion(ag)
-        sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')
-      
-
-    start_i, end_i = attr_map[attr]
-    if end_i - start_i == 1:
-        sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
+        sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')   
         
     return sp_image_o
-
+    
     
 class Interpolate(nn.Module):
     def __init__(self, size, mode='bilinear', align_corners=False):
@@ -294,7 +291,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         #             sp_image = sp_image.repeat(1,3,1,1)
         #         elif attr_to_encode == "scale":
         #             sp_image = torch.log(sp_image)
-        #             sp_min, sp_max = -10, -2
         #             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
         #             sp_image = sp_image.clip(0,1)
         #         elif (ei - si) == 4:
@@ -478,7 +474,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
 
      
-        debug = False
+        debug = True
         if debug:
             # use the png/pt saved during splatter optimization --> failed: not smooth pattern
             image_all_attr_to_decode = images_all_attr_batch 
@@ -492,53 +488,53 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         decoded_attr_list = []
         # use_new_activation = True
         # if use_new_activation:
-        if debug:
-            images_all_attr_list = image_all_attr_to_decode
-            print("debug mode: same norm and act as load_splatter_mv_pt")
-            assert len(ordered_attr_list) == len(images_all_attr_list)
-            for i, _attr in enumerate(ordered_attr_list):
-                si, ei = attr_map[_attr]
+        # if debug:
+        #     images_all_attr_list = image_all_attr_to_decode
+        #     print("debug mode: same norm and act as load_splatter_mv_pt")
+        #     assert len(ordered_attr_list) == len(images_all_attr_list)
+        #     for i, _attr in enumerate(ordered_attr_list):
+        #         si, ei = attr_map[_attr]
 
-                #  v1
-                sp_image = images_all_attr_list[i]
+        #         #  v1
+        #         sp_image = images_all_attr_list[i]
 
-                # [-1,1] to [0,1]
-                sp_image =( sp_image + 1) * 0.5
+        #         # [-1,1] to [0,1]
+        #         sp_image =( sp_image + 1) * 0.5
                 
-                print(f"[debug-begin 0~1]{_attr}: {sp_image.min(), sp_image.max()}")
+        #         print(f"[debug-begin 0~1]{_attr}: {sp_image.min(), sp_image.max()}")
                 
-                if _attr == "pos":
-                    sp_min, sp_max = sp_min_max_dict[_attr]
-                    sp_image = sp_image * (sp_max - sp_min) + sp_min
-                    print(f"Now we assume pos ranges from {sp_min, sp_max}")
-                elif _attr == "opacity":
-                    sp_image = torch.mean(sp_image, dim=1, keepdim=True)
-                elif _attr == "scale":
-                    sp_min, sp_max = sp_min_max_dict[_attr]
-                    sp_image = sp_image * (sp_max - sp_min) + sp_min
-                    sp_image = torch.exp(sp_image)
-                elif (ei - si) == 4:
-                    sp_min, sp_max = sp_min_max_dict[_attr]
-                    sp_image = sp_image * (sp_max - sp_min) + sp_min # axis angle are between [-1,1]
-                    ag = einops.rearrange(sp_image, 'b c h w -> b h w c')
-                    quaternion = axis_angle_to_quaternion(ag)
-                    sp_image = einops.rearrange(quaternion, 'b h w c -> b c h w')
+        #         if _attr == "pos":  
+        #             sp_min, sp_max = sp_min_max_dict[_attr]
+        #             sp_image = sp_image * (sp_max - sp_min) + sp_min
+        #             print(f"Now we assume pos ranges from {sp_min, sp_max}")
+        #         elif _attr == "opacity":
+        #             sp_image = torch.mean(sp_image, dim=1, keepdim=True)
+        #         elif _attr == "scale":
+        #             sp_min, sp_max = sp_min_max_dict[_attr]
+        #             sp_image = sp_image * (sp_max - sp_min) + sp_min
+        #             sp_image = torch.exp(sp_image)
+        #         elif (ei - si) == 4:
+        #             sp_min, sp_max = sp_min_max_dict[_attr]
+        #             sp_image = sp_image * (sp_max - sp_min) + sp_min # axis angle are between [-1,1]
+        #             ag = einops.rearrange(sp_image, 'b c h w -> b h w c')
+        #             quaternion = axis_angle_to_quaternion(ag)
+        #             sp_image = einops.rearrange(quaternion, 'b h w c -> b c h w')
                 
-                # # v2
-                # sp_image = splatter_mv[:,si:ei]
+        #         # # v2
+        #         # sp_image = splatter_mv[:,si:ei]
                     
-                print(f"[debug-end]{_attr}: {sp_image.min(), sp_image.max()}")
-                decoded_attr_list.append(sp_image)
+        #         print(f"[debug-end]{_attr}: {sp_image.min(), sp_image.max()}")
+        #         decoded_attr_list.append(sp_image)
             
-            print("Skip activation on the loaded spaltter mv")
+        #     print("Skip activation on the loaded spaltter mv")
 
-        else:
-            for i, _attr in enumerate(ordered_attr_list):
-                batch_attr_image = image_all_attr_to_decode[i]
-                print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
-                decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
-                decoded_attr_list.append(decoded_attr)
-                print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
+        # else:
+        for i, _attr in enumerate(ordered_attr_list):
+            batch_attr_image = image_all_attr_to_decode[i]
+            print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
+            decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+            decoded_attr_list.append(decoded_attr)
+            print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
         
 
         if save_path is not None:
@@ -551,7 +547,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
 
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-        st()
+        
+        # splatter_mv = torch.load("splatters_mv_02.pt")
+        
+        # replace_attr = "rotation"
+        # print(f"replacing {replace_attr}")
+        # _si, _ei = attr_map[replace_attr]
+        # splatter_mv[:,_si:_ei] = splatter_mv_bad[:,_si:_ei]
+        # st()
 
         
 
