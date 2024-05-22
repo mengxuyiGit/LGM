@@ -263,7 +263,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         images_all_attr_list = []
         for attr_to_encode in ordered_attr_list:
             sp_image = data[attr_to_encode]
-            print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+            # print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
             images_all_attr_list.append(sp_image)
         images_all_attr_batch = torch.stack(images_all_attr_list)
     

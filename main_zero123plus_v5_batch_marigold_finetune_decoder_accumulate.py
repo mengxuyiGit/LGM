@@ -290,8 +290,8 @@ def main():
                     optimizer.zero_grad()
                     step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
-                    # Store initial weights before the update
-                    initial_weights = store_initial_weights(model)
+                    # # Store initial weights before the update
+                    # initial_weights = store_initial_weights(model)
 
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                 
@@ -328,7 +328,7 @@ def main():
                     if opt.lr_scheduler != 'Plat':
                         scheduler.step()
                     
-                    compare_weights(initial_weights=initial_weights, model=model)
+                    # compare_weights(initial_weights=initial_weights, model=model)
                     
                     total_loss += loss.detach()
                     total_psnr += psnr.detach()
