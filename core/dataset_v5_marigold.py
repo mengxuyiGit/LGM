@@ -178,25 +178,10 @@ class ObjaverseDataset(Dataset):
         self.training = training
         self.prepare_white_bg = prepare_white_bg
 
-      
-        # # TODO: load the list of objects for training
-        # self.items = ["/mnt/kostas-graid/sw/envs/chenwang/workspace/lrm-zero123/assets/9000-9999/0a9b36d36e904aee8b51e978a7c0acfd"]
-        # self.items_splatter_gt = ['/home/xuyimeng/Repo/LGM/data/splatter_gt_full/00000-hydrant-eval_pred_gs_1800_0']
-        # # with open('TODO: file containing the list', 'r') as f:
-        # #     for line in f.readlines():
-        # #         self.items.append(line.strip())
-
         self.data_path_rendering = {}
-        # self.data_path_splatter_gt = {}
         self.data_path_vae_splatter = {}
         
-        # take the vae splatter "to_encode" ("decoded" is not required for now)
-        
-        # if not opt.data_path_splatter_gt.endswith('9000-9999'):
-        #     scene_path_pattern = os.path.join(opt.data_path_splatter_gt, "*", "9000-9999", "*")
-        # else:
-        #     scene_path_pattern = os.path.join(opt.data_path_splatter_gt, "*")
-        
+        # Example:
         # "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/data_processing/testing/
         # 29000-29999/20240521-203345-activated_ply_bsz20_fov50-loss_render1.0_lpips1.0-lr0.006-Plat/
         # splatters_mv_inference"
@@ -223,47 +208,9 @@ class ObjaverseDataset(Dataset):
             self.data_path_vae_splatter[scene_name] = scene_path
             rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
             self.data_path_rendering[scene_name] = rendering_folder  
-    
-            # if len(os.listdir(vae_splatter_folder)) == 22:
-                
-            #     try:
-            #         assert len(os.listdir(rendering_folder)) >= 112   
-            #     except:
-            #         print(f"{rendering_folder}: < 56 views of rendering")
-            #         continue
-                
-            #     if not isinstance(vae_splatter_folder, str):
-            #         print("BUG")
-            #         print(vae_splatter_folder)
-            #         st()
-            #         # raise TypeError(f"Expected splatter_dir to be a string, got {type(vae_splatter_folder).__name__} instead")
-            #         # exit()
-            #     self.data_path_vae_splatter[scene_name] = vae_splatter_folder
-            #     self.data_path_rendering[scene_name] = rendering_folder
-
-            # elif os.path.isdir(os.path.join(scene_path, "200")) and len(os.listdir(os.path.join(scene_path, "200"))) == 22:
-            #     vae_splatter_folder = os.path.join(scene_path, "200")
-            #     print("Can use the 200 epoch!")
-                  
-            #     rendering_folder = os.path.join(opt.data_path_rendering, scene_name.split("_")[-1])
-            #     try:
-            #         assert len(os.listdir(rendering_folder)) >= 112   
-            #     except:
-            #         print(f"{rendering_folder}: < 56 views of rendering")
-            #         continue
-                
-                
-            #     self.data_path_vae_splatter[scene_name] = vae_splatter_folder
-            #     if not isinstance(vae_splatter_folder, str):
-            #         print("BUG-200")
-            #         print(vae_splatter_folder)
-            #         st()
-                    
-            #     self.data_path_rendering[scene_name] = rendering_folder
                
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
         
-        # self.items = [k for k in self.data_path_splatter_gt.keys()]
         all_items = [k for k in self.data_path_vae_splatter.keys()]
         num_val = min(50, len(all_items)//2) # when using small dataset to debug
         if self.training:
@@ -331,7 +278,6 @@ class ObjaverseDataset(Dataset):
         #     vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
         if self.training:
             vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.random.permutation(56).tolist()
-            # vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + [1]*56
         else:
             vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 56).tolist()
 
