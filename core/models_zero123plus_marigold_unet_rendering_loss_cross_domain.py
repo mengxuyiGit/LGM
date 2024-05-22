@@ -267,14 +267,53 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # print("latents_all_attr_list <-",attr_to_encode)
             
             sp_image = data[attr_to_encode]
-            si, ei = attr_map[attr_to_encode]
-            if (ei - si) == 1:
-                sp_image = sp_image.repeat(1,3,1,1)
-            
+            # si, ei = attr_map[attr_to_encode]
+            # if (ei - si) == 1:
+            #     sp_image = sp_image.repeat(1,3,1,1)
+            # print(sp_image.shape)
+            print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
             images_all_attr_list.append(sp_image)
+        
+        
+        load_splatter_mv_pt = False
+        # if load_splatter_mv_pt:
+        #     images_all_attr_list = []
+        #     splatter_mv = torch.load("splatters_mv_02.pt")
             
+        #     for attr_to_encode in ordered_attr_list:
+        #         # print("latents_all_attr_list <-",attr_to_encode)
+        #         # sp_image = data[attr_to_encode]
+        #         si, ei = attr_map[attr_to_encode]
+               
+        #         sp_image = splatter_mv[:,si:ei]
+        #         print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+        #         #  map to 0,1
+        #         if attr_to_encode == "pos":
+        #             sp_image = (sp_image + 1) * 0.5
+        #         elif attr_to_encode == "opacity":
+        #             sp_image = sp_image.repeat(1,3,1,1)
+        #         elif attr_to_encode == "scale":
+        #             sp_image = torch.log(sp_image)
+        #             sp_min, sp_max = -10, -2
+        #             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
+        #             sp_image = sp_image.clip(0,1)
+        #         elif (ei - si) == 4:
+        #             quat = einops.rearrange(sp_image, 'b c h w -> b h w c')
+        #             axis_angle = quaternion_to_axis_angle(quat)
+        #             sp_image = einops.rearrange(axis_angle, 'b h w c -> b c h w')
+        #             sp_image = (sp_image + 1) * 0.5
+                
+        #         # map to [-1,1]
+        #         sp_image = sp_image * 2 - 1
+                
+        #         print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+        #         assert sp_image.shape[1] == 3
+                
+        #         images_all_attr_list.append(sp_image)
+        #     print("Load splatter mv from pt and convert to 3 channels")
+           
         images_all_attr_batch = torch.stack(images_all_attr_list)
-        A, B, _, _, _ = images_all_attr_batch.shape
+        A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
     
         
@@ -284,10 +323,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_to_encode.jpg', images_to_save)
-            
-            # kiui.write_image(f'pure_noise_spatial_concat.jpg', np.random.rand(*images_to_save.shape))
-            # kiui.write_image(f'pure_noise_single_attr.jpg',  np.random.rand(*images_to_save[:128].shape))
-            # st()
+
 
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
@@ -310,32 +346,34 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         assert (BA == B * A) or (self.opt.cd_spatial_concat)
 
         
-        if save_path is not None:    
-            images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
-            images_to_save = (images_to_save + 1) * 0.5
-            st()
-            # st()
-            images_to_save = np.clip(images_to_save, -1e-10, 1)
-            images_to_save = images_to_save[3:4]
-            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_before_unet1_clip-01.jpg', images_to_save)
+        # if save_path is not None:    
+        #     images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
+        #     images_to_save = (images_to_save + 1) * 0.5
+        #     images_to_save = np.zeros_like(images_to_save[3:4])
+        #     images_to_save = np.clip(images_to_save, -1e-2, 1)
+        #     images_to_save[:,1] = -1e-2 # !!!!! [WARN: -1e-2 * 255 to uint8 will result in overflow=254]
+        #     print(images_to_save.min(), images_to_save.max())
+        #     images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+        #     image_save_name = f'{save_path}/{prefix}images_all_attr_batch_before_unet1_G_neg_1e-2'
+        #     kiui.write_image(f"{image_save_name}.jpg", images_to_save)
+        #     Image.fromarray((images_to_save*255).astype(np.uint8)).save(f'{image_save_name}_pil.jpg')
+        #     st()
+            
+            
+        # if save_path is not None:
+        #     # print('Saving to ', save_path)
+        #     # decoded_attr_3channel_image_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W ", B=B, A=A)
+        #     images_to_save = images_all_attr_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
+        #     images_to_save = (images_to_save + 1) * 0.5
+        #     images_to_save = np.clip(images_to_save, 0, 1)
+        #     images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+        #     kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_before_unet2.jpg', images_to_save)
 
-            st()
-            
-            
-        if save_path is not None:
-            # print('Saving to ', save_path)
-            # decoded_attr_3channel_image_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W ", B=B, A=A)
-            images_to_save = images_all_attr_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
-            images_to_save = (images_to_save + 1) * 0.5
-            images_to_save = np.clip(images_to_save, 0, 1)
-            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_before_unet2.jpg', images_to_save)
-            Image.save()
-            Image.fromarray
+        if self.opt.finetune_decoder:
+            latents_all_attr_to_decode = gt_latents
+            _rendering_w_t = 1
         
-        
-        if self.opt.train_unet:
+        elif self.opt.train_unet:
             print('Doing unet prediction')
             cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
             
@@ -420,10 +458,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 _rendering_w_t = 1
 
         else:
-            
-            latents_all_attr_to_decode = gt_latents
-
-            _rendering_w_t = 1
+           raise NotImplementedError
 
         
         # TODO: make this into batch process
@@ -442,32 +477,83 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
 
-        debug = True
+     
+        debug = False
         if debug:
             # use the png/pt saved during splatter optimization --> failed: not smooth pattern
             image_all_attr_to_decode = images_all_attr_batch 
-            
+            print("image_all_attr_to_decode = images_all_attr_batch")
+
 
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
         
         # decode latents into attrbutes again
         decoded_attr_list = []
-        for i, _attr in enumerate(ordered_attr_list):
-            batch_attr_image = image_all_attr_to_decode[i]
-            decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
-            decoded_attr_list.append(decoded_attr)
+        # use_new_activation = True
+        # if use_new_activation:
+        if debug:
+            images_all_attr_list = image_all_attr_to_decode
+            print("debug mode: same norm and act as load_splatter_mv_pt")
+            assert len(ordered_attr_list) == len(images_all_attr_list)
+            for i, _attr in enumerate(ordered_attr_list):
+                si, ei = attr_map[_attr]
+
+                #  v1
+                sp_image = images_all_attr_list[i]
+
+                # [-1,1] to [0,1]
+                sp_image =( sp_image + 1) * 0.5
+                
+                print(f"[debug-begin 0~1]{_attr}: {sp_image.min(), sp_image.max()}")
+                
+                if _attr == "pos":
+                    sp_min, sp_max = sp_min_max_dict[_attr]
+                    sp_image = sp_image * (sp_max - sp_min) + sp_min
+                    print(f"Now we assume pos ranges from {sp_min, sp_max}")
+                elif _attr == "opacity":
+                    sp_image = torch.mean(sp_image, dim=1, keepdim=True)
+                elif _attr == "scale":
+                    sp_min, sp_max = sp_min_max_dict[_attr]
+                    sp_image = sp_image * (sp_max - sp_min) + sp_min
+                    sp_image = torch.exp(sp_image)
+                elif (ei - si) == 4:
+                    sp_min, sp_max = sp_min_max_dict[_attr]
+                    sp_image = sp_image * (sp_max - sp_min) + sp_min # axis angle are between [-1,1]
+                    ag = einops.rearrange(sp_image, 'b c h w -> b h w c')
+                    quaternion = axis_angle_to_quaternion(ag)
+                    sp_image = einops.rearrange(quaternion, 'b h w c -> b c h w')
+                
+                # # v2
+                # sp_image = splatter_mv[:,si:ei]
+                    
+                print(f"[debug-end]{_attr}: {sp_image.min(), sp_image.max()}")
+                decoded_attr_list.append(sp_image)
+            
+            print("Skip activation on the loaded spaltter mv")
+
+        else:
+            for i, _attr in enumerate(ordered_attr_list):
+                batch_attr_image = image_all_attr_to_decode[i]
+                print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
+                decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+                decoded_attr_list.append(decoded_attr)
+                print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
+        
 
         if save_path is not None:
             # print('Saving to ', save_path)
             decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
             images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
-            images_to_save = np.clip(images_to_save, 0, 1)
+            # images_to_save = np.clip(images_to_save, 0, 1)
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
 
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
+        st()
+
+        
 
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
@@ -511,7 +597,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # st()
         ## ------- end render ----------
 
-        
           
         if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)

@@ -99,6 +99,7 @@ def return_final_scene(scene_workspace, acceptable_epoch, verbose=False):
     # ---------
 from torchvision import transforms
 from PIL import Image
+from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
 
 # process the loaded splatters into 3-channel images
 gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
@@ -115,6 +116,7 @@ ordered_attr_list = ["pos", # 0-3
 sp_min_max_dict = {
     "pos": (-0.7, 0.7), 
     "scale": (-10., -2.),
+    "rotation": (-3., 3.)
     }
 def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix="to_encode", device="cuda", ext="png"):
     # valid siffices: ["decoded", "to_encode"]
@@ -168,7 +170,8 @@ def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix=
         
         si, ei = attr_map[attr]
         if (ei - si) == 1:
-            image = torch.mean(image, dim=-1, keepdim=True)
+            # image = torch.mean(image, dim=-1, keepdim=True)
+            pass
             # image = image.repeat(1,1,3) # keep the original channel, no repeat
         elif attr == "rotation": 
             pass
@@ -208,6 +211,56 @@ def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix=
     
     return splatter_3Channel_image
 
+def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
+    
+    # splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")) # [14, 384, 256]
+    splatter_mv = torch.load("splatters_mv_02.pt")[0]
+    print("Loading splatters_mv_02:", splatter_mv.shape) # [1, 14, 384, 256]
+
+    splatter_3Channel_image = {}
+            
+    for attr_to_encode in ordered_attr_list:
+        # print("latents_all_attr_list <-",attr_to_encode)
+        # sp_image = data[attr_to_encode]
+        si, ei = attr_map[attr_to_encode]
+        
+        sp_image = splatter_mv[si:ei]
+        print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+        #  map to 0,1
+        if attr_to_encode in ["pos"]:
+            # sp_image = (sp_image + 1) * 0.5
+            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
+            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
+        elif attr_to_encode == "opacity":
+            sp_image = sp_image.repeat(3,1,1)
+        elif attr_to_encode == "scale":
+            sp_image = torch.log(sp_image)
+            # sp_min, sp_max = -10, -2
+            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
+            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
+            sp_image = sp_image.clip(0,1)
+        elif  attr_to_encode == "rotation":
+            print("processing rotation: ", si, ei)
+            assert (ei - si) == 4
+            quat = einops.rearrange(sp_image, 'c h w -> h w c')
+            axis_angle = quaternion_to_axis_angle(quat)
+            sp_image = einops.rearrange(axis_angle, 'h w c -> c h w')
+            print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+            # sp_min, sp_max = -3, 3
+            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
+            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
+        elif attr_to_encode == "rgbs":
+            pass
+        
+        # map to [-1,1]
+        sp_image = sp_image * 2 - 1
+        
+        print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
+        # assert sp_image.shape[:2] == (1,3)
+        assert sp_image.shape[0] == 3
+        splatter_3Channel_image[attr_to_encode] = sp_image.detach().cpu()
+    
+    return splatter_3Channel_image
 
 class ObjaverseDataset(Dataset):
 
@@ -392,8 +445,18 @@ class ObjaverseDataset(Dataset):
         results['cond'] = cond.astype(np.uint8)
 
         # Load decomposed splatter attribute images
-        splatter_original_Channel_mvimage_dict = load_splatter_png_as_original_channel_images_to_encode(splatter_uid, suffix="to_encode", ext="pt")
+        # load_splatter_mv = False
+        # if load_splatter_mv:
+        print("load_splatter_mv_ply_as_dict")
+        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
+        # else:
+        #     splatter_original_Channel_mvimage_dict = load_splatter_png_as_original_channel_images_to_encode(splatter_uid, suffix="to_encode", ext="pt")
+        
+        
         results.update(splatter_original_Channel_mvimage_dict)
+        for attr_to_encode in ordered_attr_list:
+            sp_image = results[attr_to_encode]
+            print(f"[just updated dataloader]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
         
         # print("vids:", vids)
         for vid in vids:
@@ -544,5 +607,9 @@ class ObjaverseDataset(Dataset):
         results['scene_name'] = scene_name
         # print(f"returning scene_name:{scene_name}")
 
-
+        
+        for attr_to_encode in ordered_attr_list:
+            sp_image = results[attr_to_encode]
+            print(f"[end of dataloader]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+            
         return results
