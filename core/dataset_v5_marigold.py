@@ -121,9 +121,9 @@ sp_min_max_dict = {
 
 def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     
-    # splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")) # [14, 384, 256]
-    splatter_mv = torch.load("splatters_mv_02.pt")[0]
-    print("Loading splatters_mv_02:", splatter_mv.shape) # [1, 14, 384, 256]
+    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")) # [14, 384, 256]
+    # splatter_mv = torch.load("splatters_mv_02.pt")[0]
+    print("Loading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
 
     splatter_3Channel_image = {}
             
@@ -197,9 +197,11 @@ class ObjaverseDataset(Dataset):
         # else:
         #     scene_path_pattern = os.path.join(opt.data_path_splatter_gt, "*")
         
-        scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "zero123plus/outputs_v3_inference_my_decoder", "*")
-        
-        all_scene_paths = sorted(glob.glob(scene_path_pattern))
+        # "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/data_processing/testing/
+        # 29000-29999/20240521-203345-activated_ply_bsz20_fov50-loss_render1.0_lpips1.0-lr0.006-Plat/
+        # splatters_mv_inference"
+        scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
+        all_scene_paths = sorted(glob.glob(scene_path_pattern)) # 44815 in total. And sorted by the absolute path
             
         for scene_path in all_scene_paths:
 
@@ -210,63 +212,54 @@ class ObjaverseDataset(Dataset):
                 continue
     
             scene_name = scene_path.split('/')[-1]
+            scene_range = scene_path.split('/')[-4]
+            print("scene name:", scene_name)
             if scene_name in self.data_path_vae_splatter.keys():
                 continue
             
+            if not os.path.exists(os.path.join(scene_path, "splatters_mv.pt")):
+                continue
             
-            if opt.train_unet:
-                # Load the final optimized splatter image
-                final_optimized = return_final_scene(scene_path, acceptable_epoch=300, verbose=True)
-                if final_optimized == None:
-                    print(f"scene {scene_name} is not optimized to the end point")
-                    print(scene_path)
-                    st()
-                    continue
-                vae_splatter_folder = os.path.join(scene_path, final_optimized)
-            else:
-                # Load the LGM init 
-                vae_splatter_folder = os.path.join(scene_path, '0')
-                print(f'Loading {vae_splatter_folder} to finetune decoder')
-                
-
+            self.data_path_vae_splatter[scene_name] = scene_path
+            rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
+            self.data_path_rendering[scene_name] = rendering_folder  
     
-            if len(os.listdir(vae_splatter_folder)) == 22:
+            # if len(os.listdir(vae_splatter_folder)) == 22:
                 
-                rendering_folder = os.path.join(opt.data_path_rendering, scene_name.split("_")[-1])
-                try:
-                    assert len(os.listdir(rendering_folder)) >= 112   
-                except:
-                    print(f"{rendering_folder}: < 56 views of rendering")
-                    continue
+            #     try:
+            #         assert len(os.listdir(rendering_folder)) >= 112   
+            #     except:
+            #         print(f"{rendering_folder}: < 56 views of rendering")
+            #         continue
                 
-                if not isinstance(vae_splatter_folder, str):
-                    print("BUG")
-                    print(vae_splatter_folder)
-                    st()
-                    # raise TypeError(f"Expected splatter_dir to be a string, got {type(vae_splatter_folder).__name__} instead")
-                    # exit()
-                self.data_path_vae_splatter[scene_name] = vae_splatter_folder
-                self.data_path_rendering[scene_name] = rendering_folder
+            #     if not isinstance(vae_splatter_folder, str):
+            #         print("BUG")
+            #         print(vae_splatter_folder)
+            #         st()
+            #         # raise TypeError(f"Expected splatter_dir to be a string, got {type(vae_splatter_folder).__name__} instead")
+            #         # exit()
+            #     self.data_path_vae_splatter[scene_name] = vae_splatter_folder
+            #     self.data_path_rendering[scene_name] = rendering_folder
 
-            elif os.path.isdir(os.path.join(scene_path, "200")) and len(os.listdir(os.path.join(scene_path, "200"))) == 22:
-                vae_splatter_folder = os.path.join(scene_path, "200")
-                print("Can use the 200 epoch!")
+            # elif os.path.isdir(os.path.join(scene_path, "200")) and len(os.listdir(os.path.join(scene_path, "200"))) == 22:
+            #     vae_splatter_folder = os.path.join(scene_path, "200")
+            #     print("Can use the 200 epoch!")
                   
-                rendering_folder = os.path.join(opt.data_path_rendering, scene_name.split("_")[-1])
-                try:
-                    assert len(os.listdir(rendering_folder)) >= 112   
-                except:
-                    print(f"{rendering_folder}: < 56 views of rendering")
-                    continue
+            #     rendering_folder = os.path.join(opt.data_path_rendering, scene_name.split("_")[-1])
+            #     try:
+            #         assert len(os.listdir(rendering_folder)) >= 112   
+            #     except:
+            #         print(f"{rendering_folder}: < 56 views of rendering")
+            #         continue
                 
                 
-                self.data_path_vae_splatter[scene_name] = vae_splatter_folder
-                if not isinstance(vae_splatter_folder, str):
-                    print("BUG-200")
-                    print(vae_splatter_folder)
-                    st()
+            #     self.data_path_vae_splatter[scene_name] = vae_splatter_folder
+            #     if not isinstance(vae_splatter_folder, str):
+            #         print("BUG-200")
+            #         print(vae_splatter_folder)
+            #         st()
                     
-                self.data_path_rendering[scene_name] = rendering_folder
+            #     self.data_path_rendering[scene_name] = rendering_folder
                
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
         
@@ -350,7 +343,7 @@ class ObjaverseDataset(Dataset):
         cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
         results['cond'] = cond.astype(np.uint8)
 
-        print("load_splatter_mv_ply_as_dict")
+        print("load_splatter_mv_ply_as_dict from ", splatter_uid)
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
         
         results.update(splatter_original_Channel_mvimage_dict)
