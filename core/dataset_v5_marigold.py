@@ -118,98 +118,6 @@ sp_min_max_dict = {
     "scale": (-10., -2.),
     "rotation": (-3., 3.)
     }
-def load_splatter_png_as_original_channel_images_to_encode(splatter_dir, suffix="to_encode", device="cuda", ext="png"):
-    # valid siffices: ["decoded", "to_encode"]
-    # print(f"Loading {suffix}_{ext} files")
-    # NOTE: since we are loading png not ply, no need to do deactivation
-    splatter_3Channel_image = {}
-    
-    for attr in ordered_attr_list:
-        # im_path = os.path.join(splatter_dir, f"{attr}_{suffix}.png")
-        if not isinstance(splatter_dir, str):
-            print("BUG")
-            print(splatter_dir)
-            raise TypeError(f"Expected splatter_dir to be a string, got {type(splatter_dir).__name__} instead")
-            exit()
-
-        # try:
-        if True:
-            # print(f"splatter_dir: {splatter_dir}")
-            # print(f"{attr}_{suffix}.{ext}")
-            im_path = os.path.join(splatter_dir, f"{attr}_{suffix}.{ext}")
-            print(f"Loading {im_path}")
-        # except:
-        #     print(f"splatter_dir: {splatter_dir}")
-        #     print(f"{attr}_{suffix}.{ext}")
-            # st()
-        
-        # image = cv2.imread(im_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
-        # image = torch.from_numpy(image)
-        
-        if ext in ["png"]:
-            # Define a transform to convert the image to tensor
-            transform = transforms.Compose([
-                transforms.ToTensor(),  # Converts to tensor and scales to [0, 1]
-            ])
-            
-            image = Image.open(im_path).convert('RGB')  # Convert to RGB
-            # Apply the transform to the image
-            image = transform(image)
-            
-        elif ext in ["pt"]:
-            image = torch.load(im_path).detach().clone().cpu()
-            image = (image + 1) * 0.5
-            print(image.requires_grad, image.grad)
-            
-        else:
-            print("Invalid extension choice: ", ext)
-            
-        image = einops.rearrange(image, "c h w -> h w c")
-        # print("images shape: ", image.shape) # (384, 256, 3)
-        
-        
-        si, ei = attr_map[attr]
-        if (ei - si) == 1:
-            # image = torch.mean(image, dim=-1, keepdim=True)
-            pass
-            # image = image.repeat(1,1,3) # keep the original channel, no repeat
-        elif attr == "rotation": 
-            pass
-            # ag = image[None] # einops.rearrange(, 'b c h w -> b h w c')
-            # print("load axis angle as shape [b h w c]: ", ag.shape)
-            # quaternion = axis_angle_to_quaternion(ag)
-            # sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')
-        else:
-            assert (ei - si) == 3, print(f"{attr} has invalid si and ei: {si, ei}")
-        
-        splatter_3Channel_image[attr] = image  # [0,1]
-    
-     # reshape, [0,1] -> [-1,1]
-    for key, value in splatter_3Channel_image.items():
-        ## do reshapeing to [1, 3, 384, 256])
-        new_value = einops.rearrange(value, "h w c -> c h w") # [None]
-        # print("new shape: ", new_value.shape)
-        # print(new_value.min(), new_value.max())
-        
-        ## do mapping of value from [0,1] to [-1,1]
-        if value.min() < 0 or value.max()>1:
-            assert ext == "pt" # FIXME: change this back
-            value = torch.clip(value, 0, 1)
-            print("Clipping the value of pt tensor")
-            # fixme: for debug only
-            value = (value*255).to(torch.uint8).to(torch.float32) / 255
-            print("Clipping the value to uint8")
-        new_value = new_value * 2 - 1
-        # splatter_3Channel_image.update({key: new_value.to(device)})
-        splatter_3Channel_image.update({key: new_value})
-        # print(new_value.shape)
-    
-    # depth_min, depth_max = 0, 3 
-    # sp_min_max_dict["z-depth"] = depth_min, depth_max 
-  
-    assert set(ordered_attr_list) == set(splatter_3Channel_image.keys())
-    
-    return splatter_3Channel_image
 
 def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     
@@ -228,7 +136,6 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
         print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
         #  map to 0,1
         if attr_to_encode in ["pos"]:
-            # sp_image = (sp_image + 1) * 0.5
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
         elif attr_to_encode == "opacity":
@@ -443,14 +350,8 @@ class ObjaverseDataset(Dataset):
         cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
         results['cond'] = cond.astype(np.uint8)
 
-        # Load decomposed splatter attribute images
-        # load_splatter_mv = False
-        # if load_splatter_mv:
         print("load_splatter_mv_ply_as_dict")
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
-        # else:
-        #     splatter_original_Channel_mvimage_dict = load_splatter_png_as_original_channel_images_to_encode(splatter_uid, suffix="to_encode", ext="pt")
-        
         
         results.update(splatter_original_Channel_mvimage_dict)
         for attr_to_encode in ordered_attr_list:
@@ -546,10 +447,6 @@ class ObjaverseDataset(Dataset):
         if not render_input_views:
             results['images_output'] = results['images_output'][self.opt.num_input_views:]
             results['masks_output'] = results['masks_output'][self.opt.num_input_views:]
-
-        
-        # print(f"images_output.shape:{results['images_output'].shape}")
-            
 
         # build rays for input views
         if self.opt.model_type == 'LGM':
