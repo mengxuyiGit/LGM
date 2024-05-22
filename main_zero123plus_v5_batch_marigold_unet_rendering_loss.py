@@ -267,7 +267,7 @@ def main():
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
                     
                     lossback = loss + loss_latent
-                    accelerator.backward(lossback)
+                    # accelerator.backward(lossback)
                     # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
                     # # debug
