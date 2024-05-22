@@ -262,65 +262,21 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # encoder input: all the splatter attr pngs 
         images_all_attr_list = []
         for attr_to_encode in ordered_attr_list:
-            # print("latents_all_attr_list <-",attr_to_encode)
-            
             sp_image = data[attr_to_encode]
-            # si, ei = attr_map[attr_to_encode]
-            # if (ei - si) == 1:
-            #     sp_image = sp_image.repeat(1,3,1,1)
-            # print(sp_image.shape)
             print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
             images_all_attr_list.append(sp_image)
-        
-        
-        load_splatter_mv_pt = False
-        # if load_splatter_mv_pt:
-        #     images_all_attr_list = []
-        #     splatter_mv = torch.load("splatters_mv_02.pt")
-            
-        #     for attr_to_encode in ordered_attr_list:
-        #         # print("latents_all_attr_list <-",attr_to_encode)
-        #         # sp_image = data[attr_to_encode]
-        #         si, ei = attr_map[attr_to_encode]
-               
-        #         sp_image = splatter_mv[:,si:ei]
-        #         print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
-        #         #  map to 0,1
-        #         if attr_to_encode == "pos":
-        #             sp_image = (sp_image + 1) * 0.5
-        #         elif attr_to_encode == "opacity":
-        #             sp_image = sp_image.repeat(1,3,1,1)
-        #         elif attr_to_encode == "scale":
-        #             sp_image = torch.log(sp_image)
-        #             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-        #             sp_image = sp_image.clip(0,1)
-        #         elif (ei - si) == 4:
-        #             quat = einops.rearrange(sp_image, 'b c h w -> b h w c')
-        #             axis_angle = quaternion_to_axis_angle(quat)
-        #             sp_image = einops.rearrange(axis_angle, 'b h w c -> b c h w')
-        #             sp_image = (sp_image + 1) * 0.5
-                
-        #         # map to [-1,1]
-        #         sp_image = sp_image * 2 - 1
-                
-        #         print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
-        #         assert sp_image.shape[1] == 3
-                
-        #         images_all_attr_list.append(sp_image)
-        #     print("Load splatter mv from pt and convert to 3 channels")
-           
         images_all_attr_batch = torch.stack(images_all_attr_list)
+    
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
     
-        
+
         # save_path = f"{self.opt.workspace}/verify_bsz2"
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_to_encode.jpg', images_to_save)
-
 
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
@@ -334,42 +290,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:  
             raise NotImplementedError
         
-        
         # prepare cond and t
-        # B, _, _, _ = data['cond'].shape
-        # A = 5
         BA,C,H,W = gt_latents.shape # should be (B A) c h w
-        
         assert (BA == B * A) or (self.opt.cd_spatial_concat)
-
-        
-        # if save_path is not None:    
-        #     images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
-        #     images_to_save = (images_to_save + 1) * 0.5
-        #     images_to_save = np.zeros_like(images_to_save[3:4])
-        #     images_to_save = np.clip(images_to_save, -1e-2, 1)
-        #     images_to_save[:,1] = -1e-2 # !!!!! [WARN: -1e-2 * 255 to uint8 will result in overflow=254]
-        #     print(images_to_save.min(), images_to_save.max())
-        #     images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-        #     image_save_name = f'{save_path}/{prefix}images_all_attr_batch_before_unet1_G_neg_1e-2'
-        #     kiui.write_image(f"{image_save_name}.jpg", images_to_save)
-        #     Image.fromarray((images_to_save*255).astype(np.uint8)).save(f'{image_save_name}_pil.jpg')
-        #     st()
-            
-            
-        # if save_path is not None:
-        #     # print('Saving to ', save_path)
-        #     # decoded_attr_3channel_image_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W ", B=B, A=A)
-        #     images_to_save = images_all_attr_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
-        #     images_to_save = (images_to_save + 1) * 0.5
-        #     images_to_save = np.clip(images_to_save, 0, 1)
-        #     images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-        #     kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_before_unet2.jpg', images_to_save)
 
         if self.opt.finetune_decoder:
             latents_all_attr_to_decode = gt_latents
             _rendering_w_t = 1
-        
         elif self.opt.train_unet:
             print('Doing unet prediction')
             cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
@@ -428,16 +355,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
             x = (noisy_latents - noise_pred * sigma_t) / alpha_t
       
-
-            
-            # from main_zero123plus_v4_batch_code_inference_marigold_v5_fake_init_optimize_splatter import (
-            #     load_splatter_png_as_original_channel_images_to_encode, 
-            #     original_to_3Channel_splatter,
-            #     decode_single_latents,
-            #     get_splatter_images_from_decoded_dict,
-            #     render_from_decoded_images,
-            #     save_gs_rendered_images
-            # )
         
             if self.opt.cd_spatial_concat:
                 latents_all_attr_to_decode = einops.rearrange(x, "B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
@@ -453,41 +370,27 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 # print(f"_rendering_w_t of {t[0].item()}: ", _rendering_w_t)
             else:
                 _rendering_w_t = 1
-
         else:
            raise NotImplementedError
 
-        
-        # TODO: make this into batch process
-        # vae.decode
+        # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
-      
-        # image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
-        # TODO: remove this for loop for jiatao, use this above batch process
-        image_all_attr_to_decode_list_temp = []
-        # # FIXME: hardcode downsample to test batchsize = 2
-        # latents_all_attr_to_decode = latents_all_attr_to_decode[:,:,::2,::2]
-        for b in range (B):
-            _b_image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode[b*A:(b+1)*A] / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
-            image_all_attr_to_decode_list_temp.append(_b_image_all_attr_to_decode)
-        image_all_attr_to_decode = torch.cat(image_all_attr_to_decode_list_temp, dim=0)
-        
+        image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
-        image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1) # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
-
+        # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
+        image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
 
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
         
         # decode latents into attrbutes again
         decoded_attr_list = []
-       
         for i, _attr in enumerate(ordered_attr_list):
             batch_attr_image = image_all_attr_to_decode[i]
-            print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
+            # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
             decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
             decoded_attr_list.append(decoded_attr)
-            print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
+            # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
         
 
         if save_path is not None:
@@ -499,7 +402,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
 
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
         results['splatters_from_code'] = splatters_to_render # [B, 6, 14, 256, 256]
