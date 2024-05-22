@@ -256,8 +256,8 @@ def main():
                     optimizer.zero_grad()
                     step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
-                    # # Store initial weights before the update
-                    # initial_weights = store_initial_weights(model.unet)
+                    # Store initial weights before the update
+                    initial_weights = store_initial_weights(model)
 
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                 
@@ -267,7 +267,7 @@ def main():
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
                     
                     lossback = loss + loss_latent
-                    # accelerator.backward(lossback)
+                    accelerator.backward(lossback)
                     # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
                     # # debug
@@ -276,15 +276,15 @@ def main():
                     # for name, param in model.unet.named_parameters():
                     #     if param.requires_grad and param.grad is not None:
                     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    # # st()
+                    # st()
                 
                     # print(f"check other model parameters")
                     # for name, param in model.named_parameters():
                     #     if param.requires_grad and param.grad is not None and "unet" not in name:
                     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     # st()
-                    # # TODO: CHECK decoder not have grad, especially deocder.others
-                    # # TODO: and check self.scale_bias
+                    # TODO: CHECK decoder not have grad, especially deocder.others
+                    # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:
@@ -293,7 +293,8 @@ def main():
                     optimizer.step()
                     if opt.lr_scheduler != 'Plat':
                         scheduler.step()
-                        
+                    
+                    compare_weights(initial_weights=initial_weights, model=model)
                     
                     total_loss += loss.detach()
                     total_psnr += psnr.detach()
