@@ -123,7 +123,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     
     splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [14, 384, 256]
     # splatter_mv = torch.load("splatters_mv_02.pt")[0]
-    print("Loading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
+    # print("Loading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
 
     splatter_3Channel_image = {}
             
@@ -232,6 +232,7 @@ class ObjaverseDataset(Dataset):
         #     self.items = self.items[:-self.opt.batch_size]
         # else:
         #     self.items = self.items[-self.opt.batch_size:]
+        print(f"There are total {len(self.items)} in dataloader")
         
         # default camera intrinsics
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
@@ -287,9 +288,7 @@ class ObjaverseDataset(Dataset):
         cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
         results['cond'] = cond.astype(np.uint8)
 
-        print("load_splatter_mv_ply_as_dict from ", splatter_uid)
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
-        
         results.update(splatter_original_Channel_mvimage_dict)
         # for attr_to_encode in ordered_attr_list:
         #     sp_image = results[attr_to_encode]
