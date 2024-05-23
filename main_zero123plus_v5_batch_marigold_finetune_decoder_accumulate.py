@@ -294,9 +294,11 @@ def main():
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                     # del data
                     loss = out['loss']
+                    loss_splatter = out['loss_splatter'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
                     
-                    lossback = loss # + loss_latent
+                    # print("loss: ", loss, " loss_splatter: ", loss_splatter)
+                    lossback = loss + loss_latent + loss_splatter
                     accelerator.backward(lossback)
                     # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
@@ -467,7 +469,12 @@ def main():
                     accelerator.log({"train_loss": train_loss}, step=global_step)
                     train_loss = 0.0
                 
-                logs = {"step_loss": loss.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
+                # logs = {"step_loss": loss.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
+                if opt.finetune_decoder:
+                    logs = {"step_loss": loss.detach().item(), "step_loss_splatter": loss_splatter.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
+                else:
+                    logs = {"step_loss_latent": loss_latent.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
+                
                 progress_bar.set_postfix(**logs)
                 
                 if global_step >= opt.max_train_steps:
