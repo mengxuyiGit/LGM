@@ -372,6 +372,7 @@ def main():
                     writer.add_scalar('train/loss', loss.item(), global_step)
                     writer.add_scalar('train/psnr', psnr.item(), global_step)
                     writer.add_scalar('train/loss_latent', loss_latent.item(), global_step)
+                    writer.add_scalar('train/loss_splatter', loss_splatter.item(), global_step)
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
