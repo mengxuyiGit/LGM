@@ -269,7 +269,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
-    
+        
 
         # save_path = f"{self.opt.workspace}/verify_bsz2"
         if save_path is not None:    
@@ -297,6 +297,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.finetune_decoder:
             latents_all_attr_to_decode = gt_latents
             _rendering_w_t = 1
+
         elif self.opt.train_unet:
             # print('Doing unet prediction')
             cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
@@ -383,6 +384,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
         # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
         image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
+        
+        # L2 loss on the decoded splatter image, BOTH are within range [-1,1]
+        # images_all_attr_batch.shape
+        loss_splatter = self.opt.lambda_splatter * F.mse_loss(image_all_attr_to_decode, images_all_attr_batch)
+        results["loss_splatter"] = loss_splatter 
+        # print("loss splatter: ", loss_splatter)
 
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
@@ -399,7 +406,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
             decoded_attr_list.append(decoded_attr)
             # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
-        
 
         if save_path is not None:
             # print('Saving to ', save_path)
@@ -491,6 +497,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if isinstance(loss, int):
             loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
         results['loss'] = loss
+        # print("loss: ", loss)
         
         
         # Calculate metrics
