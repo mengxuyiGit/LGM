@@ -298,7 +298,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             latents_all_attr_to_decode = gt_latents
             _rendering_w_t = 1
         elif self.opt.train_unet:
-            print('Doing unet prediction')
+            # print('Doing unet prediction')
             cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
             
             # unet 
@@ -310,6 +310,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # TODO: adapt this to batch_Size > 1 to run larger batch size
             t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
             t = t.unsqueeze(1).repeat(1,A).view(-1)
+            # print("batch t=", t)
             
             if self.opt.fixed_noise_level is not None:
                 t = torch.ones_like(t).to(t.device) * self.opt.fixed_noise_level
@@ -350,6 +351,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # reshape back to the batch to calculate loss?? loss is of shape [] without batch dim?
             loss_latent = F.mse_loss(v_pred, v_target)     
             results['loss_latent'] = loss_latent * self.opt.lambda_latent
+
+            if save_path is None:
+                return results
 
             # calculate x0 from v_pred
             noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
