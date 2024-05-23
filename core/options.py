@@ -234,6 +234,7 @@ class Options:
 
     finetune_decoder: bool = False
     max_train_steps: int = 30000
+    resume_decoder: Optional[str] = None
     
 
 # all the default settings

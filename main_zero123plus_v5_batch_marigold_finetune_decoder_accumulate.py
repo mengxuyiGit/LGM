@@ -139,6 +139,31 @@ def main():
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
     
+    # we allow resume from both decoder and unet
+    if opt.resume_decoder is not None:
+        print(f"Resume from decoder ckpt: {opt.resume_decoder}")
+        if opt.resume_decoder.endswith('safetensors'):
+            ckpt = load_file(opt.resume_decoder, device='cpu')
+        else:
+            ckpt = torch.load(opt.resume_decoder, map_location='cpu')
+        
+        # Prepare a set of parpameters that requires_grad=True in decoder
+        trainable_decoder_params = set(f"vae.decoder.{name}" for name, para in model.vae.decoder.named_parameters())
+        # checked: this set is equal to check with model.vae.decoder.named_parameters(), whether dupplicate names
+        
+        state_dict = model.state_dict()
+        for k, v in ckpt.items():
+            if k in trainable_decoder_params:
+                if k in state_dict and state_dict[k].shape == v.shape:
+                    print(f"Copying {k}")
+                    state_dict[k].copy_(v)
+                else:
+                    if k not in state_dict:
+                        accelerator.print(f'[WARN] Parameter {k} not found in model.')
+                    else:
+                        accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+    # if 
+    
     torch.cuda.empty_cache()
     
     train_dataset = Dataset(opt, training=True)
@@ -169,8 +194,6 @@ def main():
     assert not (opt.finetune_decoder and opt.train_unet)
     if opt.finetune_decoder:
     
-        # model.vae.decoder.requires_grad_(True)
-        # st()
         parameters_list = []
         for name, para in model.vae.decoder.named_parameters():
             parameters_list.append(para)
