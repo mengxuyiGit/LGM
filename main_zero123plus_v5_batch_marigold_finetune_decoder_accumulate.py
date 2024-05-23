@@ -252,7 +252,6 @@ def main():
         )
         
         
-        # for epoch in range(opt.num_epochs):
         for epoch in range(opt.num_train_epochs):
             torch.cuda.empty_cache()
 
@@ -279,7 +278,6 @@ def main():
             #     print(f"splatter_guidance in epoch: {epoch}")
                     
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
-            
                 if i > 0 and opt.skip_training:
                     break
               
@@ -288,37 +286,36 @@ def main():
                     
                 with accelerator.accumulate(model):
                     optimizer.zero_grad()
-                    step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
+                    step_ratio = (epoch + i / len(train_dataloader)) / opt.num_train_epochs
 
                     # # Store initial weights before the update
                     # initial_weights = store_initial_weights(model)
 
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
-                
-                    del data
+                    # del data
                     loss = out['loss']
-                    psnr = out['psnr']
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
                     
-                    lossback = loss + loss_latent
+                    lossback = loss # + loss_latent
                     accelerator.backward(lossback)
                     # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
                     # # debug
-                    # # Check gradients of the unet parameters
-                    # print(f"check unet parameters")
-                    # for name, param in model.unet.named_parameters():
-                    #     if param.requires_grad and param.grad is not None:
-                    #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    # st()
-                
-                    # print(f"check other model parameters")
-                    # for name, param in model.named_parameters():
-                    #     if param.requires_grad and param.grad is not None and "unet" not in name:
-                    #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    # st()
-                    # TODO: CHECK decoder not have grad, especially deocder.others
-                    # TODO: and check self.scale_bias
+                    # if global_step > 0:
+                    #     # Check gradients of the unet parameters
+                    #     print(f"check unet parameters")
+                    #     for name, param in model.unet.named_parameters():
+                    #         if param.requires_grad and param.grad is not None:
+                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                    #     st()
+                    
+                    #     print(f"check other model parameters")
+                    #     for name, param in model.named_parameters():
+                    #         if param.requires_grad and param.grad is not None and "unet" not in name:
+                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                    #     st()
+                    #     # TODO: CHECK decoder not have grad, especially deocder.others
+                    #     # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:
@@ -330,6 +327,7 @@ def main():
                     
                     # compare_weights(initial_weights=initial_weights, model=model)
                     
+                    psnr = out['psnr']
                     total_loss += loss.detach()
                     total_psnr += psnr.detach()
                     total_loss_latent += loss_latent.detach()
@@ -344,6 +342,123 @@ def main():
                     if 'loss_lpips' in out.keys():
                         total_loss_lpips += out['loss_lpips'].detach()
 
+                # Log metrics after every step, not at the end of the epoch
+                if accelerator.is_main_process:
+                    writer.add_scalar('train/loss', loss.item(), global_step)
+                    writer.add_scalar('train/psnr', psnr.item(), global_step)
+                    writer.add_scalar('train/loss_latent', loss_latent.item(), global_step)
+                
+                # checkpoint
+                # if epoch > 0 and epoch % opt.save_iter == 0:
+                if global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
+                    accelerator.wait_for_everyone()
+                    accelerator.save_model(model, opt.workspace)
+                    # save a copy 
+                    accelerator.wait_for_everyone()
+                    print("Saving a COPY of new ckpt ...")
+                    accelerator.save_model(model, os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt"))
+                    print("Saved a COPY of new ckpt !!!")
+
+                    torch.cuda.empty_cache()
+
+                # if epoch % opt.eval_iter == 0: 
+                # if global_step % opt.eval_iter == 0:  # eval by global step, not epoch
+                if global_step % opt.eval_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}")):  # eval by global step, not epoch
+                    # eval
+                    accelerator.wait_for_everyone()
+                    with torch.no_grad():
+                        model.eval()
+                
+                        total_loss = 0
+                        total_loss_latent = 0
+                        total_psnr = 0
+                        total_loss_splatter = 0 #torch.tensor([0]).to()
+                        total_loss_rendering = 0 #torch.tensor([0])
+                        total_loss_alpha = 0
+                        total_loss_lpips = 0
+                        
+                        print(f"Save to run dir: {opt.workspace}")
+                        num_samples_eval = 20
+                        for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval global_step {global_step}"):
+                            if i > num_samples_eval:
+                                break
+                        
+                            out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_")
+                    
+                            psnr = out['psnr']
+                            total_psnr += psnr.detach()
+                            eval_loss = out['loss']
+                            total_loss += eval_loss.detach()
+                            loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
+                            total_loss_latent += loss_latent.detach()
+                            if 'loss_splatter' in out.keys():
+                                total_loss_splatter += out['loss_splatter'].detach()
+                            if 'loss_rendering' in out.keys():
+                                total_loss_rendering += out['loss_rendering'].detach()
+                            elif 'loss_alpha' in out.keys():
+                                total_loss_alpha += out["loss_alpha"].detach()
+                            if 'loss_lpips' in out.keys():
+                                total_loss_lpips += out['loss_lpips'].detach()
+                    
+                            
+                            # save some images
+                            if True:
+                                gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                                gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
+                                kiui.write_image(f'{opt.workspace}/eval_global_step_{global_step}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
+
+                                pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                                pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
+                                kiui.write_image(f'{opt.workspace}/eval_global_step_{global_step}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
+
+                                pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                                pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
+                                kiui.write_image(f'{opt.workspace}/eval_global_step_{global_step}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
+                                
+                                # also save the predicted splatters and the 
+
+                                # # add write images for splatter to optimize
+                                # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                                # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt.jpg', pred_images)
+
+                                # pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                                # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
+                                
+                    
+                        torch.cuda.empty_cache()
+
+                        total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
+                        if accelerator.is_main_process:
+                            total_psnr /= num_samples_eval
+                            total_loss /= num_samples_eval
+                            total_loss_latent /= num_samples_eval
+                            total_loss_splatter /= num_samples_eval
+                            total_loss_rendering /= num_samples_eval
+                            total_loss_alpha /= num_samples_eval
+                            total_loss_lpips /= num_samples_eval
+                            
+                            accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
+                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), epoch)
+                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), epoch)
+                            writer.add_scalar('eval/total_psnr', total_psnr.item(), epoch)
+                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, epoch)
+                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, epoch)
+                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, epoch)
+                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, epoch)
+
+                            if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
+                                scheduler.step(total_loss)
+                                writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
+                    
+                    # back to train mode to have grad
+                    accelerator.wait_for_everyone()
+                    model.train()
+                
                 if accelerator.sync_gradients:
                     # if args.use_ema:
                     #     ema_unet.step(unet.parameters())
@@ -358,157 +473,6 @@ def main():
                 if global_step >= opt.max_train_steps:
                     break
 
-                # if accelerator.is_main_process:
-                #     # logging
-                #     if i % 100 == 0:
-                #         mem_free, mem_total = torch.cuda.mem_get_info()    
-                #         print(f"[INFO] {i}/{len(train_dataloader)} mem: {(mem_total-mem_free)/1024**3:.2f}/{mem_total/1024**3:.2f}G lr: {scheduler.get_last_lr()[0]:.7f} step_ratio: {step_ratio:.4f} loss: {loss.item():.6f}")
-                    
-                #     # save log images
-                #     if i % 500 == 0:
-                #         gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                #         gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                #         kiui.write_image(f'{opt.workspace}/train_gt_images_{epoch}_{i}.jpg', gt_images)
-
-                #         # gt_alphas = data['masks_output'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                #         # gt_alphas = gt_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, gt_alphas.shape[1] * gt_alphas.shape[3], 1)
-                #         # kiui.write_image(f'{opt.workspace}/train_gt_alphas_{epoch}_{i}.jpg', gt_alphas)
-
-                #         pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                #         pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                #         kiui.write_image(f'{opt.workspace}/train_pred_images_{epoch}_{i}.jpg', pred_images)
-
-                #         # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                #         # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                #         # kiui.write_image(f'{opt.workspace}/train_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
-        
-            total_loss = accelerator.gather_for_metrics(total_loss).mean()
-            total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
-            total_loss_latent = accelerator.gather_for_metrics(total_loss_latent).mean()
-            if accelerator.is_main_process:
-                total_loss /= len(train_dataloader)
-                total_loss_latent /= len(train_dataloader)
-                total_psnr /= len(train_dataloader)
-                total_loss_splatter /= len(train_dataloader)
-                total_loss_rendering /= len(train_dataloader)
-                total_loss_alpha /= len(train_dataloader)
-                total_loss_lpips /= len(train_dataloader)
-                
-                # TODO: only print this under verbose mode
-                accelerator.print(f"[train] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                writer.add_scalar('train/loss_latent', total_loss_latent.item(), epoch) # for comparison with no rendering loss
-                writer.add_scalar('train/loss_other_than_latent', total_loss.item(), epoch)
-                writer.add_scalar('train/psnr', total_psnr.item(), epoch)
-                writer.add_scalar('train/loss_splatter', total_loss_splatter, epoch)
-                writer.add_scalar('train/loss_rendering', total_loss_rendering, epoch)
-                writer.add_scalar('train/loss_alpha', total_loss_alpha, epoch)
-                writer.add_scalar('train/loss_lpips', total_loss_lpips, epoch)
-                if opt.lr_scheduler == 'Plat' and opt.lr_schedule_by_train:
-                    scheduler.step(total_loss)
-                    writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch)
-            
-            
-            # checkpoint
-            # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
-            if epoch > 0 and epoch % opt.save_iter == 0:
-                accelerator.wait_for_everyone()
-                accelerator.save_model(model, opt.workspace)
-                
-                # save a copy 
-                accelerator.wait_for_everyone()
-                print("Saving a COPY of new ckpt ...")
-                accelerator.save_model(model, os.path.join(opt.workspace, f"eval_epoch_{epoch}"))
-                print("Saved a COPY of new ckpt !!!")
-
-                torch.cuda.empty_cache()
-
-            if epoch % opt.eval_iter == 0: 
-                # eval
-                with torch.no_grad():
-                    model.eval()
-            
-                    total_loss = 0
-                    total_loss_latent = 0
-                    total_psnr = 0
-                    total_loss_splatter = 0 #torch.tensor([0]).to()
-                    total_loss_rendering = 0 #torch.tensor([0])
-                    total_loss_alpha = 0
-                    total_loss_lpips = 0
-                    
-                    print(f"Save to run dir: {opt.workspace}")
-                    num_samples_eval = 50
-                    for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval epoch {epoch}"):
-                        if i > num_samples_eval:
-                            break
-                    
-                        out = model(data, save_path=f'{opt.workspace}/eval_epoch_{epoch}', prefix=f"{accelerator.process_index}_{i}_")
-                
-                        psnr = out['psnr']
-                        total_psnr += psnr.detach()
-                        loss = out['loss']
-                        total_loss += loss.detach()
-                        loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
-                        total_loss_latent += loss_latent.detach()
-                        if 'loss_splatter' in out.keys():
-                            total_loss_splatter += out['loss_splatter'].detach()
-                        if 'loss_rendering' in out.keys():
-                            total_loss_rendering += out['loss_rendering'].detach()
-                        elif 'loss_alpha' in out.keys():
-                            total_loss_alpha += out["loss_alpha"].detach()
-                        if 'loss_lpips' in out.keys():
-                            total_loss_lpips += out['loss_lpips'].detach()
-                
-                        
-                        # save some images
-                        if True:
-                            gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                            gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
-
-                            pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                            pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-
-                            pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                            pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                            kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
-                            
-                            # also save the predicted splatters and the 
-
-                            # # add write images for splatter to optimize
-                            # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                            # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                            # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt.jpg', pred_images)
-
-                            # pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                            # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                            # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
-                            
-                
-                    torch.cuda.empty_cache()
-
-                    total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
-                    if accelerator.is_main_process:
-                        total_psnr /= num_samples_eval
-                        total_loss /= num_samples_eval
-                        total_loss_latent /= num_samples_eval
-                        total_loss_splatter /= num_samples_eval
-                        total_loss_rendering /= num_samples_eval
-                        total_loss_alpha /= num_samples_eval
-                        total_loss_lpips /= num_samples_eval
-                        
-                        accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                        writer.add_scalar('eval/loss_latent', total_loss_latent.item(), epoch)
-                        writer.add_scalar('eval/loss_other_than_latent', total_loss.item(), epoch)
-                        writer.add_scalar('eval/psnr', total_psnr.item(), epoch)
-                        writer.add_scalar('eval/loss_splatter', total_loss_splatter, epoch)
-                        writer.add_scalar('eval/loss_rendering', total_loss_rendering, epoch)
-                        writer.add_scalar('eval/loss_alpha', total_loss_alpha, epoch)
-                        writer.add_scalar('eval/loss_lpips', total_loss_lpips, epoch)
-
-                        if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
-                            scheduler.step(total_loss)
-                            writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
     
 
     # prof.export_chrome_trace("output_trace.json")

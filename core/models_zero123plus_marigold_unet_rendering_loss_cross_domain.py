@@ -406,6 +406,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
 
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
+        # TODO: add option to caluclate loss directly on the rendering 
+        
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
         results['splatters_from_code'] = splatters_to_render # [B, 6, 14, 256, 256]

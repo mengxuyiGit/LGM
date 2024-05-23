@@ -26,8 +26,7 @@ IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
 
 # exactly the same as self.load_ply() in the the gs.py 
-def load_ply(path, compatible=True):
-
+def save_ply(path):
     from plyfile import PlyData, PlyElement
 
     plydata = PlyData.read(path)
@@ -232,6 +231,7 @@ class ObjaverseDataset(Dataset):
         #     self.items = self.items[:-self.opt.batch_size]
         # else:
         #     self.items = self.items[-self.opt.batch_size:]
+        # self.items = self.items[:16]
         print(f"There are total {len(self.items)} in dataloader")
         
         # default camera intrinsics
