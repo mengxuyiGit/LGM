@@ -78,8 +78,15 @@ def main():
         kwargs_handlers=[ddp_kwargs],
     )
   
+    # Introduce a delay based on the process rank to stagger the loading
+    print(f"Sleep process {accelerator.process_index} before loading")
+    time.sleep(accelerator.process_index * 5)  # Delay by 5 seconds per process index
+
+    # Now load the model
     assert opt.model_type == "Zero123PlusGaussianMarigoldUnetCrossDomain", "Invalid model type"
     model =  Zero123PlusGaussianMarigoldUnetCrossDomain(opt)
+    print(f"Model loaded by process {accelerator.process_index}")
+    accelerator.wait_for_everyone()
     
     # Create workspace
     ## check the number of GPUs
