@@ -432,7 +432,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
         ## ------- begin render ----------
         # use the other views for rendering and supervision
-        if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 and self.training:
+        # if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 and self.training:
+        if self.training:
             gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
         else:
             with torch.no_grad():
@@ -493,17 +494,17 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loss += self.opt.lambda_lpips * loss_lpips
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
-        
-        if isinstance(loss, int):
-            loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
-        results['loss'] = loss
-        # print("loss: ", loss)
-        
+  
         
         # Calculate metrics
         # TODO: add other metrics such as SSIM
         psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
         results['psnr'] = psnr.detach()
+        
+        if isinstance(loss, int):
+            loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
+        results['loss'] = loss
+        # print("loss: ", loss)
         
         
         return results
