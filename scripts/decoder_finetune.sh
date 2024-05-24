@@ -6,11 +6,11 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/sw/envs/xuyimeng
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
     --workspace runs/finetune_decoder/workspace_train \
-    --lr 1e-4 --max_train_steps 30000 --eval_iter 100 --save_iter 100 --lr_scheduler Plat \
+    --lr 1e-5 --max_train_steps 30000 --eval_iter 100 --save_iter 100 --lr_scheduler Plat \
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
-    --lambda_splatter 5 --lambda_rendering 0.1 --lambda_alpha 0 --lambda_lpips 0.1 \
-    --desc 'resume_decoder_1200steps_w_splatter_loss_4gpus_bsz2_accumulate32' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --lambda_splatter 5 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 \
+    --desc 'resume_smallLR_no_render_loss_splatter700steps_4gpus_bsz2_accumulate32' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
     --set_random_seed --batch_size 2 --num_workers 1 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -21,7 +21,7 @@ accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml 
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 50 --only_train_attention --rendering_loss_use_weight_t \
     --finetune_decoder --gradient_accumulation_steps 32 --output_size 320 \
-    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00003-4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat50/eval_global_step_1200_ckpt/model.safetensors
+    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00005-resume_decoder_1200steps_w_splatter_loss_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter5.0_lpips0.1-lr0.0001-Plat50/eval_global_step_700_ckpt/model.safetensors
 
 # # singleGPU
 # # export CUDA_VISIBLE_DEVICES=5
