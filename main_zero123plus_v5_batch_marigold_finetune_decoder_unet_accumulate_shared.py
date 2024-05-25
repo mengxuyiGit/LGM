@@ -122,7 +122,7 @@ def main():
         for folder in ['core', 'scripts', 'zero123plus']:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-        for file in ['main_zero123plus_v5_batch_marigold_unet_rendering_loss.py']:
+        for file in ['main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py']:
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
@@ -469,7 +469,8 @@ def main():
                     
                             
                             # save some images
-                            if True:
+                            # if True:
+                            if opt.train_unet_single_attr is None:
                                 gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                                 gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                                 # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
