@@ -475,17 +475,20 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         results["loss_splatter"] = loss_splatter 
         # print("loss splatter: ", loss_splatter)
  
-        if self.opt.log_each_attribute_loss:
-            # A B C H W: image_all_attr_to_decode, images_all_attr_batch
-            l2_all = (image_all_attr_to_decode - images_all_attr_batch) ** 2
+        # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
+        image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
+        if self.opt.log_each_attribute_loss or (self.opt.lambda_each_attribute_loss is not None):
+            images_all_attr_batch_AB = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W", B=B, A=A)
+            l2_all = (image_all_attr_to_decode - images_all_attr_batch_AB) ** 2
             l2_each_attr = torch.mean(l2_all, dim=np.arange(1,l2_all.dim()).tolist())
             for l2_, attr_ in zip(l2_each_attr, ordered_attr_list):
                 results[f"loss_{attr_}"] = l2_
             
+            if self.opt.lambda_each_attribute_loss is not None:
+                # print(f"weighted_loss_splatter: {self.opt.lambda_each_attribute_loss}")
+                weighted_loss_splatter =  l2_each_attr * torch.tensor(self.opt.lambda_each_attribute_loss, device=l2_each_attr.device)
+                results["loss_splatter"] = torch.mean(weighted_loss_splatter)
 
-        # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
-        image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
-        
         # debug = False
         # if debug:
         #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
