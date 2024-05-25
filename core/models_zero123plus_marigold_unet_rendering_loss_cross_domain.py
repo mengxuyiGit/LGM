@@ -261,6 +261,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
       
         # encoder input: all the splatter attr pngs 
         images_all_attr_list = []
+        if self.opt.train_unet_single_attr is not None:
+            ordered_attr_list = self.opt.train_unet_single_attr
+            
         for attr_to_encode in ordered_attr_list:
             sp_image = data[attr_to_encode]
             # print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
@@ -285,6 +288,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
         if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py"]:
             gt_latents = latents_all_attr_encoded
+        elif self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py"] and self.opt.train_unet_single_attr is not None:
+            gt_latents = latents_all_attr_encoded
+            # print("[self.opt.train_unet_single_attr]: gt_latents = ", gt_latents.shape)
         elif self.opt.cd_spatial_concat: # should use v2 pipeline
             gt_latents = einops.rearrange(latents_all_attr_encoded, "(B A) C (m H) (n W) -> B C (A H) (m n W)", B=data['cond'].shape[0], m=3, n=2)
         else:  
@@ -454,7 +460,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 latents_all_attr_to_decode = latents
                 _rendering_w_t = 1
 
-                
         elif self.opt.inference_finetuned_decoder: # NOTE: this condition must be check at last
             latents_all_attr_to_decode = gt_latents
             _rendering_w_t = 1
@@ -510,6 +515,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
             kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
 
+        if self.opt.train_unet_single_attr is not None:
+            return results # not enough attr for gs rendering
+            
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
         # TODO: add option to caluclate loss directly on the rendering 
         
