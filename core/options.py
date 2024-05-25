@@ -235,7 +235,10 @@ class Options:
     finetune_decoder: bool = False
     max_train_steps: int = 30000
     resume_decoder: Optional[str] = None
-    
+    inference_finetuned_decoder: bool = False
+    inference_finetuned_unet: bool = False
+    guidance_scale: Optional[float] = 1.5
+    log_each_attribute_loss: bool = False
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}
