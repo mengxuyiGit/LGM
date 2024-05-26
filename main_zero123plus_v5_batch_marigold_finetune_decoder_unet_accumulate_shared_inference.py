@@ -241,8 +241,11 @@ def main():
         total_lpips = 0
         total_lpips_LGM = 0
         
-        if opt.log_each_attribute_loss:
+        if opt.log_each_attribute_loss or (opt.train_unet_single_attr is not None):
             from core.dataset_v5_marigold import ordered_attr_list
+            if opt.train_unet_single_attr is not None:
+                ordered_attr_list = opt.train_unet_single_attr 
+                
             total_attr_loss_dict = {}
             for _attr in ordered_attr_list:
                 total_attr_loss_dict[f"loss_{_attr}"] = 0
@@ -256,30 +259,37 @@ def main():
         
             out = model(data, save_path=f'{opt.workspace}/eval_inference', prefix=f"{accelerator.process_index}_{i}_")
     
-            psnr = out['psnr'] 
-            psnr_LGM = out['psnr_LGM']
-            
-            loss = out['loss']
-            loss_latent = out['loss_latent'] if 'loss_latent' in out.keys() else torch.zeros_like(loss)
-            
-            lpips = out['loss_lpips']
-            lpips_LGM = out['loss_lpips_LGM']
-            
-            if psnr > 50:
-                # not count this sample
-                num_samples_eval -= 1
+            if opt.train_unet_single_attr is not None:
+                for _attr in ordered_attr_list:
+                    total_attr_loss_dict[f"loss_{_attr}"] += out[f"loss_{_attr}"].detach()
+                
+                    
             else:
-                total_psnr += psnr.detach()
-                total_psnr_LGM += psnr_LGM.detach()
-                total_lpips += lpips
-                total_lpips_LGM += lpips_LGM
-                if opt.log_each_attribute_loss:
-                    for _attr in ordered_attr_list:
-                        total_attr_loss_dict[f"loss_{_attr}"] += out[f"loss_{_attr}"].detach()
-
+                loss = out['loss']
+                loss_latent = out['loss_latent'] if 'loss_latent' in out.keys() else torch.zeros_like(loss)
+                
+                lpips = out['loss_lpips']
+                lpips_LGM = out['loss_lpips_LGM']
+                
+                psnr = out['psnr']
+                psnr_LGM = out['psnr_LGM']
+                
+                if psnr > 50:
+                    # not count this sample
+                    num_samples_eval -= 1
+                else:
+                    total_psnr += psnr.detach()
+                    total_psnr_LGM += psnr_LGM.detach()
+                    total_lpips += lpips
+                    total_lpips_LGM += lpips_LGM
+                    if opt.log_each_attribute_loss:
+                        for _attr in ordered_attr_list:
+                            total_attr_loss_dict[f"loss_{_attr}"] += out[f"loss_{_attr}"].detach()
+    
            
             # save some images
-            if True:
+            # if True:
+            if opt.train_unet_single_attr is None:
                 gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                 gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                 # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
@@ -348,7 +358,6 @@ def main():
             # print(f"Total samples to eval = {num_samples_eval}", file=f)
             our_loss_str = f"Total - our_psnr = {total_psnr:.3f}, \t lpips = {total_lpips:.3f}"
             if opt.log_each_attribute_loss:
-                _loss_attr
                 for _attr in ordered_attr_list:
                     _loss_attr = total_attr_loss_dict[f'loss_{_attr}'] / num_samples_eval
                     our_loss_str += f" \t {_attr}: {_loss_attr:.3f}"
