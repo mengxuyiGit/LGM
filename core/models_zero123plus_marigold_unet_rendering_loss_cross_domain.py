@@ -520,6 +520,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # else:
             images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
             kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
+            # also save the cond image: cond 0-255, uint8
+            cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
+            Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
+            
             
 
         if self.opt.train_unet_single_attr is not None:
