@@ -279,7 +279,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_to_encode.jpg', images_to_save)
+            # kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_to_encode.jpg', images_to_save)
 
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
@@ -508,12 +508,19 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
 
         if save_path is not None:
-            # print('Saving to ', save_path)
+            images_to_save_encode = images_to_save
             decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
             images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
+            # kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
+            # if A ==1:
+            #     images_to_save = torch.cat([images_to_save_encode, images_to_save], dim=0)
+            #     kiui.write_image(f'{save_path}/{prefix}single_attr_batch_decoded.jpg', images_to_save)
+            # else:
+            images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
+            kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
+            
 
         if self.opt.train_unet_single_attr is not None:
             return results # not enough attr for gs rendering
