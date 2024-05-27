@@ -242,6 +242,8 @@ class Options:
     lambda_each_attribute_loss: Optional[Tuple[float,...]] = None
     train_unet_single_attr: Optional[Tuple[str]] = None
 
+    save_cond: bool = False
+
 # all the default settings
 config_defaults: Dict[str, Options] = {}
 config_doc: Dict[str, str] = {}
