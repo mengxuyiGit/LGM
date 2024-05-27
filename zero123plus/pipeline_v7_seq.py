@@ -754,7 +754,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         # st()
         weight_dtype = self.unet.dtype
 
-        st()
+        # st()
         # return self.unet(
         #     sample, timestep,
         #     encoder_hidden_states, *args,
