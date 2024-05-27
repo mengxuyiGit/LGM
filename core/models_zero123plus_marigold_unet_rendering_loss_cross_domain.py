@@ -331,6 +331,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # print(noisy_latents.shape)
         
             domain_embeddings = torch.eye(5).to(noisy_latents.device)
+            if self.opt.train_unet_single_attr is not None:
+                # TODO: get index of that attribute
+                domain_embeddings = domain_embeddings[:1]
             # st()
             if self.opt.cd_spatial_concat:
                 domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
@@ -345,6 +348,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:])
 
             # v-prediction with unet: (B A) 4 48 32
+            # st()
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
             # get v_target
