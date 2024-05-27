@@ -21,9 +21,10 @@ from diffusers import (
     DDIMScheduler,
     DiffusionPipeline,
     EulerAncestralDiscreteScheduler,
-    UNet2DConditionModel,
+    # UNet2DConditionModel,
     ImagePipelineOutput
 )
+from custom_unet.unet_original import UNet2DConditionModel, UNet2DConditionOutput
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.models.attention_processor import Attention, AttnProcessor, XFormersAttnProcessor, AttnProcessor2_0
 from diffusers.utils.import_utils import is_xformers_available
@@ -197,112 +198,6 @@ else:
 
 from copy import deepcopy
 
-# @maybe_allow_in_graph
-class BasicTransformerBlockCrossDomainNoPosEmbed(nn.Module):
-    def __init__(
-        
-        self,
-        block: BasicTransformerBlock,
-    ):
-        super().__init__()
-        self.only_cross_attention = block.only_cross_attention
-        
-        self.norm1 = block.norm1 
-        self.attn1 = block.attn1
-        
-        # self.norm_joint_mid = deepcopy(block.norm1)
-        # self.attn_joint_mid = deepcopy(block.attn1)
-        # st() # check whether the block,.attn1.to_out[0] has been changed
-        # nn.init.zeros_(self.attn_joint_mid.to_out[0].weight.data)
-    
-        self.norm2 = block.norm2
-        self.attn2 = block.attn2
-        
-        self.norm3 =  block.norm3
-            
-        self.ff = block.ff
-       
-        # let chunk size default to None
-        self._chunk_size = None
-        self._chunk_dim = 0
-    
-    def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int):
-            # Sets chunk feed-forward
-        self._chunk_size = chunk_size
-        self._chunk_dim = dim
-    
-    def forward(
-        self,
-        hidden_states: torch.FloatTensor,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        encoder_attention_mask: Optional[torch.FloatTensor] = None,
-        timestep: Optional[torch.LongTensor] = None,
-        cross_attention_kwargs: Dict[str, Any] = None,
-        class_labels: Optional[torch.LongTensor] = None,
-        added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
-    ):
-        assert attention_mask is None # not supported yet
-        
-         # 0. Self-Attention
-        norm_hidden_states = self.norm1(hidden_states)
-
-        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
-
-        attn_output = self.attn1(
-            norm_hidden_states,
-            encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
-            attention_mask=attention_mask,
-            # num_views=self.num_views,
-            # mvcd_attention=self.mvcd_attention,
-            **cross_attention_kwargs,
-        )
-        
-        
-        hidden_states = attn_output + hidden_states
-        
-        if hidden_states.ndim == 4:
-            st()
-            hidden_states = hidden_states.squeeze(1)
-        
-        # joint attention twice
-        # if self.cd_attention_mid:
-        # st() # hidden_states.shape: torch.Size([5, 4096, 320])
-        # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", B=1, A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
-        # torch.Size([8, 2560, 320])
-        norm_hidden_states = (
-            self.norm_joint_mid(hidden_states) # timestamp if self.use_ada_layer_norm else self.norm_joint_mid(hidden_states)
-        )
-        hidden_states = self.attn_joint_mid(norm_hidden_states) + hidden_states
-        # st() # torch.Size([8, 2560, 320])
-        # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", B=1, A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=5, V=8)
-        # st() torch.Size([5, 4096, 320])
-        
-        # hidden_states.shape: torch.Size([5, 4096, 320])
-        # 3. Cross-Attention
-        norm_hidden_states = self.norm2(hidden_states)
-        
-        attn_output = self.attn2(
-                norm_hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                attention_mask=encoder_attention_mask,
-                **cross_attention_kwargs,
-            )
-        hidden_states = attn_output + hidden_states
-        
-        # 4. Feed-forward
-        norm_hidden_states = self.norm3(hidden_states) # FIXME: original 2D  cond unet does not have a layerorm to be norm3
-        
-        ff_output = self.ff(norm_hidden_states)
-        
-        hidden_states = ff_output + hidden_states
-        if hidden_states.ndim == 4:
-            st()
-            hidden_states = hidden_states.squeeze(1)
-
-        return hidden_states
 
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding
 # @maybe_allow_in_graph
@@ -368,7 +263,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
             norm_hidden_states = self.pos_embed(norm_hidden_states)
 
         cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
-
+        if class_labels is not None:
+            st()
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
@@ -389,7 +285,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # if self.cd_attention_mid:
         # st() # hidden_states.shape: torch.Size([5, 4096, 320])
         # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", B=1, A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
+        # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
+        hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=1, V=8)
         # torch.Size([8, 2560, 320])
         norm_hidden_states = (
             self.norm_joint_mid(hidden_states) # timestamp if self.use_ada_layer_norm else self.norm_joint_mid(hidden_states)
@@ -402,7 +299,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         hidden_states = self.attn_joint_mid(norm_hidden_states) + hidden_states
         # st() # torch.Size([8, 2560, 320])
         # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", B=1, A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=5, V=8)
+        # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=5, V=8)
+        hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=1, V=8)
         # st() torch.Size([5, 4096, 320])
         
         # hidden_states.shape: torch.Size([5, 4096, 320])
@@ -463,7 +361,277 @@ def modify_unet(unet):
 
     # Apply modifications
     replace_transformer_blocks(unet)
+    
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import torch
+import torch.nn as nn
+import torch.utils.checkpoint
+
+from diffusers.configuration_utils import ConfigMixin, register_to_config
+from diffusers.loaders import PeftAdapterMixin, UNet2DConditionLoadersMixin
+from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, logging, scale_lora_layers, unscale_lora_layers
+from diffusers.models.activations import get_activation
+from diffusers.models.attention_processor import (
+    ADDED_KV_ATTENTION_PROCESSORS,
+    CROSS_ATTENTION_PROCESSORS,
+    Attention,
+    AttentionProcessor,
+    AttnAddedKVProcessor,
+    AttnProcessor,
+)
+from diffusers.models.embeddings import (
+    GaussianFourierProjection,
+    GLIGENTextBoundingboxProjection,
+    ImageHintTimeEmbedding,
+    ImageProjection,
+    ImageTimeEmbedding,
+    TextImageProjection,
+    TextImageTimeEmbedding,
+    TextTimeEmbedding,
+    TimestepEmbedding,
+    Timesteps,
+)
+from diffusers.models.modeling_utils import ModelMixin
+from diffusers.models.unets.unet_2d_blocks import (
+    get_down_block,
+    get_mid_block,
+    get_up_block,
+)
+def forward_unet(
+        unet,
+        sample: torch.FloatTensor,
+        timestep: Union[torch.Tensor, float, int],
+        encoder_hidden_states: torch.Tensor,
+        class_labels: Optional[torch.Tensor] = None,
+        timestep_cond: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+        added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
+        down_block_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
+        mid_block_additional_residual: Optional[torch.Tensor] = None,
+        down_intrablock_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+    ):
+        # By default samples have to be AT least a multiple of the overall upsampling factor.
+        # The overall upsampling factor is equal to 2 ** (# num of upsampling layers).
+        # However, the upsampling interpolation output size can be forced to fit any upsampling size
+        # on the fly if necessary.
+        default_overall_up_factor = 2**unet.num_upsamplers
+
+        # upsample size should be forwarded when sample is not a multiple of `default_overall_up_factor`
+        forward_upsample_size = False
+        upsample_size = None
+
+        for dim in sample.shape[-2:]:
+            if dim % default_overall_up_factor != 0:
+                # Forward upsample size to force interpolation output size.
+                forward_upsample_size = True
+                break
+
+        # ensure attention_mask is a bias, and give it a singleton query_tokens dimension
+        # expects mask of shape:
+        #   [batch, key_tokens]
+        # adds singleton query_tokens dimension:
+        #   [batch,                    1, key_tokens]
+        # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
+        #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
+        #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
+        if attention_mask is not None:
+            # assume that mask is expressed as:
+            #   (1 = keep,      0 = discard)
+            # convert mask into a bias that can be added to attention scores:
+            #       (keep = +0,     discard = -10000.0)
+            attention_mask = (1 - attention_mask.to(sample.dtype)) * -10000.0
+            attention_mask = attention_mask.unsqueeze(1)
+
+        # convert encoder_attention_mask to a bias the same way we do for attention_mask
+        if encoder_attention_mask is not None:
+            encoder_attention_mask = (1 - encoder_attention_mask.to(sample.dtype)) * -10000.0
+            encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
+
+        # 0. center input if necessary
+        if unet.config.center_input_sample:
+            sample = 2 * sample - 1.0
+
+        # 1. time
+        t_emb = unet.get_time_embed(sample=sample, timestep=timestep)
+        emb = unet.time_embedding(t_emb, timestep_cond)
+        aug_emb = None
+
+        class_emb = unet.get_class_embed(sample=sample, class_labels=class_labels)
+        print("[UNet2DConditionModel -> forward()] class_emb: ", class_emb)
+        if class_emb is not None:
+            if unet.config.class_embeddings_concat:
+                emb = torch.cat([emb, class_emb], dim=-1)
+            else:
+                emb = emb + class_emb
+
+        aug_emb = unet.get_aug_embed(
+            emb=emb, encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs
+        )
+        if unet.config.addition_embed_type == "image_hint":
+            aug_emb, hint = aug_emb
+            sample = torch.cat([sample, hint], dim=1)
+
+        emb = emb + aug_emb if aug_emb is not None else emb
+
+        if unet.time_embed_act is not None:
+            emb = unet.time_embed_act(emb)
+
+        encoder_hidden_states = unet.process_encoder_hidden_states(
+            encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs
+        )
+
+        # 2. pre-process
+        sample = unet.conv_in(sample)
+
+        # 2.5 GLIGEN position net
+        if cross_attention_kwargs is not None and cross_attention_kwargs.get("gligen", None) is not None:
+            cross_attention_kwargs = cross_attention_kwargs.copy()
+            gligen_args = cross_attention_kwargs.pop("gligen")
+            cross_attention_kwargs["gligen"] = {"objs": unet.position_net(**gligen_args)}
+
+        # 3. down
+        # we're popping the `scale` instead of getting it because otherwise `scale` will be propagated
+        # to the internal blocks and will raise deprecation warnings. this will be confusing for our users.
+        if cross_attention_kwargs is not None:
+            cross_attention_kwargs = cross_attention_kwargs.copy()
+            lora_scale = cross_attention_kwargs.pop("scale", 1.0)
+        else:
+            lora_scale = 1.0
+
+        if USE_PEFT_BACKEND:
+            # weight the lora layers by setting `lora_scale` for each PEFT layer
+            scale_lora_layers(unet, lora_scale)
+
+        is_controlnet = mid_block_additional_residual is not None and down_block_additional_residuals is not None
+        # using new arg down_intrablock_additional_residuals for T2I-Adapters, to distinguish from controlnets
+        is_adapter = down_intrablock_additional_residuals is not None
+        # maintain backward compatibility for legacy usage, where
+        #       T2I-Adapter and ControlNet both use down_block_additional_residuals arg
+        #       but can only use one or the other
+        if not is_adapter and mid_block_additional_residual is None and down_block_additional_residuals is not None:
+            deprecate(
+                "T2I should not use down_block_additional_residuals",
+                "1.3.0",
+                "Passing intrablock residual connections with `down_block_additional_residuals` is deprecated \
+                       and will be removed in diffusers 1.3.0.  `down_block_additional_residuals` should only be used \
+                       for ControlNet. Please make sure use `down_intrablock_additional_residuals` instead. ",
+                standard_warn=False,
+            )
+            down_intrablock_additional_residuals = down_block_additional_residuals
+            is_adapter = True
+
+        down_block_res_samples = (sample,)
+        for downsample_block in unet.down_blocks:
+            if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
+                # For t2i-adapter CrossAttnDownBlock2D
+                additional_residuals = {}
+                if is_adapter and len(down_intrablock_additional_residuals) > 0:
+                    additional_residuals["additional_residuals"] = down_intrablock_additional_residuals.pop(0)
+
+                sample, res_samples = downsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    encoder_hidden_states=encoder_hidden_states,
+                    attention_mask=attention_mask,
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    encoder_attention_mask=encoder_attention_mask,
+                    **additional_residuals,
+                )
+            else:
+                sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
+                if is_adapter and len(down_intrablock_additional_residuals) > 0:
+                    sample += down_intrablock_additional_residuals.pop(0)
+
+            down_block_res_samples += res_samples
+
+        if is_controlnet:
+            new_down_block_res_samples = ()
+
+            for down_block_res_sample, down_block_additional_residual in zip(
+                down_block_res_samples, down_block_additional_residuals
+            ):
+                down_block_res_sample = down_block_res_sample + down_block_additional_residual
+                new_down_block_res_samples = new_down_block_res_samples + (down_block_res_sample,)
+
+            down_block_res_samples = new_down_block_res_samples
+
+        # 4. mid
+        if unet.mid_block is not None:
+            if hasattr(unet.mid_block, "has_cross_attention") and unet.mid_block.has_cross_attention:
+                sample = unet.mid_block(
+                    sample,
+                    emb,
+                    encoder_hidden_states=encoder_hidden_states,
+                    attention_mask=attention_mask,
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    encoder_attention_mask=encoder_attention_mask,
+                )
+            else:
+                sample = unet.mid_block(sample, emb)
+
+            # To support T2I-Adapter-XL
+            if (
+                is_adapter
+                and len(down_intrablock_additional_residuals) > 0
+                and sample.shape == down_intrablock_additional_residuals[0].shape
+            ):
+                sample += down_intrablock_additional_residuals.pop(0)
+
+        if is_controlnet:
+            sample = sample + mid_block_additional_residual
+
+        # 5. up
+        for i, upsample_block in enumerate(unet.up_blocks):
+            is_final_block = i == len(unet.up_blocks) - 1
+
+            res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
+            down_block_res_samples = down_block_res_samples[: -len(upsample_block.resnets)]
+
+            # if we have not reached the final block and need to forward the
+            # upsample size, we do it here
+            if not is_final_block and forward_upsample_size:
+                upsample_size = down_block_res_samples[-1].shape[2:]
+
+            if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
+                sample = upsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    res_hidden_states_tuple=res_samples,
+                    encoder_hidden_states=encoder_hidden_states,
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    upsample_size=upsample_size,
+                    attention_mask=attention_mask,
+                    encoder_attention_mask=encoder_attention_mask,
+                )
+            else:
+                sample = upsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    res_hidden_states_tuple=res_samples,
+                    upsample_size=upsample_size,
+                )
+
+        # 6. post-process
+        if unet.conv_norm_out:
+            sample = unet.conv_norm_out(sample)
+            sample = unet.conv_act(sample)
+        sample = unet.conv_out(sample)
+
+        if USE_PEFT_BACKEND:
+            # remove `lora_scale` from each PEFT layer
+            unscale_lora_layers(unet, lora_scale)
+
+        if not return_dict:
+            return (sample,)
+
+        return UNet2DConditionOutput(sample=sample)
+    
+    
 class RefOnlyNoisedUNet(torch.nn.Module):
     def __init__(self, unet: UNet2DConditionModel, train_sched: DDPMScheduler, val_sched: EulerAncestralDiscreteScheduler):
         # -> None:
@@ -504,7 +672,6 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         # st()
         # unet.set_attn_processor(unet_lora_attn_procs)
         unet.set_attn_processor(unet_lora_attn_procs)
-        
         # Random init unet weights
         # unet.apply(init_weights)
        
@@ -526,13 +693,24 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             class_labels = class_labels[1:]
         # print("class_labels (forward_cond): ", class_labels)
         # from ipdb import set_trace as st; st()
-        self.unet(
+        # self.unet(
+        #     noisy_cond_lat, timestep,
+        #     encoder_hidden_states=encoder_hidden_states,
+        #     class_labels=class_labels,
+        #     cross_attention_kwargs=dict(mode="w", ref_dict=ref_dict),
+        #     **kwargs
+        # )
+        
+        # wrap the forward function of the unet
+        forward_unet(
+            self.unet,
             noisy_cond_lat, timestep,
             encoder_hidden_states=encoder_hidden_states,
             class_labels=class_labels,
             cross_attention_kwargs=dict(mode="w", ref_dict=ref_dict),
             **kwargs
         )
+        
 
     def forward(
         self, sample, timestep, encoder_hidden_states, class_labels=None,
@@ -564,6 +742,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             noisy_cond_lat = self.val_sched.add_noise(cond_lat, noise, cond_timestep.reshape(-1))
             noisy_cond_lat = self.val_sched.scale_model_input(noisy_cond_lat, cond_timestep.reshape(-1))
         ref_dict = {}
+        # encoder_hidden_states is text_embedding
         self.forward_cond(
             noisy_cond_lat, cond_timestep,
             encoder_hidden_states, class_labels,
@@ -574,8 +753,25 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         # print("ref_dict:\n",ref_dict)
         # st()
         weight_dtype = self.unet.dtype
-       
-        return self.unet(
+
+        st()
+        # return self.unet(
+        #     sample, timestep,
+        #     encoder_hidden_states, *args,
+        #     class_labels=class_labels,
+        #     cross_attention_kwargs=dict(mode="r", ref_dict=ref_dict, is_cfg_guidance=is_cfg_guidance),
+        #     down_block_additional_residuals=[
+        #         sample.to(dtype=weight_dtype) for sample in down_block_res_samples
+        #     ] if down_block_res_samples is not None else None,
+        #     mid_block_additional_residual=(
+        #         mid_block_res_sample.to(dtype=weight_dtype)
+        #         if mid_block_res_sample is not None else None
+        #     ),
+        #     **kwargs
+        # )
+        
+        return forward_unet(
+            self.unet,
             sample, timestep,
             encoder_hidden_states, *args,
             class_labels=class_labels,
@@ -701,7 +897,50 @@ class SuperNet(torch.nn.Module):
         self._register_state_dict_hook(map_to)
         self._register_load_state_dict_pre_hook(map_from, with_module=True)
 
-
+def copy_model(src_model, dest_model):
+    for src_module_name, src_module in src_model.named_children():
+        dest_module = getattr(dest_model, src_module_name, None)
+        if dest_module is not None:
+            # Check if both modules are of the same type
+            if type(src_module) != type(dest_module):
+                print(f"Replacing entire module due to type mismatch: {src_module_name}")
+                setattr(dest_model, src_module_name, src_module)
+            elif isinstance(src_module, nn.ModuleList):
+                # Handle ModuleList separately to account for differing lengths or types within the list
+                for i, submodule in enumerate(src_module):
+                    if i >= len(dest_module) or type(submodule) != type(dest_module[i]):
+                        print(f"Replacing ModuleList element {src_module_name}[{i}] due to mismatch.")
+                        dest_module.append(submodule)
+                    else:
+                        copy_model(submodule, dest_module[i])
+            elif isinstance(src_module, nn.Sequential):
+                # Handle Sequential similarly to ModuleList
+                for i, submodule in enumerate(src_module):
+                    if i >= len(dest_module) or type(submodule) != type(dest_module[i]):
+                        print(f"Replacing Sequential element {src_module_name}[{i}] due to mismatch.")
+                        dest_module.append(submodule)
+                    else:
+                        copy_model(submodule, dest_module[i])
+            else:
+                # Copy weights if possible, else copy entire module
+                if hasattr(src_module, 'weight') and hasattr(dest_module, 'weight'):
+                    if src_module.weight.size() == dest_module.weight.size():
+                        dest_module.weight.data.copy_(src_module.weight.data)
+                        if hasattr(src_module, 'bias') and src_module.bias is not None:
+                            dest_module.bias.data.copy_(src_module.bias.data)
+                    else:
+                        print(f"Replacing weights of {src_module_name} due to size mismatch.")
+                        dest_module.weight = nn.Parameter(src_module.weight.data.clone())
+                        if src_module.bias is not None:
+                            dest_module.bias = nn.Parameter(src_module.bias.data.clone())
+                else:
+                    # Recursively copy children modules
+                    copy_model(src_module, dest_module)
+        else:
+            print(f"Module {src_module_name} does not exist in destination model, adding new module.")
+            setattr(dest_model, src_module_name, src_module)
+            
+            
 class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
     tokenizer: transformers.CLIPTokenizer
     text_encoder: transformers.CLIPTextModel
@@ -751,8 +990,29 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         train_sched = DDPMScheduler.from_config(self.scheduler.config)
         # self.scheduler = train_sched
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
-        if isinstance(self.unet, UNet2DConditionModel):
-            self.unet = RefOnlyNoisedUNet(self.unet, train_sched, self.scheduler).eval()
+    
+        ## add class embedding
+        # init as wonder3d stagt1
+        class_embed_type = "projection"
+        # projection_class_embeddings_input_dim == 6 or self.unet.config.projection_class_embeddings_input_dim == 10 # WONDER3D
+        projection_class_embeddings_input_dim = 10
+        num_class_embeds = None
+        time_embed_dim = 1280
+        timestep_input_dim = 320
+        act_fn = 'silu'
+        
+        self.unet._set_class_embedding(
+            class_embed_type,
+            act_fn=act_fn,
+            num_class_embeds=num_class_embeds,
+            projection_class_embeddings_input_dim=projection_class_embeddings_input_dim,
+            time_embed_dim=time_embed_dim,
+            timestep_input_dim=timestep_input_dim,
+        )
+        # st()
+        
+        # if isinstance(self.unet, UNet2DConditionModel):
+        self.unet = RefOnlyNoisedUNet(self.unet, train_sched, self.scheduler).eval()
 
     def add_controlnet(self, controlnet: Optional[diffusers.ControlNetModel] = None, conditioning_scale=1.0):
         self.prepare()
