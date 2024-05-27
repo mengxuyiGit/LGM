@@ -262,9 +262,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # encoder input: all the splatter attr pngs 
         images_all_attr_list = []
         if self.opt.train_unet_single_attr is not None:
-            ordered_attr_list = self.opt.train_unet_single_attr
+            ordered_attr_list_local = self.opt.train_unet_single_attr
+        else:
+            ordered_attr_list_local = ordered_attr_list
             
-        for attr_to_encode in ordered_attr_list:
+        for attr_to_encode in ordered_attr_list_local:
             sp_image = data[attr_to_encode]
             # print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
             images_all_attr_list.append(sp_image)
@@ -329,6 +331,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # print(noisy_latents.shape)
         
             domain_embeddings = torch.eye(5).to(noisy_latents.device)
+            # st()
             if self.opt.cd_spatial_concat:
                 domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
             
@@ -486,7 +489,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_all_attr_batch_AB = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W", B=B, A=A)
             l2_all = (image_all_attr_to_decode - images_all_attr_batch_AB) ** 2
             l2_each_attr = torch.mean(l2_all, dim=np.arange(1,l2_all.dim()).tolist())
-            for l2_, attr_ in zip(l2_each_attr, ordered_attr_list):
+            for l2_, attr_ in zip(l2_each_attr, ordered_attr_list_local):
                 results[f"loss_{attr_}"] = l2_
             
             if self.opt.lambda_each_attribute_loss is not None:
@@ -500,7 +503,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         # decode latents into attrbutes again
         decoded_attr_list = []
-        for i, _attr in enumerate(ordered_attr_list):
+        for i, _attr in enumerate(ordered_attr_list_local):
             batch_attr_image = image_all_attr_to_decode[i]
             # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
             decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
@@ -575,7 +578,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             # decode latents into attrbutes again
             decoded_attr_list = []
-            for i, _attr in enumerate(ordered_attr_list):
+            for i, _attr in enumerate(ordered_attr_list_local):
                 batch_attr_image = image_all_attr_to_decode[i]
                 # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
                 decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
