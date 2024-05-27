@@ -233,7 +233,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # pos embed
         dim = self.norm1.normalized_shape[0] # 320 640 1280
         num_positional_embeddings = 4096
-        self.pos_embed = SinusoidalPositionalEmbedding(dim, max_seq_length=num_positional_embeddings)
+        # self.pos_embed = SinusoidalPositionalEmbedding(dim, max_seq_length=num_positional_embeddings)
+        self.pos_embed = None
         
     
     def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int):
@@ -259,6 +260,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
 
         
         if self.pos_embed is not None:
+            st()
             # print("norm_hidden_states: ", norm_hidden_states.shape)
             norm_hidden_states = self.pos_embed(norm_hidden_states)
 
@@ -293,6 +295,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         )
 
         if self.pos_embed is not None: # and self.norm_type != "ada_norm_single":
+            st()
             # print("norm_hidden_states: ", norm_hidden_states.shape)
             norm_hidden_states = self.pos_embed(norm_hidden_states)
             
@@ -310,6 +313,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         if self.pos_embed is not None: # and self.norm_type != "ada_norm_single":
             # print("norm_hidden_states: ", norm_hidden_states.shape)
             norm_hidden_states = self.pos_embed(norm_hidden_states)
+            st()
         
         attn_output = self.attn2(
                 norm_hidden_states,
