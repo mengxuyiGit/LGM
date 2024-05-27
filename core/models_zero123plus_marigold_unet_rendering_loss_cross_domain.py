@@ -288,7 +288,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
     
-        if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py"]:
+        if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py", "./zero123plus/pipeline_v7_no_seq.py"]:
             gt_latents = latents_all_attr_encoded
         elif self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py"] and self.opt.train_unet_single_attr is not None:
             gt_latents = latents_all_attr_encoded
