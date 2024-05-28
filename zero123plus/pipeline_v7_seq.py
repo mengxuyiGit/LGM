@@ -287,7 +287,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # st() # hidden_states.shape: torch.Size([5, 4096, 320])
         # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", B=1, A=5, V=8)
         # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=2, V=8)
+        hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
         # torch.Size([8, 2560, 320])
         norm_hidden_states = (
             self.norm_joint_mid(hidden_states) # timestamp if self.use_ada_layer_norm else self.norm_joint_mid(hidden_states)
@@ -302,7 +302,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # st() # torch.Size([8, 2560, 320])
         # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", B=1, A=5, V=8)
         # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=2, V=8)
+        hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=5, V=8)
         # st() # torch.Size([5, 4096, 320])
         
         # hidden_states.shape: torch.Size([5, 4096, 320])
