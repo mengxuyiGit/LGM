@@ -240,7 +240,7 @@ class Options:
     guidance_scale: Optional[float] = 1.5
     log_each_attribute_loss: bool = False
     lambda_each_attribute_loss: Optional[Tuple[float,...]] = None
-    train_unet_single_attr: Optional[Tuple[str]] = None
+    train_unet_single_attr: Optional[Tuple[str, ...]] = None
 
     save_cond: bool = False
 
