@@ -333,7 +333,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             domain_embeddings = torch.eye(5).to(noisy_latents.device)
             if self.opt.train_unet_single_attr is not None:
                 # TODO: get index of that attribute
-                domain_embeddings = domain_embeddings[:1]
+                domain_embeddings = domain_embeddings[:len(self.opt.train_unet_single_attr)]
             # st()
             if self.opt.cd_spatial_concat:
                 domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
@@ -348,6 +348,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:])
 
             # v-prediction with unet: (B A) 4 48 32
+            # print(text_embeddings)
             # st()
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
@@ -415,6 +416,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     latents  = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
                 
                 domain_embeddings = torch.eye(5).to(latents.device)
+                if self.opt.train_unet_single_attr is not None:
+                    # TODO: get index of that attribute
+                    domain_embeddings = domain_embeddings[:len(self.opt.train_unet_single_attr)]
+                    
                 if self.opt.cd_spatial_concat:
                     st()
                     domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
@@ -423,6 +428,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                         torch.cos(domain_embeddings)
                     ], dim=-1)
                 
+                # cfg
+                domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
                 # latents_init = latents.clone().detach()
                 for _, t in enumerate(timesteps):
                     print(f"enumerate(timesteps) t={t}")
