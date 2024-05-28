@@ -233,7 +233,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # pos embed
         dim = self.norm1.normalized_shape[0] # 320 640 1280
         num_positional_embeddings = 4096
-        self.pos_embed = SinusoidalPositionalEmbedding(dim, max_seq_length=num_positional_embeddings)
+        # self.pos_embed = SinusoidalPositionalEmbedding(dim, max_seq_length=num_positional_embeddings)
+        self.pos_embed = None
         
     
     def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int):
@@ -286,13 +287,14 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # st() # hidden_states.shape: torch.Size([5, 4096, 320])
         # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", B=1, A=5, V=8)
         # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=1, V=8)
+        hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=2, V=8)
         # torch.Size([8, 2560, 320])
         norm_hidden_states = (
             self.norm_joint_mid(hidden_states) # timestamp if self.use_ada_layer_norm else self.norm_joint_mid(hidden_states)
         )
 
         if self.pos_embed is not None: # and self.norm_type != "ada_norm_single":
+            st()
             # print("norm_hidden_states: ", norm_hidden_states.shape)
             norm_hidden_states = self.pos_embed(norm_hidden_states)
             
@@ -300,8 +302,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # st() # torch.Size([8, 2560, 320])
         # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", B=1, A=5, V=8)
         # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=1, V=8)
-        # st() torch.Size([5, 4096, 320])
+        hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=2, V=8)
+        # st() # torch.Size([5, 4096, 320])
         
         # hidden_states.shape: torch.Size([5, 4096, 320])
         # 3. Cross-Attention
@@ -462,7 +464,7 @@ def forward_unet(
         aug_emb = None
 
         class_emb = unet.get_class_embed(sample=sample, class_labels=class_labels)
-        print("[UNet2DConditionModel -> forward()] class_emb: ", class_emb)
+        # print("[UNet2DConditionModel -> forward()] class_emb: ", class_emb)
         if class_emb is not None:
             if unet.config.class_embeddings_concat:
                 emb = torch.cat([emb, class_emb], dim=-1)
@@ -484,6 +486,7 @@ def forward_unet(
         encoder_hidden_states = unet.process_encoder_hidden_states(
             encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs
         )
+        # st()
 
         # 2. pre-process
         sample = unet.conv_in(sample)
@@ -529,6 +532,7 @@ def forward_unet(
         for downsample_block in unet.down_blocks:
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
                 # For t2i-adapter CrossAttnDownBlock2D
+                # st()
                 additional_residuals = {}
                 if is_adapter and len(down_intrablock_additional_residuals) > 0:
                     additional_residuals["additional_residuals"] = down_intrablock_additional_residuals.pop(0)
@@ -1009,7 +1013,6 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
             time_embed_dim=time_embed_dim,
             timestep_input_dim=timestep_input_dim,
         )
-        # st()
         
         # if isinstance(self.unet, UNet2DConditionModel):
         self.unet = RefOnlyNoisedUNet(self.unet, train_sched, self.scheduler).eval()
@@ -1102,7 +1105,7 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
             negative_prompt_embeds=None,
             lora_scale=None,
         )
-        
+        # st()
         if do_classifier_free_guidance:
             prompt_embeds = torch.cat([prompt_embeds_tuple[1], prompt_embeds_tuple[0]])
         else:
