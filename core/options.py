@@ -243,6 +243,7 @@ class Options:
     train_unet_single_attr: Optional[Tuple[str, ...]] = None
 
     save_cond: bool = False
+    render_video: bool = False
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}
