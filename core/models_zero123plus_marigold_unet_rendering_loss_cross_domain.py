@@ -381,7 +381,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 loss_latent = F.mse_loss(v_pred, v_target)     
                 results['loss_latent'] = loss_latent * self.opt.lambda_latent
                 
-            if save_path is None and self.opt.lambda_splatter <= 0:
+            if save_path is None and (self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0:
                 return results
 
             # calculate x0 from v_pred
@@ -507,6 +507,21 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         loss_splatter = self.opt.lambda_splatter * F.mse_loss(image_all_attr_to_decode, images_all_attr_batch)
         results["loss_splatter"] = loss_splatter 
         # print("loss splatter: ", loss_splatter)
+        if self.opt.lambda_splatter_lpips > 0:
+            # loss_splatter_lpips = 0
+            # for _images_all_attr_batch, _image_all_attr_to_decode in zip(images_all_attr_batch, image_all_attr_to_decode):
+            #     _loss_splatter_lpips = self.lpips_loss(
+            #         _images_all_attr_batch[None], # gt, alr in [-1,1]
+            #         _image_all_attr_to_decode[None], # pred, alr in [-1,1]
+            #     ).mean()
+            #     loss_splatter_lpips += _loss_splatter_lpips
+            # results['loss_splatter_lpips'] = loss_splatter_lpips
+            
+            loss_splatter_lpips = self.lpips_loss(
+                images_all_attr_batch, # gt, alr in [-1,1]
+                image_all_attr_to_decode, # pred, alr in [-1,1]
+            ).mean()
+            results['loss_splatter_lpips'] = loss_splatter_lpips
 
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
