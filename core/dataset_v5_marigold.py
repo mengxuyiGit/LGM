@@ -217,14 +217,14 @@ class ObjaverseDataset(Dataset):
                 # print(f"[WARN]: always fetch the 0th item. For debug use only")
                 # self.items = all_items[:1]
                 print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[0:1]
+                self.items = all_items[2:3]
         else:
             self.items = all_items
             if self.opt.overfit_one_scene:
                 # print(f"[WARN]: always fetch the 0th item. For debug use only")
                 # self.items = all_items[:1]
                 print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[0:1]
+                self.items = all_items[2:3]
         
         # naive split
         # if self.training:
