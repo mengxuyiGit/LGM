@@ -23,6 +23,9 @@ import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
 
+from kiui.cam import orbit_camera
+import imageio
+
 import warnings
 from accelerate.utils import broadcast
 import re
@@ -290,31 +293,107 @@ def main():
             # save some images
             # if True:
             if opt.train_unet_single_attr is None:
-                gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
-                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
+                # gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                # gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
+                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
 
-                pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
+                # pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
+                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
 
-                pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
-                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
+                # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
+                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
                 
-                # also render the LGM inferenced splatter 
-                pred_images = out['images_pred_LGM'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_pred_LGM.jpg', pred_images)
+                # # also render the LGM inferenced splatter 
+                # pred_images = out['images_pred_LGM'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
+                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_pred_LGM.jpg', pred_images)
 
-                pred_alphas = out['alphas_pred_LGM'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
-                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_alpha_LGM.jpg', pred_alphas)
+                # pred_alphas = out['alphas_pred_LGM'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
+                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_alpha_LGM.jpg', pred_alphas)
+
+                
+                # 5-in-1
+                five_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], out['alphas_pred_LGM'].repeat(1,1,3,1,1), out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
+                gt_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_Ugt_Mlgm_Dpred.jpg', gt_images)
+
+                # render 360 video 
+                if opt.fancy_video or opt.render_video:
+                    
+                    device = data['images_output'].device
+                    
+                    tan_half_fov = np.tan(0.5 * np.deg2rad(opt.fovy))
+                    proj_matrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
+                    proj_matrix[0, 0] = 1 / tan_half_fov
+                    proj_matrix[1, 1] = 1 / tan_half_fov
+                    proj_matrix[2, 2] = (opt.zfar + opt.znear) / (opt.zfar - opt.znear)
+                    proj_matrix[3, 2] = - (opt.zfar * opt.znear) / (opt.zfar - opt.znear)
+                    proj_matrix[2, 3] = 1
+                    
+                    images_dict = {}
+                    for key in ["gaussians_LGM", "gaussians_pred"]:
+                        gaussians = out[key]
+                        images = []
+                        elevation = 0
+                        
+
+                        if opt.fancy_video:
+
+                            azimuth = np.arange(0, 720, 4, dtype=np.int32)
+                            for azi in tqdm(azimuth):
+                                
+                                cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
+
+                                cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+                                
+                                # cameras needed by gaussian rasterizer
+                                cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
+                                cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
+                                cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+
+                                
+                                scale = min(azi / 360, 1)
+                                image = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=scale)['image']
+
+                                
+                                images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+                        elif opt.render_video:
+                            azimuth = np.arange(0, 360, 2, dtype=np.int32)
+                            for azi in tqdm(azimuth):
+                                
+                                cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
+
+                                cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+                                
+                                # cameras needed by gaussian rasterizer
+                                cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
+                                cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
+                                cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+
+                                image = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=1)['image']
+                                # additional video to vis pts pos
+                                image_pos = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=4/360)['image']
+                                image = torch.cat([image, image_pos], dim=-1)
+                                
+                                images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+
+                        images_dict[key] = np.concatenate(images, axis=0)
+                        # images = np.concatenate(images, axis=0)
+                        # imageio.mimwrite(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_video_{key.replace("gaussians_", "")}.mp4', images, fps=30)
+                    
+                    # save all four videos in a row
+                    images = np.concatenate([images_dict[key] for key in ["gaussians_LGM", "gaussians_pred"]], axis=2) # cat on width
+                    imageio.mimwrite(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_video_LGM_pred.mp4', images, fps=30)
+                
                 
                 with open(f"{opt.workspace}/metrics.txt", "a") as f:
                      

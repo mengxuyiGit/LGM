@@ -359,15 +359,29 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
             sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
             v_target = alpha_t * noise - sigma_t * gt_latents # (B A) 4 48 32
-        
+
             
             # calbculate loss
                 # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
             # reshape back to the batch to calculate loss?? loss is of shape [] without batch dim?
-            loss_latent = F.mse_loss(v_pred, v_target)     
-            results['loss_latent'] = loss_latent * self.opt.lambda_latent
-
-            if save_path is None:
+           
+            # calculate the latent loss of each attribute separately
+            if self.opt.log_each_attribute_loss or (self.opt.lambda_each_attribute_loss is not None):
+                v_pred_AB = einops.rearrange(v_pred, "(B A) C H W -> A B C H W", B=B, A=A)
+                v_target_AB = einops.rearrange(v_target, "(B A) C H W -> A B C H W", B=B, A=A)
+                l2_all = (v_target_AB - v_pred_AB) ** 2
+                l2_each_attr = torch.mean(l2_all, dim=np.arange(1,l2_all.dim()).tolist())
+                for l2_, attr_ in zip(l2_each_attr, ordered_attr_list_local):
+                    results[f"loss_latent_{attr_}"] = l2_
+                if self.opt.lambda_each_attribute_loss is not None:
+                    # print(f"weighted_loss_splatter: {self.opt.lambda_each_attribute_loss}")
+                    weighted_loss_splatter =  l2_each_attr * torch.tensor(self.opt.lambda_each_attribute_loss, device=l2_each_attr.device)
+                    results["loss_latent"] = torch.mean(weighted_loss_splatter)
+            else:
+                loss_latent = F.mse_loss(v_pred, v_target)     
+                results['loss_latent'] = loss_latent * self.opt.lambda_latent
+                
+            if save_path is None and self.opt.lambda_splatter <= 0:
                 return results
 
             # calculate x0 from v_pred
@@ -493,7 +507,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         loss_splatter = self.opt.lambda_splatter * F.mse_loss(image_all_attr_to_decode, images_all_attr_batch)
         results["loss_splatter"] = loss_splatter 
         # print("loss splatter: ", loss_splatter)
- 
+
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
         if self.opt.log_each_attribute_loss or (self.opt.lambda_each_attribute_loss is not None):
@@ -507,6 +521,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 # print(f"weighted_loss_splatter: {self.opt.lambda_each_attribute_loss}")
                 weighted_loss_splatter =  l2_each_attr * torch.tensor(self.opt.lambda_each_attribute_loss, device=l2_each_attr.device)
                 results["loss_splatter"] = torch.mean(weighted_loss_splatter)
+        
+        if self.opt.train_unet and save_path is None:
+            return results
 
         # debug = False
         # if debug:
@@ -549,8 +566,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
-        results['splatters_from_code'] = splatters_to_render # [B, 6, 14, 256, 256]
+        # results['splatters_from_code'] = splatters_to_render # [B, 6, 14, 256, 256]
         gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+
+        if self.opt.fancy_video or self.opt.render_video:
+            results['gaussians_pred'] = gaussians
         
         if self.training: # random bg for training
             bg_color = torch.rand(3, dtype=torch.float32, device=gaussians.device)
@@ -604,6 +624,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
             gaussians = fuse_splatters(splatters_to_render) # B, N, 14
             gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+
+            if self.opt.fancy_video or self.opt.render_video:
+                results['gaussians_LGM'] = gaussians
 
             results['images_pred_LGM'] = gs_results_LGM['image'] 
             results['alphas_pred_LGM'] = gs_results_LGM['alpha']
