@@ -244,6 +244,7 @@ class Options:
 
     save_cond: bool = False
     render_video: bool = False
+    lambda_splatter_lpips: float = 0.
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}

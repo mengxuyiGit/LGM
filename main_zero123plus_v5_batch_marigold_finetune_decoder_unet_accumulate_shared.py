@@ -370,8 +370,9 @@ def main():
                     loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss_splatter = out['loss_splatter'] if 'loss_splatter' in out.keys() else torch.zeros_like(out['loss_latent'])  # if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
-                    # print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent)
-                    lossback = loss + loss_latent + loss_splatter
+                    loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_latent'])
+                    # print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent, "loss_splatter_lpips", loss_splatter_lpips)
+                    lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
                     accelerator.backward(lossback)
 
                     # # debug
@@ -427,6 +428,7 @@ def main():
                     writer.add_scalar('train/psnr', psnr.item(), global_step)
                     writer.add_scalar('train/loss_latent', loss_latent.item(), global_step)
                     writer.add_scalar('train/loss_splatter', loss_splatter.item(), global_step)
+                    writer.add_scalar('train/loss_splatter_lpips', loss_splatter_lpips.item(), global_step)
                     if opt.log_each_attribute_loss:
                         for _attr in ordered_attr_list:
                             writer.add_scalar(f'train/loss_{_attr}',  out[f"loss_{_attr}"].detach().item(), global_step)
