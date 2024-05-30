@@ -256,6 +256,7 @@ def main():
                 else:
                     para.requires_grad = False
         else:
+            print("Training all layers of UNet")
             for name, para in model.unet.named_parameters():
                 parameters_list.append(para)
                 para.requires_grad = True
@@ -436,7 +437,7 @@ def main():
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
-                if global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
+                if not opt.skip_training and global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
                     accelerator.wait_for_everyone()
                     accelerator.save_model(model, opt.workspace)
                     # save a copy 
@@ -464,7 +465,7 @@ def main():
                         total_loss_lpips = 0
                         
                         print(f"Save to run dir: {opt.workspace}")
-                        num_samples_eval = 20
+                        num_samples_eval = 1
                         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval global_step {global_step}"):
                             if i > num_samples_eval:
                                 break
