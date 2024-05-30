@@ -68,7 +68,7 @@ def main():
     
     if opt.set_random_seed:
         # Set a manual seed for reproducibility
-        seed = 42
+        seed = 123
         torch.manual_seed(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -191,12 +191,16 @@ def main():
         
         state_dict = model.state_dict()
         for k, v in ckpt.items():
+            # print(k)
             if k in trained_unet_parameters:
                 print(f"Copying {k}")
                 state_dict[k].copy_(v)
             else:
                 if k not in state_dict:
                     accelerator.print(f"[WARN] Parameter {k} not found in model. ")
+                elif not k.startswith("unet"):
+                    # accelerator.print(f" Parameter {k} not a unet parameter. ")
+                    pass
                 elif v.shape == state_dict[k].shape:
                     assert opt.only_train_attention
                 else:
