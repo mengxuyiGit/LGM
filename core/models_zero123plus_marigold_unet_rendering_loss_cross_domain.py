@@ -6,6 +6,7 @@ import numpy as np
 import kiui
 from kiui.lpips import LPIPS
 from diffusers import DiffusionPipeline, DDPMScheduler
+import PIL
 from PIL import Image
 import einops
 
@@ -48,7 +49,8 @@ def to_rgb_image(maybe_rgba: Image.Image):
         return maybe_rgba
     elif maybe_rgba.mode == 'RGBA':
         rgba = maybe_rgba
-        img = np.random.randint(127, 128, size=[rgba.size[1], rgba.size[0], 3], dtype=np.uint8)
+        # img = np.random.randint(127, 128, size=[rgba.size[1], rgba.size[0], 3], dtype=np.uint8)
+        img = np.random.randint(255, 256, size=[rgba.size[1], rgba.size[0], 3], dtype=np.uint8)
         img = Image.fromarray(img, 'RGB')
         img.paste(rgba, mask=rgba.getchannel('A'))
         return img
@@ -349,7 +351,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
             # v-prediction with unet: (B A) 4 48 32
             # print(text_embeddings)
-            # st()
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
             # get v_target
@@ -407,9 +408,17 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         elif self.opt.inference_finetuned_unet:
             with torch.no_grad():
                 guidance_scale = self.opt.guidance_scale
-            
-                cond = data['cond']
-                # cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
+
+                inference_unseen = True
+                if inference_unseen:
+                    import requests
+                    # cond = to_rgb_image(Image.open(requests.get("https://d.skis.ltd/nrp/sample-data/lysol.png", stream=True).raw))
+                    # name = "lysol"
+                    cond = to_rgb_image(Image.open("/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/data_test/anya_rgba.png"))
+                else:
+                    cond = data['cond']
+                    # cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
+                
                 prompt_embeds, cak = self.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
                 prompt_embeds = torch.cat([prompt_embeds[0:1]]*gt_latents.shape[0] + [prompt_embeds[1:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
                 cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
@@ -568,8 +577,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
             if self.opt.save_cond:
                 # also save the cond image: cond 0-255, uint8
-                cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
-                Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
+                if isinstance(cond, PIL.Image.Image):
+                    cond.save(f'{save_path}/{prefix}cond.jpg')
+                else:
+                    cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
+                    Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
             
             
 
