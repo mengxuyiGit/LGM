@@ -290,7 +290,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
     
-        if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py", "./zero123plus/pipeline_v7_no_seq.py"]:
+        if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py", 
+                                        "./zero123plus/pipeline_v7_no_seq.py",
+                                        "./zero123plus/pipeline_v8_cat.py"]:
             gt_latents = latents_all_attr_encoded
         elif self.opt.custom_pipeline in ["./zero123plus/pipeline_v2.py"] and self.opt.train_unet_single_attr is not None:
             gt_latents = latents_all_attr_encoded
@@ -409,7 +411,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             with torch.no_grad():
                 guidance_scale = self.opt.guidance_scale
 
-                inference_unseen = True
+                inference_unseen = False
                 if inference_unseen:
                     import requests
                     # cond = to_rgb_image(Image.open(requests.get("https://d.skis.ltd/nrp/sample-data/lysol.png", stream=True).raw))
