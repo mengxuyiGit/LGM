@@ -41,10 +41,18 @@ class MVAttention(nn.Module):
 
         res = x
         x = self.norm(x)
-
-        x = x.reshape(B, self.num_frames, C, H, W).permute(0, 1, 3, 4, 2).reshape(B, -1, C)
-        x = self.attn(x)
-        x = x.reshape(B, self.num_frames, H, W, C).permute(0, 1, 4, 2, 3).reshape(BV, C, H, W)
+        
+        if B==0:
+            B=1
+            num_frames = 4
+            x = x.reshape(B, num_frames, C, H, W).permute(0, 1, 3, 4, 2).reshape(B, -1, C)
+            x = self.attn(x)
+            x = x.reshape(B, num_frames, H, W, C).permute(0, 1, 4, 2, 3).reshape(BV, C, H, W)
+        
+        else:
+            x = x.reshape(B, self.num_frames, C, H, W).permute(0, 1, 3, 4, 2).reshape(B, -1, C)
+            x = self.attn(x)
+            x = x.reshape(B, self.num_frames, H, W, C).permute(0, 1, 4, 2, 3).reshape(BV, C, H, W)
 
         if self.residual:
             x = (x + res) * self.skip_scale

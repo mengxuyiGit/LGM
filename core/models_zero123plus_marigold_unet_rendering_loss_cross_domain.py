@@ -426,7 +426,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
                 
                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
-                self.pipe.scheduler.set_timesteps(75, device='cuda:0')
+                self.pipe.scheduler.set_timesteps(30, device='cuda:0')
                 
                 timesteps = self.pipe.scheduler.timesteps
                 debug = False

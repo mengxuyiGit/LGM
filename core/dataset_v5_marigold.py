@@ -281,6 +281,8 @@ class ObjaverseDataset(Dataset):
             vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 56).tolist()
 
         cond_path = os.path.join(uid, f'000.png')
+        # cond = to_rgb_image(Image.open("/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/data_test/anya_rgba.png"))
+        # cond_path = "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/data_test/anya_rgba.png"
         from PIL import Image
         cond = np.array(Image.open(cond_path).resize((self.opt.input_size, self.opt.input_size)))
         # print(f"cond size:{Image.open(cond_path)}")
@@ -310,6 +312,7 @@ class ObjaverseDataset(Dataset):
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
+            # print(f"{vid} - elevation: {cam['elevation']}, azimuth: {cam['azimuth']}")
             c2w = orbit_camera(-cam['elevation'], cam['azimuth'], radius=cam['radius'])
             c2w = torch.from_numpy(c2w)
             c2w[:3, 3] *= 1.5 / self.opt.cam_radius  # 1.5 is the default scale

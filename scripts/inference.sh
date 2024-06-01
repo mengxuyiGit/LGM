@@ -7,6 +7,8 @@ DATA_DIR_BATCH_SPLATTER_GT_ROOT_FIX_ROT="/mnt/kostas-graid/sw/envs/xuyimeng/Repo
 DATA_DIR_BATCH_RENDERING_SRN='/home/xuyimeng/Data/SRN/srn_cars/cars_train'
 DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN_HQ='/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/LGM_optimize_splatter/optimize'
 
+DATA_RENDERING_ROOT_LVIS_1K_CLUSTER=/home/chenwang/data/lvis_dataset/testing/40000-40999
+
 # python infer.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test/0123 \
 #     --test_path ${DATA_DIR_BATCH_RENDERING}/ffb0d644238b4c679658aa0ee46ac6da
 
@@ -14,6 +16,11 @@ DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN_HQ='/mnt/kostas-graid/sw/envs/xuyimeng/Repo/
 # python infer_zero123plus.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test/0123/srn_car_yellow_front \
 #     --test_path ${DATA_DIR_BATCH_RENDERING}/ffb0d644238b4c679658aa0ee46ac6da \
 #     --num_input_views 6 --model_type LGM
+
+
+python infer_zero123plus.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test/0123/srn_car_yellow_front \
+    --test_path ${DATA_RENDERING_ROOT_LVIS_1K_CLUSTER}/0032696f5871429fbd0549d9628f812c \
+    --num_input_views 6 --model_type LGM --fancy_video
 
 
 # python infer_cw.py big --resume pretrained/model_fp16.safetensors --workspace workspace_test/cw \
@@ -286,25 +293,25 @@ DATA_DIR_BATCH_SPLATTER_GT_ROOT_SRN_HQ='/mnt/kostas-graid/sw/envs/xuyimeng/Repo/
 #     # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_inference/wrong-order-2steps-20240510-183300-sqeuence-cat-train-epoch100-30steps-vae_on_splatter_image-codes_from_diffusion-loss_render1.0_lpips1.0-lr0.006-Plat/zero123plus/outputs_v3_inference_my_decoder/5_02690cf0a24e49499b44fb4cb4dd3e68/0/opacity_decoded.png"
 #     # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240515-marigold-unet-v7_seq-only-train-attn-v-pred-white-bg-unified-t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_100/model.safetensors"
   
-accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v7_fake_init_optimize_splatter_inference_finetuned.py big --workspace runs/marigold_unet/workspace_CD_inference \
-    --lr 6e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
-    --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
-    --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'SCHEDULE-LR-dev_cleanCodeForZero1toG-weight_t-pos-embed-sqeuence-cat-train-epoch280-30steps' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
-    --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
-    --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
-    --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
-    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
-    --decoder_upblocks_interpolate_mode "last_layer" \
-    --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
-    --output_size 128 --input_size 128 \
-    --optimization_objective "splatter_images" --attr_group_mode "v5" \
-    --scene_start_index 5  --scene_end_index 100 \
-    --load_suffix "to_encode" --load_ext "png" --load_iter 1000 \
-    --custom_pipeline "./zero123plus/pipeline_v7_seq.py" \
-    --resume "runs/marigold_unet/workspace_CD_train/20240520-SCHEDULE-LR-Attn-only_attn-rendering_w_t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_280/model.safetensors"
-    # --resume "runs/marigold_unet/workspace_CD_train/20240519-LARGE-LR-Attn-only_attn-rendering_w_t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_300/model.safetensors"
-    # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240518-8gpus-marigold-unet-v7_seq-POS-EMBED-resume160-rendering_loss_weight_alpha^2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_200/model.safetensors"
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v4_batch_code_inference_marigold_v7_fake_init_optimize_splatter_inference_finetuned.py big --workspace runs/marigold_unet/workspace_CD_inference \
+#     --lr 6e-3 --num_epochs 301 --eval_iter 5 --save_iter 5 --lr_scheduler Plat --lr_scheduler_patience 100 --lr_scheduler_factor 0.7 \
+#     --prob_cam_jitter 0 --num_input_views 6 --num_views 55 \
+#     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'SCHEDULE-LR-dev_cleanCodeForZero1toG-weight_t-pos-embed-sqeuence-cat-train-epoch280-30steps' --data_path_rendering ${DATA_DIR_BATCH_RENDERING} --data_path_splatter_gt ${DATA_DIR_BATCH_SPLATTER_GT_ROOT} \
+#     --set_random_seed --batch_size 1 --num_workers 1 --plot_attribute_histgram 'scale' \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 --model_type Zero123PlusGaussianCode \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" \
+#     --codes_from_diffusion --vae_on_splatter_image --group_scale --render_input_views \
+#     --output_size 128 --input_size 128 \
+#     --optimization_objective "splatter_images" --attr_group_mode "v5" \
+#     --scene_start_index 5  --scene_end_index 100 \
+#     --load_suffix "to_encode" --load_ext "png" --load_iter 1000 \
+#     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" \
+#     --resume "runs/marigold_unet/workspace_CD_train/20240520-SCHEDULE-LR-Attn-only_attn-rendering_w_t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_280/model.safetensors"
+#     # --resume "runs/marigold_unet/workspace_CD_train/20240519-LARGE-LR-Attn-only_attn-rendering_w_t-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_300/model.safetensors"
+#     # --resume "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/marigold_unet/workspace_CD_train/20240518-8gpus-marigold-unet-v7_seq-POS-EMBED-resume160-rendering_loss_weight_alpha^2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_lpips1.0-lr0.0001-Plat5/eval_epoch_200/model.safetensors"
 
 
 # # [MAY 07]
