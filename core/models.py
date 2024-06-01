@@ -42,7 +42,9 @@ class LGM(nn.Module):
         self.pos_act = lambda x: x.clamp(-1, 1)
         self.scale_act = lambda x: 0.1 * F.softplus(x)
         self.opacity_act = lambda x: torch.sigmoid(x)
-        self.rot_act = F.normalize
+        # self.rot_act = F.normalize
+        print("Fixed the rot")
+        self.rot_act = lambda x: F.normalize(x, dim=-1)
         self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
 
         # LPIPS loss
@@ -61,7 +63,7 @@ class LGM(nn.Module):
         return state_dict
 
 
-    def prepare_default_rays(self, device, elevation=0):
+    def prepare_default_rays(self, device, elevation=0, normalize_to_elevation_30=False):
         
         from kiui.cam import orbit_camera
         from core.utils import get_rays
@@ -73,14 +75,21 @@ class LGM(nn.Module):
             orbit_camera(elevation, 270, radius=self.opt.cam_radius),
         ], axis=0) # [4, 4, 4]
         cam_poses = torch.from_numpy(cam_poses)
+        
+        if normalize_to_elevation_30:
+            # normalized camera feats as in paper (transform the first pose to a fixed position)
+            cam_poses_0 = torch.tensor(orbit_camera(-30, 316, radius=self.opt.cam_radius))
+            transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses_0)
+            cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
 
         rays_embeddings = []
         for i in range(cam_poses.shape[0]):
-            rays_o, rays_d = get_rays(cam_poses[i], self.opt.input_size, self.opt.input_size, self.opt.fovy) # [h, w, 3]
+            # rays_o, rays_d = get_rays(cam_poses[i], self.opt.input_size, self.opt.input_size, self.opt.fovy) # [h, w, 3]
+            rays_o, rays_d = get_rays(cam_poses[i], 256, 256, self.opt.fovy) # [h, w, 3]
             rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
             rays_embeddings.append(rays_plucker)
 
-            ## visualize rays for plotting figure
+                      ## visualize rays for plotting figure
             # kiui.vis.plot_image(rays_d * 0.5 + 0.5, save=True)
 
         rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous().to(device) # [V, 6, h, w]
@@ -94,12 +103,11 @@ class LGM(nn.Module):
 
         B, V, C, H, W = images.shape
         images = images.view(B*V, C, H, W)
-
+    
         x = self.unet(images) # [B*4, 14, h, w]
         x = self.conv(x) # [B*4, 14, h, w]
-        st()
 
-        x = x.reshape(B, 6, 14, self.opt.splat_size, self.opt.splat_size) # 4 -> 6 on the 2nd dim
+        x = x.reshape(B, 4, 14, self.opt.splat_size, self.opt.splat_size) # 4 -> 6 on the 2nd dim
         
         ## visualize multi-view gaussian features for plotting figure
         # tmp_alpha = self.opacity_act(x[0, :, 3:4])

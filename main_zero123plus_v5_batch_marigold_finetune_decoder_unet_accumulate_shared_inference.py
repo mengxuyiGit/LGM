@@ -37,6 +37,10 @@ logger = get_logger(__name__, log_level="INFO")
 from utils.format_helper import get_workspace_name
 from utils.io_helper import print_grad_status
 
+import einops, rembg
+from PIL import Image
+from kiui.op import recenter
+
 def store_initial_weights(model):
     """Stores the initial weights of the model for later comparison."""
     initial_weights = {}
@@ -68,7 +72,7 @@ def main():
     
     if opt.set_random_seed:
         # Set a manual seed for reproducibility
-        seed = 123
+        seed = 42
         torch.manual_seed(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -238,6 +242,91 @@ def main():
         model, test_dataloader 
     )
 
+    ## load LGM model for inference
+    if opt.render_lgm_infer is not None:
+        
+        ## helpers
+        from torchvision import transforms
+        import torchvision.transforms.functional as TF
+        IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+        IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
+
+        # Normalization typically required for pre-trained models
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                        std=[0.229, 0.224, 0.225])
+        # Combine ToTensor and Normalize transformations
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            # normalize
+        ])
+        
+        from kiui.cam import orbit_camera
+        from core.utils import get_rays
+            
+        def prepare_default_rays( device, elevation, azimuth):
+            cams = [orbit_camera(ele, azi, radius=opt.cam_radius) for (ele, azi) in zip(elevation, azimuth)]
+            cam_poses = np.stack(cams, axis=0)
+            cam_poses = torch.from_numpy(cam_poses)
+            
+            # normalized camera feats as in paper (transform the first pose to a fixed position)
+            transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
+            cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+
+            rays_embeddings = []
+            for i in range(cam_poses.shape[0]):
+                # rays_o, rays_d = get_rays(cam_poses[i], opt.input_size, opt.input_size, opt.fovy) # [h, w, 3]
+                rays_o, rays_d = get_rays(cam_poses[i],256, 256, opt.fovy) # [h, w, 3]
+                rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
+                rays_embeddings.append(rays_plucker)
+                
+            rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous().to(device) # [V, 6, h, w]
+            return rays_embeddings
+        
+        ckpt = load_file("pretrained/model_fp16.safetensors", device='cpu')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # load either zerpo123++ or mvdream
+        if "zero123++" in opt.render_lgm_infer:
+            # load lgm
+            from core.models_fix_pretrained import LGM
+            lgm_model = LGM(opt)
+            lgm_model.load_state_dict(ckpt, strict=False)
+            print(f'[INFO] Loaded checkpoint from {opt.resume}')
+            lgm_model = lgm_model.half().to(device)
+            lgm_model.eval()
+            
+            from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
+            pipe = DiffusionPipeline.from_pretrained(
+                "sudo-ai/zero123plus-v1.1", custom_pipeline="sudo-ai/zero123plus-pipeline",
+                torch_dtype=torch.float16
+            )
+            pipe.to('cuda:0')
+            pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+                pipe.scheduler.config, timestep_spacing='trailing'
+            )
+            pipe.prepare()
+            guidance_scale = opt.guidance_scale
+         
+        if "mvdream" in opt.render_lgm_infer:
+            from core.models import LGM as LGM2
+            lgm_model_mv = LGM2(opt)
+            lgm_model_mv.load_state_dict(ckpt, strict=False)
+            print(f'[INFO] Loaded checkpoint from {opt.resume}')
+            lgm_model_mv = lgm_model_mv.half().to(device)
+            lgm_model_mv.eval()
+            
+            rays_embeddings_mvdream = lgm_model_mv.prepare_default_rays(device, normalize_to_elevation_30=True)
+            
+            # load image dream
+            from mvdream.pipeline_mvdream import MVDreamPipeline
+            pipe_mv = MVDreamPipeline.from_pretrained(
+                "ashawkey/imagedream-ipmv-diffusers", # remote weights
+                torch_dtype=torch.float16,
+                trust_remote_code=True,
+                # local_files_only=True,
+            )
+            pipe_mv = pipe_mv.to(device)
+           
+
     # loop
     # with torch.autograd.profiler.profile(use_cuda=True, record_shapes=True, profile_memory=True) as prof
     with torch.no_grad():  
@@ -297,39 +386,82 @@ def main():
             # save some images
             # if True:
             if opt.train_unet_single_attr is None:
-                # gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                # gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
-                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
-
-                # pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-
-                # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
-                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
-                
-                # # also render the LGM inferenced splatter 
-                # pred_images = out['images_pred_LGM'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_pred.jpg', pred_images)
-                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_pred_LGM.jpg', pred_images)
-
-                # pred_alphas = out['alphas_pred_LGM'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                # # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
-                # kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_image_alpha_LGM.jpg', pred_alphas)
-
-                
                 # 5-in-1
                 five_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], out['alphas_pred_LGM'].repeat(1,1,3,1,1), out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
                 gt_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                 gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                 kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_Ugt_Mlgm_Dpred.jpg', gt_images)
 
+                # add lgm infer gaussian 
+                if opt.render_lgm_infer:
+                    cond_save = einops.rearrange(data["cond"], "b h w c -> (b h) w c")
+                    if "zero123++" in opt.render_lgm_infer:
+                        result = pipe(Image.fromarray(cond_save.cpu().numpy()), num_inference_steps=30).images[0]
+                        result.save(f"{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_zero123plus.png")
+                    
+                        image = transform(result) # 3, 960, 640
+                        mv_image = einops.rearrange((image.clip(0,1)).cpu().numpy()*255, 'c (h2 h) (w2 w)-> (h2 w2) h w c', h2=3, w2=2).astype(np.uint8)
+                        
+                        # rembg
+                        mv_image_no_bg = rembg.remove(einops.rearrange(mv_image, 'b h w c -> h (b w) c')) 
+                        mask = mv_image_no_bg[..., -1] > 0
+
+                        # recenter
+                        image = recenter(mv_image_no_bg, mask, border_ratio=0.2)
+                        
+                        # generate mv
+                        image = mv_image_no_bg.astype(np.float32) / 255.0
+
+                        # rgba to rgb white bg
+                        if image.shape[-1] == 4:
+                            image = image[..., :3] * image[..., 3:4] + (1 - image[..., 3:4])
+                        
+                        mv_image = einops.rearrange(image, 'h (b w) c -> b h w c', b=6)
+                        kiui.write_image(f"{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_lgm_input_zero123plus.png", einops.rearrange(mv_image, 'b h w c -> h (b w) c'))
+
+                        elevations = [-30, 20, -30, 20, -30, 20]
+                        azimuths = [316, 16, 76, 136, 196, 256]
+
+                        # generate gaussians
+                        input_image = torch.from_numpy(mv_image).permute(0, 3, 1, 2).float().to(device) # [4, 3, 256, 256]
+                        # input_image = F.interpolate(input_image, size=(opt.input_size, opt.input_size), mode='bilinear', align_corners=False)
+                        input_image = F.interpolate(input_image, size=(256, 256), mode='bilinear', align_corners=False)
+                        input_image = TF.normalize(input_image, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+                    
+                        rays_embeddings = prepare_default_rays(device, elevations[:6], azimuths[:6])
+                        input_image = torch.cat([input_image, rays_embeddings], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
+
+                        with torch.autocast(device_type='cuda', dtype=torch.float16):
+                            # generate gaussians
+                            gaussians = lgm_model.forward_gaussians(input_image)
+                        out[f"gaussians_LGM_infer_zero123++"] = gaussians
+                        lgm_model.clear_splatter_out()
+                    
+                    if "mvdream" in opt.render_lgm_infer:
+                        mvdream_input = cond_save.cpu().numpy().astype(np.float32) / 255.0
+                    
+                        mv_image = pipe_mv('', mvdream_input, guidance_scale=4.0, num_inference_steps=30, elevation=0)
+                        mv_image = np.stack([mv_image[1], mv_image[2], mv_image[3], mv_image[0]], axis=0) # [4, 256, 256, 3], float32
+                        save_mv_image = True
+                        if save_mv_image:
+                            images_array_scaled = (mv_image * 255).astype('uint8')
+                            images_array_scaled = einops.rearrange(images_array_scaled, "(m n) h w c -> (m h) (n w) c", m=2, n=2)
+
+                            _im_name = os.path.join(opt.workspace, f"eval_inference/{accelerator.process_index}_{i}_lgm_input_mvdream.png")
+                            Image.fromarray(images_array_scaled).save(_im_name)
+                    
+                        # generate gaussians
+                        input_image = torch.from_numpy(mv_image).permute(0, 3, 1, 2).float().to(device) # [4, 3, 256, 256]
+                        input_image = F.interpolate(input_image, size=(256, 256), mode='bilinear', align_corners=False)
+                        # input_image = F.interpolate(input_image, size=(opt.input_size, opt.input_size), mode='bilinear', align_corners=False)
+                        input_image = TF.normalize(input_image, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+
+                        input_image = torch.cat([input_image, rays_embeddings_mvdream], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
+                        with torch.autocast(device_type='cuda', dtype=torch.float16):
+                            # generate gaussians
+                            gaussians = lgm_model_mv.forward_gaussians(input_image)
+                        out[f"gaussians_LGM_infer_mvdream"] = gaussians
+        
                 # render 360 video 
                 if opt.fancy_video or opt.render_video:
                     
@@ -344,11 +476,11 @@ def main():
                     proj_matrix[2, 3] = 1
                     
                     images_dict = {}
-                    for key in ["gaussians_LGM", "gaussians_pred"]:
+                    gaussian_key_list = ["gaussians_LGM", "gaussians_pred", "gaussians_LGM_infer_zero123++", "gaussians_LGM_infer_mvdream"]
+                    for key in gaussian_key_list:
                         gaussians = out[key]
                         images = []
                         elevation = 0
-                        
 
                         if opt.fancy_video:
 
@@ -356,7 +488,6 @@ def main():
                             for azi in tqdm(azimuth):
                                 
                                 cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
-
                                 cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
                                 
                                 # cameras needed by gaussian rasterizer
@@ -395,7 +526,7 @@ def main():
                         # imageio.mimwrite(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_video_{key.replace("gaussians_", "")}.mp4', images, fps=30)
                     
                     # save all four videos in a row
-                    images = np.concatenate([images_dict[key] for key in ["gaussians_LGM", "gaussians_pred"]], axis=2) # cat on width
+                    images = np.concatenate([images_dict[key] for key in gaussian_key_list], axis=2) # cat on width
                     imageio.mimwrite(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_video_LGM_pred.mp4', images, fps=30)
                 
                 
