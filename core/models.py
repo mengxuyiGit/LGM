@@ -78,7 +78,7 @@ class LGM(nn.Module):
         
         if normalize_to_elevation_30:
             # normalized camera feats as in paper (transform the first pose to a fixed position)
-            cam_poses_0 = torch.tensor(orbit_camera(-30, 316, radius=self.opt.cam_radius))
+            cam_poses_0 = torch.tensor(orbit_camera(-30, 30, radius=self.opt.cam_radius))
             transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses_0)
             cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
 

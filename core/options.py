@@ -246,6 +246,7 @@ class Options:
     render_video: bool = False
     lambda_splatter_lpips: float = 0.
     render_lgm_infer: Optional[Tuple[str, ...]] = None
+    metric_GSO: bool = False
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}
