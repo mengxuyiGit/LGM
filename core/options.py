@@ -248,6 +248,9 @@ class Options:
     render_lgm_infer: Optional[Tuple[str, ...]] = None
     metric_GSO: bool = False
 
+    
+    decoder_with_domain_embedding: bool = False
+
 # all the default settings
 config_defaults: Dict[str, Options] = {}
 config_doc: Dict[str, str] = {}

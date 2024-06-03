@@ -171,6 +171,20 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         self.pipe.prepare() 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
+
+        if self.opt.decoder_with_domain_embedding:
+            # # change the conv_in dim to 5
+            # new_conv_in = nn.Conv2d(5,512,3, padding=(1,1)).requires_grad_(False)
+            # new_conv_in.weight[:,:4].copy_(self.pipe.vae.decoder.conv_in.weight)
+            # self.pipe.vae.decoder.conv_in = new_conv_in
+            # # post_quant_conv
+            # new_post_quant_conv = nn.Conv2d(5,5,1, padding=(1,1)).requires_grad_(False)
+            # new_post_quant_conv.weight[:4,:4].copy_(self.pipe.vae.post_quant_conv.weight)
+            # self.pipe.vae.post_quant_conv = new_post_quant_conv
+            
+            # init learnable embeddings for decoder
+            # self.decoder_domain_embedding = nn.Parameter(torch.randn(5,16,16))
+            self.decoder_domain_embedding = nn.Parameter(torch.zeros(5,16,16))
     
        
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
@@ -309,6 +323,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.finetune_decoder:
             latents_all_attr_to_decode = gt_latents
             _rendering_w_t = 1
+            
+            if self.opt.decoder_with_domain_embedding:
+                decoder_domain_embedding = self.decoder_domain_embedding.unsqueeze(1).repeat(1,6,1,1)
+                decoder_domain_embedding = einops.rearrange(decoder_domain_embedding, "b (m n) h w -> b 1 (m h) (n w)", m=3, n=2)
+                # latents_all_attr_to_decode = torch.cat([latents_all_attr_to_decode, decoder_domain_embedding], dim=1)
+                latents_all_attr_to_decode = latents_all_attr_to_decode + decoder_domain_embedding
+                
 
         elif self.opt.train_unet:
             # print('Doing unet prediction')
@@ -519,15 +540,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         results["loss_splatter"] = loss_splatter 
         # print("loss splatter: ", loss_splatter)
         if self.opt.lambda_splatter_lpips > 0:
-            # loss_splatter_lpips = 0
-            # for _images_all_attr_batch, _image_all_attr_to_decode in zip(images_all_attr_batch, image_all_attr_to_decode):
-            #     _loss_splatter_lpips = self.lpips_loss(
-            #         _images_all_attr_batch[None], # gt, alr in [-1,1]
-            #         _image_all_attr_to_decode[None], # pred, alr in [-1,1]
-            #     ).mean()
-            #     loss_splatter_lpips += _loss_splatter_lpips
-            # results['loss_splatter_lpips'] = loss_splatter_lpips
-            
             loss_splatter_lpips = self.lpips_loss(
                 images_all_attr_batch, # gt, alr in [-1,1]
                 image_all_attr_to_decode, # pred, alr in [-1,1]
