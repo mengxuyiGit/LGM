@@ -213,6 +213,7 @@ def main():
         print("Finish loading trained unet.")
     
     torch.cuda.empty_cache()
+
     
     train_dataset = Dataset(opt, training=True)
     train_dataloader = torch.utils.data.DataLoader(
@@ -427,7 +428,6 @@ def main():
                         # input_image = F.interpolate(input_image, size=(opt.input_size, opt.input_size), mode='bilinear', align_corners=False)
                         input_image = F.interpolate(input_image, size=(256, 256), mode='bilinear', align_corners=False)
                         input_image = TF.normalize(input_image, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
-                    
                         rays_embeddings = prepare_default_rays(device, elevations[:6], azimuths[:6])
                         input_image = torch.cat([input_image, rays_embeddings], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
 
@@ -439,14 +439,12 @@ def main():
                     
                     if "mvdream" in opt.render_lgm_infer:
                         mvdream_input = cond_save.cpu().numpy().astype(np.float32) / 255.0
-                    
                         mv_image = pipe_mv('', mvdream_input, guidance_scale=4.0, num_inference_steps=30, elevation=0)
                         mv_image = np.stack([mv_image[1], mv_image[2], mv_image[3], mv_image[0]], axis=0) # [4, 256, 256, 3], float32
                         save_mv_image = True
                         if save_mv_image:
                             images_array_scaled = (mv_image * 255).astype('uint8')
                             images_array_scaled = einops.rearrange(images_array_scaled, "(m n) h w c -> (m h) (n w) c", m=2, n=2)
-
                             _im_name = os.path.join(opt.workspace, f"eval_inference/{accelerator.process_index}_{i}_lgm_input_mvdream.png")
                             Image.fromarray(images_array_scaled).save(_im_name)
                     
@@ -455,7 +453,6 @@ def main():
                         input_image = F.interpolate(input_image, size=(256, 256), mode='bilinear', align_corners=False)
                         # input_image = F.interpolate(input_image, size=(opt.input_size, opt.input_size), mode='bilinear', align_corners=False)
                         input_image = TF.normalize(input_image, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
-
                         input_image = torch.cat([input_image, rays_embeddings_mvdream], dim=1).unsqueeze(0) # [1, 4, 9, H, W]
                         with torch.autocast(device_type='cuda', dtype=torch.float16):
                             # generate gaussians
@@ -483,47 +480,34 @@ def main():
                         elevation = 0
 
                         if opt.fancy_video:
-
                             azimuth = np.arange(0, 720, 4, dtype=np.int32)
                             for azi in tqdm(azimuth):
-                                
                                 cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
                                 cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
-                                
                                 # cameras needed by gaussian rasterizer
                                 cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
                                 cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
                                 cam_pos = - cam_poses[:, :3, 3] # [V, 3]
-
-                                
                                 scale = min(azi / 360, 1)
                                 image = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=scale)['image']
-
-                                
                                 images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+
                         elif opt.render_video:
                             azimuth = np.arange(0, 360, 2, dtype=np.int32)
                             for azi in tqdm(azimuth):
-                                
                                 cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
-
                                 cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
-                                
                                 # cameras needed by gaussian rasterizer
                                 cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
                                 cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
                                 cam_pos = - cam_poses[:, :3, 3] # [V, 3]
-
                                 image = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=1)['image']
                                 # additional video to vis pts pos
                                 image_pos = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=4/360)['image']
                                 image = torch.cat([image, image_pos], dim=-1)
-                                
                                 images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
 
                         images_dict[key] = np.concatenate(images, axis=0)
-                        # images = np.concatenate(images, axis=0)
-                        # imageio.mimwrite(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_video_{key.replace("gaussians_", "")}.mp4', images, fps=30)
                     
                     # save all four videos in a row
                     images = np.concatenate([images_dict[key] for key in gaussian_key_list], axis=2) # cat on width
