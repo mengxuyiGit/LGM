@@ -205,6 +205,10 @@ def main():
         for name, para in model.vae.decoder.named_parameters():
             parameters_list.append(para)
             para.requires_grad = True
+        
+        if opt.decoder_with_domain_embedding:
+            parameters_list.append(model.decoder_domain_embedding)
+            model.decoder_domain_embedding.requires_grad = True
        
         
     elif opt.train_unet:
@@ -411,7 +415,7 @@ def main():
                         total_loss_lpips = 0
                         
                         print(f"Save to run dir: {opt.workspace}")
-                        num_samples_eval = 20
+                        num_samples_eval = 2
                         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval global_step {global_step}"):
                             if i > num_samples_eval:
                                 break
