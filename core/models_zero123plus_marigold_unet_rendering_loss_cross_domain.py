@@ -221,9 +221,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         self.rot_act = F.normalize
        
         # LPIPS loss
-        if self.opt.lambda_lpips > 0:
-            self.lpips_loss = LPIPS(net='vgg')
-            self.lpips_loss.requires_grad_(False)
+        # if self.opt.lambda_lpips > 0:
+        self.lpips_loss = LPIPS(net='vgg')
+        self.lpips_loss.requires_grad_(False)
         
 
         # with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
@@ -326,9 +326,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             if self.opt.decoder_with_domain_embedding:
                 decoder_domain_embedding = self.decoder_domain_embedding.unsqueeze(1).repeat(1,6,1,1)
-                decoder_domain_embedding = einops.rearrange(decoder_domain_embedding, "b (m n) h w -> b 1 (m h) (n w)", m=3, n=2)
+                decoder_domain_embedding = einops.rearrange(decoder_domain_embedding, "a (m n) h w -> a 1 (m h) (n w)", m=3, n=2)
                 # latents_all_attr_to_decode = torch.cat([latents_all_attr_to_decode, decoder_domain_embedding], dim=1)
-                latents_all_attr_to_decode = latents_all_attr_to_decode + decoder_domain_embedding
+                latents_all_attr_to_decode = latents_all_attr_to_decode + decoder_domain_embedding.repeat(B,1,1,1)
                 
 
         elif self.opt.train_unet:
@@ -698,7 +698,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         ## ------- end render ----------
 
        
-        if self.opt.lambda_rendering > 0:
+        # if self.opt.lambda_rendering > 0:
+        if True:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
             loss_mse_rendering *= _rendering_w_t
             results['loss_rendering'] = loss_mse_rendering
@@ -715,7 +716,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             if self.opt.verbose_main:
                 print(f"loss alpha:{loss_mse_alpha}")
             
-        if self.opt.lambda_lpips > 0:
+        # if self.opt.lambda_lpips > 0:
+        if True:
             loss_lpips = self.lpips_loss(
                 # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
                 # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
