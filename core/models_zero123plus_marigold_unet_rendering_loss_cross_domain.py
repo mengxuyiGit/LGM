@@ -184,7 +184,21 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             # init learnable embeddings for decoder
             # self.decoder_domain_embedding = nn.Parameter(torch.randn(5,16,16))
-            self.decoder_domain_embedding = nn.Parameter(torch.zeros(5,16,16))
+            if self.opt.decoder_domain_embedding_mode == "learnable":
+                self.decoder_domain_embedding = nn.Parameter(torch.zeros(5,16,16))
+            elif self.opt.decoder_domain_embedding_mode == "sincos":
+                # add pos embedding on domain embedding
+                one_hot = torch.eye(5)
+                sin_cos = torch.cat([
+                        torch.sin(one_hot),
+                        torch.cos(one_hot)
+                    ], dim=-1)
+                sin_cos *= 0.1
+                padded_e = F.pad(sin_cos,(3,3,0,0))  # 5, 16
+                sqr_e = einops.rearrange(padded_e, "b (h w) -> b h w", h=4, w=4)  # 5,4,4
+                repeat_e = sqr_e.repeat(1,4,4)
+                self.register_buffer("decoder_domain_embedding", repeat_e)
+                # self.decoder_domain_embedding = repeat_e
     
        
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
@@ -277,8 +291,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
       
         # encoder input: all the splatter attr pngs 
         images_all_attr_list = []
-        if self.opt.train_unet_single_attr is not None:
+        if self.opt.train_unet and self.opt.train_unet_single_attr is not None:
             ordered_attr_list_local = self.opt.train_unet_single_attr
+        # elif self.opt.finetune_decoder and self.opt.finetune_decoder_single_attr is not None:
+        #     ordered_attr_list_local = self.opt.finetune_decoder_single_attr
         else:
             ordered_attr_list_local = ordered_attr_list
             
