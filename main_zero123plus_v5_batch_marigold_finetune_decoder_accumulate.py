@@ -157,7 +157,15 @@ def main():
         # Prepare a set of parpameters that requires_grad=True in decoder
         trainable_decoder_params = set(f"vae.decoder.{name}" for name, para in model.vae.decoder.named_parameters())
         # checked: this set is equal to check with model.vae.decoder.named_parameters(), whether dupplicate names
-        
+        if opt.decoder_with_domain_embedding:
+            if opt.decoder_domain_embedding_mode == "learnable":
+                trainable_decoder_params.add("decoder_domain_embedding")
+            elif opt.decoder_domain_embedding_mode == "mlp":
+                for name, para in model.decoder_emb_mlp.named_parameters():
+                    trainable_decoder_params.append(f"decoder_emb_mlp.{name}")
+            else:
+                raise NotImplementedError
+            
         state_dict = model.state_dict()
         for k, v in ckpt.items():
             if k in trainable_decoder_params:
@@ -169,8 +177,7 @@ def main():
                         accelerator.print(f'[WARN] Parameter {k} not found in model.')
                     else:
                         accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
-    # if 
-    
+  
     torch.cuda.empty_cache()
     
     train_dataset = Dataset(opt, training=True)
@@ -206,10 +213,13 @@ def main():
             parameters_list.append(para)
             para.requires_grad = True
         
-        if opt.decoder_with_domain_embedding:
+        if opt.decoder_with_domain_embedding and opt.decoder_domain_embedding_mode == "learnable":
             parameters_list.append(model.decoder_domain_embedding)
             model.decoder_domain_embedding.requires_grad = True
-       
+        elif opt.decoder_with_domain_embedding and opt.decoder_domain_embedding_mode == "mlp":
+            for name, para in model.decoder_emb_mlp.named_parameters():
+                parameters_list.append(para)
+                para.requires_grad = True
         
     elif opt.train_unet:
         # print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_before.txt")
@@ -387,7 +397,7 @@ def main():
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
-                if global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
+                if global_step > 0 and global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
                     accelerator.wait_for_everyone()
                     accelerator.save_model(model, opt.workspace)
                     # save a copy 

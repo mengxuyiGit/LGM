@@ -199,7 +199,15 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 repeat_e = sqr_e.repeat(1,4,4)
                 self.register_buffer("decoder_domain_embedding", repeat_e)
                 # self.decoder_domain_embedding = repeat_e
-    
+            elif self.opt.decoder_domain_embedding_mode == "mlp":
+                # # add pos embedding on domain embedding
+                # one_hot = torch.eye(5)
+                # sin_cos = torch.cat([
+                #         torch.sin(one_hot),
+                #         torch.cos(one_hot)
+                #     ], dim=-1)
+                self.decoder_emb_mlp = torch.nn.Linear(10,16**2)
+                
        
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000
     
@@ -293,8 +301,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         images_all_attr_list = []
         if self.opt.train_unet and self.opt.train_unet_single_attr is not None:
             ordered_attr_list_local = self.opt.train_unet_single_attr
-        # elif self.opt.finetune_decoder and self.opt.finetune_decoder_single_attr is not None:
-        #     ordered_attr_list_local = self.opt.finetune_decoder_single_attr
+        elif self.opt.finetune_decoder and self.opt.finetune_decoder_single_attr is not None:
+            ordered_attr_list_local = self.opt.finetune_decoder_single_attr
         else:
             ordered_attr_list_local = ordered_attr_list
             
@@ -341,11 +349,21 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             _rendering_w_t = 1
             
             if self.opt.decoder_with_domain_embedding:
-                decoder_domain_embedding = self.decoder_domain_embedding.unsqueeze(1).repeat(1,6,1,1)
+                if self.opt.decoder_domain_embedding_mode == "mlp":
+                    one_hot = torch.eye(5)
+                    sin_cos = torch.cat([
+                            torch.sin(one_hot),
+                            torch.cos(one_hot)
+                        ], dim=-1).to(gt_latents.device)
+                    decoder_domain_embedding = self.decoder_emb_mlp(sin_cos)
+                    decoder_domain_embedding = einops.rearrange(decoder_domain_embedding, "a (h w) -> a h w", h=16, w=16)
+                else:
+                    decoder_domain_embedding = self.decoder_domain_embedding
+                
+                decoder_domain_embedding = decoder_domain_embedding.unsqueeze(1).repeat(1,6,1,1)
                 decoder_domain_embedding = einops.rearrange(decoder_domain_embedding, "a (m n) h w -> a 1 (m h) (n w)", m=3, n=2)
                 # latents_all_attr_to_decode = torch.cat([latents_all_attr_to_decode, decoder_domain_embedding], dim=1)
                 latents_all_attr_to_decode = latents_all_attr_to_decode + decoder_domain_embedding.repeat(B,1,1,1)
-                
 
         elif self.opt.train_unet:
             # print('Doing unet prediction')
@@ -582,6 +600,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # debug = False
         # if debug:
         #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+
+        if self.opt.finetune_decoder and self.opt.finetune_decoder_single_attr is not None:
+            # added other attributes 
+            ordered_attr_list_local = self.opt.finetune_decoder_single_attr
+            
         
         # decode latents into attrbutes again
         decoded_attr_list = []
@@ -702,7 +725,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             ).mean()
             results['loss_lpips_LGM'] = loss_lpips_LGM
             
-        
             # -------
             
       

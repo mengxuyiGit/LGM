@@ -27,14 +27,14 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/sw/envs/xuyimeng
 
 # [June 03 Decoder with domain embedding]
 # [no rendering loss]
-export CUDA_VISIBLE_DEVICES=0,1,2,3
-accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
+export CUDA_VISIBLE_DEVICES=4,5
+accelerate launch --main_process_port 29515 --config_file acc_configs/gpu2.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
     --workspace runs/finetune_decoder/workspace_train \
-    --lr 1e-4 --num_epochs 10001 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
+    --lr 1e-5 --num_epochs 10001 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 10 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 \
-    --desc 'decoder-add_learnable_zero_init_domain_embedding-no_rendering_loss' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'decoder-mlp_domain_embedding-no_rendering_loss-resume10500-smallerLR' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
     --set_random_seed --batch_size 2 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -44,17 +44,18 @@ accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml 
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 50 --only_train_attention --rendering_loss_use_weight_t \
-    --finetune_decoder --gradient_accumulation_steps 2 --decoder_with_domain_embedding
+    --finetune_decoder --gradient_accumulation_steps 4 --decoder_with_domain_embedding --decoder_domain_embedding_mode learnable \
+    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00009-decoder-add_learnable_zero_init_domain_embedding-no_rendering_loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_splatter10.0-lr0.0001-Plat5/eval_global_step_10500_ckpt/model.safetensors
 
 # # # [with rendering loss]
-# export CUDA_VISIBLE_DEVICES=4,5
-# accelerate launch --main_process_port 29515 --config_file acc_configs/gpu2.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
+# accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
 #     --workspace runs/finetune_decoder/workspace_train \
-#     --lr 1e-4 --num_epochs 10001 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
+#     --lr 1e-5 --num_epochs 10001 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
 #     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
-#     --lambda_splatter 10 --lambda_rendering 0.1 --lambda_alpha 0 --lambda_lpips 0 \
-#     --desc 'decoder-add_learnable_zero_init_domain_embedding-with_rendering_loss' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+#     --lambda_splatter 10 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 \
+#     --desc 'decoder-no_domain_embedding-no_rendering_loss-resume10500-smallerLR' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
 #     --set_random_seed --batch_size 2 --num_workers 2 \
 #     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -64,8 +65,9 @@ accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml 
 #     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
 #     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
 #     --bg 1.0 --fovy 50 --only_train_attention --rendering_loss_use_weight_t \
-#     --finetune_decoder --gradient_accumulation_steps 4 --decoder_with_domain_embedding
-
+#     --finetune_decoder --gradient_accumulation_steps 2 \
+#     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00012-decoder-no_domain_embedding-no_rendering_loss-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_splatter10.0-lr0.0001-Plat5/eval_global_step_10500_ckpt/model.safetensors
+# # --decoder_with_domain_embedding
 
 
 # # singleGPU
@@ -76,7 +78,7 @@ accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml 
 #     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
 #     --lambda_splatter 10 --lambda_rendering 0.1 --lambda_alpha 0 --lambda_lpips 0.1 \
-#     --desc 'debug_add_domain_embedding' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+#     --desc 'debug_no_domain_embedding' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
 #     --set_random_seed --batch_size 2 --num_workers 2 \
 #     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -86,6 +88,8 @@ accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml 
 #     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
 #     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
 #     --bg 1.0 --fovy 50 --only_train_attention --rendering_loss_use_weight_t \
-#     --finetune_decoder --gradient_accumulation_steps 1 --decoder_with_domain_embedding
+#     --finetune_decoder --gradient_accumulation_steps 1 \
+#     --decoder_with_domain_embedding --decoder_domain_embedding_mode mlp
+#     # --decoder_with_domain_embedding
 #     #  --decoder_not_use_rendering_loss
 #     # --skip_training  --lambda_each_attribute_loss 1 1. 1 1 10 \

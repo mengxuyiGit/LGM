@@ -291,10 +291,13 @@ class ObjaverseDataset(Dataset):
         results['cond'] = cond.astype(np.uint8)
 
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
-        if self.opt.train_unet_single_attr is not None:
+        if self.opt.train_unet and self.opt.train_unet_single_attr is not None:
             for attr in self.opt.train_unet_single_attr:
                 results[attr] = splatter_original_Channel_mvimage_dict[attr]
                 # print(f"[dtaloader] result update {attr}")
+        # elif self.opt.finetune_decoder and self.opt.finetune_decoder_single_attr is not None:
+        #     for attr in self.opt.finetune_decoder_single_attr:
+        #         results[attr] = splatter_original_Channel_mvimage_dict[attr]
         else:
             results.update(splatter_original_Channel_mvimage_dict)
         # for attr_to_encode in ordered_attr_list:
