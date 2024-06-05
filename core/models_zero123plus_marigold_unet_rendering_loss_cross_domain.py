@@ -20,6 +20,7 @@ import os
 
 from core.dataset_v5_marigold import ordered_attr_list, attr_map, sp_min_max_dict
 from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
+from diffusers.models.autoencoders.vae import DecoderOutput
 
 def fuse_splatters(splatters):
     # fuse splatters
@@ -167,6 +168,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             opt.model_path,
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
+
+        pipe_svd = DiffusionPipeline.from_pretrained(
+            "stabilityai/stable-video-diffusion-img2vid-xt",
+        ).to('cuda')
+        
+        self.pipe.vae.decoder = pipe_svd.vae.decoder
+        del pipe_svd
+        
         
         self.pipe.prepare() 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
@@ -289,6 +298,33 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
             splatter_optimizer = optimizer_class([splatter_image], **optimizer_cfg)
         return splatter_optimizer
+    
+    def ST_decode(self, z: torch.Tensor,
+        num_frames: int,
+        return_dict: bool = True,
+    ):
+        """
+        Decode a batch of images.
+
+        Args:
+            z (`torch.Tensor`): Input batch of latent vectors.
+            return_dict (`bool`, *optional*, defaults to `True`):
+                Whether to return a [`~models.vae.DecoderOutput`] instead of a plain tuple.
+
+        Returns:
+            [`~models.vae.DecoderOutput`] or `tuple`:
+                If return_dict is True, a [`~models.vae.DecoderOutput`] is returned, otherwise a plain `tuple` is
+                returned.
+
+        """
+        batch_size = z.shape[0] // num_frames
+        image_only_indicator = torch.zeros(batch_size, num_frames, dtype=z.dtype, device=z.device)
+        decoded = self.pipe.vae.decoder(z, num_frames=num_frames, image_only_indicator=image_only_indicator)
+
+        if not return_dict:
+            return (decoded,)
+
+        return DecoderOutput(sample=decoded)
     
     
     def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
@@ -563,7 +599,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
-        image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+        image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
+        
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
         # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
         image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
@@ -597,9 +634,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.train_unet and save_path is None:
             return results
 
-        # debug = False
-        # if debug:
-        #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+        debug = False
+        if debug:
+            image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
 
         if self.opt.finetune_decoder and self.opt.finetune_decoder_single_attr is not None:
             # added other attributes 
