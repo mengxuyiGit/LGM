@@ -78,39 +78,6 @@ def optimizer_set_state(optimizer, state_dict):
               zip(chain.from_iterable((g['params'] for g in saved_groups)),
                   chain.from_iterable((g['params'] for g in groups)))}
 
-def attr_3channel_image_to_original_splatter_attr(attr_to_encode, mv_image):
-        
-        sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
-        
-        if "scale" in attr_to_encode:
-            # v2
-            sp_min, sp_max = sp_min_max_dict["scale"]
-
-            sp_image_o = sp_image_o.clip(0,1) 
-            sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-            
-            sp_image_o = torch.exp(sp_image_o)
-            # print(f"Decoded attr [unscaled] {attr_to_encode}: min={sp_image_o.min()} max={sp_image_o.max()}")
-
-
-        elif attr_to_encode in[ "pos"]:
-            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
-            sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-            sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
-          
-
-        if attr_to_encode == "rotation": 
-            
-            ag = einops.rearrange(sp_image_o, 'b c h w -> b h w c')
-            quaternion = axis_angle_to_quaternion(ag)
-            sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')
-            # st()
-
-        start_i, end_i = attr_map[attr_to_encode]
-        if end_i - start_i == 1:
-            sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
-            
-        return sp_image_o
     
 def denormalize_and_activate(attr, mv_image):
     # mv_image: B C H W
@@ -125,7 +92,8 @@ def denormalize_and_activate(attr, mv_image):
         sp_min, sp_max = sp_min_max_dict["scale"]
         # sp_image_o = sp_image_o.clip(0,1) 
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        sp_image_o = torch.exp(sp_image_o)
+        # sp_image_o = torch.exp(sp_image_o)
+        sp_image_o = 0.1 * F.softplus(sp_image_o)
     elif attr == "opacity":
         sp_image_o = sp_image_o.clip(0,1) 
         sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
