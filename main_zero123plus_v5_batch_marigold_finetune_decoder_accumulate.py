@@ -297,7 +297,7 @@ def main():
         
         
         for epoch in range(opt.num_train_epochs):
-            torch.cuda.empty_cache()
+            # torch.cuda.empty_cache()
 
             # train
             model.train()
@@ -406,7 +406,7 @@ def main():
                     accelerator.save_model(model, os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt"))
                     print("Saved a COPY of new ckpt !!!")
 
-                    torch.cuda.empty_cache()
+                    # torch.cuda.empty_cache()
 
                 # if epoch % opt.eval_iter == 0: 
                 # if global_step % opt.eval_iter == 0:  # eval by global step, not epoch
@@ -477,7 +477,7 @@ def main():
                                 # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
                                 
                     
-                        torch.cuda.empty_cache()
+                        # torch.cuda.empty_cache()
 
                         total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
                         if accelerator.is_main_process:
