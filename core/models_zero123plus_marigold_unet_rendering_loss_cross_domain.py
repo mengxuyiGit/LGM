@@ -139,12 +139,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
 
-        pipe_svd = DiffusionPipeline.from_pretrained(
-            "stabilityai/stable-video-diffusion-img2vid-xt",
-        ).to('cuda')
-        
-        self.pipe.vae.decoder = pipe_svd.vae.decoder
-        del pipe_svd
+        if opt.use_video_decoderST:
+            pipe_svd = DiffusionPipeline.from_pretrained(
+                "stabilityai/stable-video-diffusion-img2vid-xt",
+            ).to('cuda')
+            
+            self.pipe.vae.decoder = pipe_svd.vae.decoder
+            del pipe_svd
         
         
         self.pipe.prepare() 
