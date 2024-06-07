@@ -1,7 +1,10 @@
 DATA_RENDERING_ROOT_LVIS_46K=/mnt/lingjie_cache/lvis_dataset/testing
 DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
-DATA_RENDERING_ROOT_LVIS_46K_CLUSTER=/home/chenwang/data/lvis_dataset/testing
-DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_optimized_3channel/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
+DATA_RENDERING_ROOT_LVIS_46K_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/testing
+# /home/chenwang/data/lvis_dataset/testing
+DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
+# /mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
+# /mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_optimized_3channel/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
 # /mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
 # /mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_test/testing/1000-1999/20240606-154839-fov60-opt_3channel-no_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
 # /mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_test/testing/1000-1999/20240606-160336-fov60-opt_3channel_with_CLIP-no_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
@@ -94,7 +97,7 @@ accelerate launch --config_file acc_configs/gpu2.yaml main_zero123plus_v5_batch_
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 10 --lambda_rendering 0.1 --lambda_alpha 0 --lambda_lpips 0.1 \
-    --desc 'decoder_finetune-load_normed_splatter_mv2999-lpips0.1-fov60-random_bg' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'decoder_finetune-96OBJs-resume24k_28objs-load_normed_splatter_mv2999-lpips0.1-fov60-random_bg' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
     --set_random_seed --batch_size 1 --num_workers 1 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -104,8 +107,8 @@ accelerate launch --config_file acc_configs/gpu2.yaml main_zero123plus_v5_batch_
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 60 --only_train_attention --rendering_loss_use_weight_t \
-    --finetune_decoder --gradient_accumulation_steps 1 --splatter_mv_already_normalized
-
+    --finetune_decoder --gradient_accumulation_steps 1 --splatter_mv_already_normalized \
+    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00016-decoder_finetune-load_normed_splatter_mv2999-lpips0.1-fov60-random_bg-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter10.0_lpips0.1-lr1e-05-Plat5/eval_global_step_24000_ckpt/model.safetensors
 
 # # singleGPU
 # export CUDA_VISIBLE_DEVICES=4
