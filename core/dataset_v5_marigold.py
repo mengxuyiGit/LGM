@@ -185,7 +185,7 @@ def load_normalized_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     end_indices = [3, 4, 7, 10, 13]
     attr_map_normalize = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
 
-    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [13, 384, 256]
+    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt"), map_location='cpu').detach().cpu() # [13, 384, 256]
     assert splatter_mv.shape[0] == 13
     # already in [-1,1]
     
@@ -200,7 +200,7 @@ def load_normalized_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
         if attr_to_encode == "opacity":
             sp_image = sp_image.repeat(3,1,1)
             
-        print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
+        # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
         assert sp_image.shape[0] == 3
         splatter_3Channel_image[attr_to_encode] = sp_image.detach().cpu()
     
@@ -224,7 +224,7 @@ class ObjaverseDataset(Dataset):
         # 29000-29999/20240521-203345-activated_ply_bsz20_fov50-loss_render1.0_lpips1.0-lr0.006-Plat/
         # splatters_mv_inference"
         if opt.data_path_vae_splatter.endswith("splatters_mv_inference"):
-            scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "lgm_optimized_iter1999")
+            scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "lgm_optimized_iter2999")
             # scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*")
         else:
             scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
