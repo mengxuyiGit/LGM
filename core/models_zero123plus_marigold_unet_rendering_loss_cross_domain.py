@@ -604,7 +604,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.train_unet and save_path is None:
             return results
 
-        debug = True
+        debug = False
         if debug:
             image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
 
