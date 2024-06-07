@@ -346,8 +346,10 @@ def main():
         num_samples_eval = min(100, len(test_dataloader))
         total_psnr = 0
         total_psnr_LGM = 0
+        total_psnr_LGM_init = 0
         total_lpips = 0
         total_lpips_LGM = 0
+        total_lpips_LGM_init = 0
         
         if opt.log_each_attribute_loss or (opt.train_unet_single_attr is not None):
             from core.dataset_v5_marigold import ordered_attr_list
@@ -599,6 +601,9 @@ def main():
                                 lpips_key = out[f"loss_lpips_{key}"]
                                 key_loss_str = f"{i} - {key}_psnr: \t\t\t {psnr_key:.3f} \t lpips: {lpips_key:.3f}"
                                 print(key_loss_str, file=f)
+                                
+                                total_psnr_LGM_init += psnr_key
+                                total_lpips_LGM_init += lpips_key
             
                     LGM_loss_str = f"{i} - LGM_optimized_psnr: \t {psnr_LGM:.3f} \t lpips: {lpips_LGM:.3f}"
                     our_loss_str = f"{i} - our_psnr: \t\t\t\t {psnr:.3f} \t lpips: {lpips:.3f}"
@@ -629,18 +634,21 @@ def main():
 
         total_psnr /= num_samples_eval
         total_psnr_LGM /= num_samples_eval
+        total_psnr_LGM_init /= num_samples_eval
         total_lpips /= num_samples_eval
         total_lpips_LGM /= num_samples_eval
+        total_lpips_LGM_init /= num_samples_eval
         
         with open(f"{opt.workspace}/metrics.txt", "a") as f:
             # print(f"Total samples to eval = {num_samples_eval}", file=f)
+            print(f"Total - LGM_init_psnr = {total_psnr_LGM_init:.3f}, \t lpips = {total_lpips_LGM_init:.3f}", file=f)
+            print(f"Total - LGM_optimized_GT_psnr = {total_psnr_LGM:.3f}, \t lpips = {total_lpips_LGM:.3f}", file=f)
             our_loss_str = f"Total - our_psnr = {total_psnr:.3f}, \t lpips = {total_lpips:.3f}"
             if opt.log_each_attribute_loss:
                 for _attr in ordered_attr_list:
                     _loss_attr = total_attr_loss_dict[f'loss_{_attr}'] / num_samples_eval
                     our_loss_str += f" \t {_attr}: {_loss_attr:.3f}"
             print(our_loss_str, file=f)
-            print(f"Total - LGM_optimized_GT_psnr = {total_psnr_LGM:.3f}, \t lpips = {total_lpips_LGM:.3f}", file=f)
             
     
 
