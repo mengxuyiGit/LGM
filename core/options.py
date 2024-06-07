@@ -251,6 +251,8 @@ class Options:
     decoder_with_domain_embedding: bool = False
     decoder_domain_embedding_mode: Optional[str] = None
     finetune_decoder_single_attr: Optional[Tuple[str, ...]] = None
+    different_t_schedule: Optional[Tuple[int,...]] = None
+    xyz_zero_t: bool = False
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}

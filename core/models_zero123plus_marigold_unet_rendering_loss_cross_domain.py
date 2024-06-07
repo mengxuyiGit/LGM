@@ -359,7 +359,16 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # same t for all domain
             # TODO: adapt this to batch_Size > 1 to run larger batch size
             t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
-            t = t.unsqueeze(1).repeat(1,A).view(-1)
+            t = t.unsqueeze(1).repeat(1,A)
+            
+            if self.opt.xyz_zero_t:
+                t[:,0] = torch.min(10 * torch.ones_like(t[:,0]), t[:,0])
+            # if self.opt.different_t_schedule is not None:
+            #     schedule_offset = torch.tensor(self.opt.different_t_schedule, device=t.device).unsqueeze(0)
+            #     new_t = t + schedule_offset
+            #     t = torch.clamp(new_t, min=0, max=self.pipe.scheduler.timesteps.max())
+            
+            t = t.view(-1)
             # print("batch t=", t)
             
             if self.opt.fixed_noise_level is not None:
