@@ -261,7 +261,6 @@ def main():
             # normalize
         ])
         
-        from kiui.cam import orbit_camera
         from core.utils import get_rays
             
         def prepare_default_rays( device, elevation, azimuth):
@@ -393,6 +392,8 @@ def main():
                 gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                 kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_Ugt_Mlgm_Dpred.jpg', gt_images)
 
+                gaussian_key_list = ["gaussians_LGM", "gaussians_pred"]
+                
                 # add lgm infer gaussian 
                 if opt.render_lgm_infer:
                     cond_save = einops.rearrange(data["cond"], "b h w c -> (b h) w c")
@@ -435,7 +436,9 @@ def main():
                             # generate gaussians
                             gaussians = lgm_model.forward_gaussians(input_image)
                         out[f"gaussians_LGM_infer_zero123++"] = gaussians
+                        gaussian_key_list.append("gaussians_LGM_infer_zero123++")
                         lgm_model.clear_splatter_out()
+                        
                     
                     if "mvdream" in opt.render_lgm_infer:
                         mvdream_input = cond_save.cpu().numpy().astype(np.float32) / 255.0
@@ -458,6 +461,7 @@ def main():
                             # generate gaussians
                             gaussians = lgm_model_mv.forward_gaussians(input_image)
                         out[f"gaussians_LGM_infer_mvdream"] = gaussians
+                        gaussian_key_list.append("gaussians_LGM_infer_mvdream")
         
                 # render 360 video 
                 if opt.fancy_video or opt.render_video:
@@ -473,7 +477,7 @@ def main():
                     proj_matrix[2, 3] = 1
                     
                     images_dict = {}
-                    gaussian_key_list = ["gaussians_LGM", "gaussians_pred", "gaussians_LGM_infer_zero123++", "gaussians_LGM_infer_mvdream"]
+                        
                     for key in gaussian_key_list:
                         gaussians = out[key]
                         images = []
