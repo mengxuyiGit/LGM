@@ -92,8 +92,8 @@ def denormalize_and_activate(attr, mv_image):
         sp_min, sp_max = sp_min_max_dict["scale"]
         # sp_image_o = sp_image_o.clip(0,1) 
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        # sp_image_o = torch.exp(sp_image_o)
         sp_image_o = 0.1 * F.softplus(sp_image_o)
+        # sp_image_o = torch.exp(sp_image_o)
     elif attr == "opacity":
         sp_image_o = sp_image_o.clip(0,1) 
         sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
@@ -103,7 +103,9 @@ def denormalize_and_activate(attr, mv_image):
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
         ag = einops.rearrange(sp_image_o, 'b c h w -> b h w c')
         quaternion = axis_angle_to_quaternion(ag)
+        quaternion = F.normalize(quaternion, dim=-1)
         sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')   
+        
         
     return sp_image_o
     
@@ -602,7 +604,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.train_unet and save_path is None:
             return results
 
-        debug = False
+        debug = True
         if debug:
             image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
 

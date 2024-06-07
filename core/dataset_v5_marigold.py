@@ -119,8 +119,8 @@ sp_min_max_dict = {
     }
 
 # sp_min_max_dict = {
-#     "pos": (-0.7, 0.7),
-#     "scale":  (-10., -2.), 
+#     "pos": (-1., 1.),
+#     "scale": (-10., -2.),
 #     "rotation": (-3., 3.)
 #     }
 
@@ -128,6 +128,7 @@ sp_min_max_dict = {
 def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     
     splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [14, 384, 256]
+    # splatter_mv = torch.load("/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_test/testing/1000-1999/20240605-183147-bsz4_fov60_find_lr-loss_render1.0_lpips1.0-lr0.005-/splatters_mv_inference/0_00a57bbd1c894a7cb9e45ec396a8f660/splatters_mv.pt").detach().cpu() # [14, 384, 256]
     # print("Loading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
 
     splatter_3Channel_image = {}
@@ -148,6 +149,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             sp_image = sp_image.repeat(3,1,1)
         elif attr_to_encode == "scale":
             inv_scale_act = lambda y: torch.log(torch.exp(10 * y) - 1)
+            # inv_scale_act = lambda y: torch.log(y)
             sp_image = inv_scale_act(sp_image)
             
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
@@ -164,6 +166,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             # sp_min, sp_max = -3, 3
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
+            sp_image = sp_image.clip(0,1)
         elif attr_to_encode == "rgbs":
             pass
         
@@ -177,49 +180,27 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     return splatter_3Channel_image
 
 
+def load_normalized_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
+    start_indices = [0, 3, 4, 7, 10]
+    end_indices = [3, 4, 7, 10, 13]
+    attr_map_normalize = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
 
-def load_splatter_mv_ply_as_dict_old(splatter_dir, device="cpu"):
+    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [13, 384, 256]
+    assert splatter_mv.shape[0] == 13
+    # already in [-1,1]
     
-    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [14, 384, 256]
-    # print("Loading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
-
     splatter_3Channel_image = {}
             
     for attr_to_encode in ordered_attr_list:
-        # print("latents_all_attr_list <-",attr_to_encode)
-        si, ei = attr_map[attr_to_encode]
+        si, ei = attr_map_normalize[attr_to_encode]
         
         sp_image = splatter_mv[si:ei]
-        # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
 
-        #  map to 0,1
-        if attr_to_encode in ["pos"]:
-            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
-            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-        elif attr_to_encode == "opacity":
+        # the only one need to be processed
+        if attr_to_encode == "opacity":
             sp_image = sp_image.repeat(3,1,1)
-        elif attr_to_encode == "scale":
-            sp_image = torch.log(sp_image)
-            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
-            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-            sp_image = sp_image.clip(0,1)
-        elif  attr_to_encode == "rotation":
-            # print("processing rotation: ", si, ei)
-            assert (ei - si) == 4
-            quat = einops.rearrange(sp_image, 'c h w -> h w c')
-            axis_angle = quaternion_to_axis_angle(quat)
-            sp_image = einops.rearrange(axis_angle, 'h w c -> c h w')
-            # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
-            # sp_min, sp_max = -3, 3
-            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
-            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-        elif attr_to_encode == "rgbs":
-            pass
-        
-        # map to [-1,1]
-        sp_image = sp_image * 2 - 1
-        
-        # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
+            
+        print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
         assert sp_image.shape[0] == 3
         splatter_3Channel_image[attr_to_encode] = sp_image.detach().cpu()
     
@@ -242,8 +223,11 @@ class ObjaverseDataset(Dataset):
         # "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/data_processing/testing/
         # 29000-29999/20240521-203345-activated_ply_bsz20_fov50-loss_render1.0_lpips1.0-lr0.006-Plat/
         # splatters_mv_inference"
-        scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
-        # scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "splatters_mv_inference", "*")
+        if opt.data_path_vae_splatter.endswith("splatters_mv_inference"):
+            scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "lgm_optimized_iter1999")
+            # scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*")
+        else:
+            scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
         all_scene_paths = sorted(glob.glob(scene_path_pattern)) # 44815 in total. And sorted by the absolute path
             
         for scene_path in all_scene_paths:
@@ -254,8 +238,14 @@ class ObjaverseDataset(Dataset):
             if not os.path.isdir(scene_path):
                 continue
     
-            scene_name = scene_path.split('/')[-1]
-            scene_range = scene_path.split('/')[-4]
+            if opt.data_path_vae_splatter.endswith("splatters_mv_inference"):
+                scene_name = scene_path.split('/')[-2]
+                scene_range = scene_path.split('/')[-5]
+                # scene_name = scene_path.split('/')[-1]
+                # scene_range = scene_path.split('/')[-4]
+            else:
+                scene_name = scene_path.split('/')[-1]
+                scene_range = scene_path.split('/')[-4]
             # print("scene name:", scene_name)
             if scene_name in self.data_path_vae_splatter.keys():
                 continue
@@ -350,7 +340,10 @@ class ObjaverseDataset(Dataset):
         cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
         results['cond'] = cond.astype(np.uint8)
 
-        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
+        if self.opt.splatter_mv_already_normalized:
+            splatter_original_Channel_mvimage_dict = load_normalized_splatter_mv_ply_as_dict(splatter_uid)
+        else:
+            splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
         if self.opt.train_unet and self.opt.train_unet_single_attr is not None:
             for attr in self.opt.train_unet_single_attr:
                 results[attr] = splatter_original_Channel_mvimage_dict[attr]
