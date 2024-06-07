@@ -212,6 +212,7 @@ def main():
                 
         print("Finish loading trained unet.")
     
+    
     torch.cuda.empty_cache()
 
     
@@ -242,6 +243,17 @@ def main():
     model, test_dataloader = accelerator.prepare(
         model, test_dataloader 
     )
+    
+    def get_proj_matrix(custom_fovy):
+        tan_half_fov = np.tan(0.5 * np.deg2rad(custom_fovy))
+        proj_matrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
+        proj_matrix[0, 0] = 1 / tan_half_fov
+        proj_matrix[1, 1] = 1 / tan_half_fov
+        proj_matrix[2, 2] = (opt.zfar + opt.znear) / (opt.zfar - opt.znear)
+        proj_matrix[3, 2] = - (opt.zfar * opt.znear) / (opt.zfar - opt.znear)
+        proj_matrix[2, 3] = 1
+
+        return proj_matrix
 
     ## load LGM model for inference
     if opt.render_lgm_infer is not None:
@@ -285,15 +297,15 @@ def main():
         ckpt = load_file("pretrained/model_fp16.safetensors", device='cpu')
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # load either zerpo123++ or mvdream
-        if "zero123++" in opt.render_lgm_infer:
+        if "zero123++" in opt.render_lgm_infer or "LGM_init" in opt.render_lgm_infer:
             # load lgm
             from core.models_fix_pretrained import LGM
             lgm_model = LGM(opt)
             lgm_model.load_state_dict(ckpt, strict=False)
-            print(f'[INFO] Loaded checkpoint from {opt.resume}')
             lgm_model = lgm_model.half().to(device)
             lgm_model.eval()
             
+        if "zero123++" in opt.render_lgm_infer:
             from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
             pipe = DiffusionPipeline.from_pretrained(
                 "sudo-ai/zero123plus-v1.1", custom_pipeline="sudo-ai/zero123plus-pipeline",
@@ -331,7 +343,7 @@ def main():
     # with torch.autograd.profiler.profile(use_cuda=True, record_shapes=True, profile_memory=True) as prof
     with torch.no_grad():  
         model.eval()
-        num_samples_eval = 100
+        num_samples_eval = min(100, len(test_dataloader))
         total_psnr = 0
         total_psnr_LGM = 0
         total_lpips = 0
@@ -388,15 +400,72 @@ def main():
             if opt.train_unet_single_attr is None:
                 # 5-in-1
                 five_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], out['alphas_pred_LGM'].repeat(1,1,3,1,1), out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
-                gt_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_Ugt_Mlgm_Dpred.jpg', gt_images)
+                all_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                all_images = all_images.transpose(0, 3, 1, 4, 2).reshape(-1, all_images.shape[1] * all_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_Ugt_Mlgm_Dpred.jpg', all_images)
 
                 gaussian_key_list = ["gaussians_LGM", "gaussians_pred"]
                 
+                proj_matrix_dict = {}
+                
+                for key in gaussian_key_list:
+                    proj_matrix_dict.update({
+                        key: get_proj_matrix(opt.fovy)
+                    })
+                    
                 # add lgm infer gaussian 
                 if opt.render_lgm_infer:
+                    
                     cond_save = einops.rearrange(data["cond"], "b h w c -> (b h) w c")
+                    bg_color = torch.ones(3, dtype=torch.float32, device=data['images_output'].device) * opt.bg 
+                    
+                    def calculate_psnr_lpips(data, gs_results, key):
+                        
+                        gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
+                        gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+                        gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+                    
+                        _out = {}
+                        _psnr = -10 * torch.log10(torch.mean((gs_results['image'].detach() - gt_images) ** 2))
+                        _out[f"psnr_{key}"] = _psnr.detach()
+                        # lpips
+                        _loss_lpips = lgm_model.lpips_loss(
+                            F.interpolate(gt_images.view(-1, 3, opt.output_size, opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+                            F.interpolate(gs_results['image'].view(-1, 3, lgm_model.opt.output_size, opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                        ).mean()
+                        _out[f'loss_lpips_{key}'] = _loss_lpips
+
+                        # five_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], gs_results['image'], gs_results['alpha'].repeat(1,1,3,1,1)], dim=0)
+                        # all_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        # all_images = all_images.transpose(0, 3, 1, 4, 2).reshape(-1, all_images.shape[1] * all_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                        # kiui.write_image(f'{opt.workspace}/eval_inference/debug_Ugt_Mlgm_Dpred.jpg', all_images)
+                        # st()
+                        
+                        return _out
+                    
+                    if "LGM_init" in opt.render_lgm_infer:
+                        key = "LGM_init"
+                        with torch.autocast(device_type='cuda', dtype=torch.float16):
+                            # generate gaussians
+                            gaussians = lgm_model.forward_gaussians(data['input_lgm'])
+                            # calculate psnr and lpips
+                            key_proj_matrix = get_proj_matrix(49.1)
+                            proj_matrix_dict.update({
+                                f"gaussians_{key}": key_proj_matrix,
+                            })
+                            key_cam_view_proj = data['cam_view'] @ key_proj_matrix.unsqueeze(0)
+                            
+                            _gs_results = lgm_model.gs.render(gaussians, data['cam_view'], key_cam_view_proj, data['cam_pos'], bg_color=bg_color)
+                            _metrics = calculate_psnr_lpips(data, _gs_results, key)
+                            assert _metrics.keys().isdisjoint(out.keys()), "The dictionaries have overlapping keys"
+                            out.update(_metrics)
+                            
+                        out[f"gaussians_LGM_init"] = gaussians
+                        gaussian_key_list.insert(0, "gaussians_LGM_init")
+                        
+                        lgm_model.clear_splatter_out()
+
+                        
                     if "zero123++" in opt.render_lgm_infer:
                         result = pipe(Image.fromarray(cond_save.cpu().numpy()), num_inference_steps=30).images[0]
                         result.save(f"{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_zero123plus.png")
@@ -437,6 +506,9 @@ def main():
                             gaussians = lgm_model.forward_gaussians(input_image)
                         out[f"gaussians_LGM_infer_zero123++"] = gaussians
                         gaussian_key_list.append("gaussians_LGM_infer_zero123++")
+                        proj_matrix_dict.update({
+                            key: get_proj_matrix(49.1)
+                        })
                         lgm_model.clear_splatter_out()
                         
                     
@@ -462,26 +534,23 @@ def main():
                             gaussians = lgm_model_mv.forward_gaussians(input_image)
                         out[f"gaussians_LGM_infer_mvdream"] = gaussians
                         gaussian_key_list.append("gaussians_LGM_infer_mvdream")
+                        proj_matrix_dict.update({
+                            key: get_proj_matrix(49.1)
+                        })
         
                 # render 360 video 
                 if opt.fancy_video or opt.render_video:
                     
                     device = data['images_output'].device
-                    
-                    tan_half_fov = np.tan(0.5 * np.deg2rad(opt.fovy))
-                    proj_matrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
-                    proj_matrix[0, 0] = 1 / tan_half_fov
-                    proj_matrix[1, 1] = 1 / tan_half_fov
-                    proj_matrix[2, 2] = (opt.zfar + opt.znear) / (opt.zfar - opt.znear)
-                    proj_matrix[3, 2] = - (opt.zfar * opt.znear) / (opt.zfar - opt.znear)
-                    proj_matrix[2, 3] = 1
-                    
+                
                     images_dict = {}
                         
                     for key in gaussian_key_list:
                         gaussians = out[key]
                         images = []
                         elevation = 0
+                        
+                        proj_matrix = proj_matrix_dict[key]
 
                         if opt.fancy_video:
                             azimuth = np.arange(0, 720, 4, dtype=np.int32)
@@ -522,17 +591,24 @@ def main():
                      
                     if psnr > 50:
                         print("------[invalid]------", file=f)
+                        
+                    if opt.render_lgm_infer is not None:
+                        for key in opt.render_lgm_infer:
+                            if f"psnr_{key}" in out.keys():
+                                psnr_key = out[f"psnr_{key}"]
+                                lpips_key = out[f"loss_lpips_{key}"]
+                                key_loss_str = f"{i} - {key}_psnr: \t\t\t {psnr_key:.3f} \t lpips: {lpips_key:.3f}"
+                                print(key_loss_str, file=f)
             
-                    our_loss_str = f"{i} - our_psnr: {psnr:.3f} \t lpips: {lpips:.3f}"
-                    LGM_loss_str = f"{i} - LGM_psnr: {psnr_LGM:.3f} \t lpips: {lpips_LGM:.3f}"
+                    LGM_loss_str = f"{i} - LGM_optimized_psnr: \t {psnr_LGM:.3f} \t lpips: {lpips_LGM:.3f}"
+                    our_loss_str = f"{i} - our_psnr: \t\t\t\t {psnr:.3f} \t lpips: {lpips:.3f}"
                     if opt.log_each_attribute_loss:
                         for _attr in ordered_attr_list:
                             _loss_attr = out[f'loss_{_attr}'].item()
                             our_loss_str += f" \t {_attr}: {_loss_attr:.3f}"
-                   
-                    print(our_loss_str, file=f)
                     print(LGM_loss_str, file=f)
-                    
+                    print(our_loss_str, file=f)
+
                     if psnr > 50:
                         print("---------------------", file=f)
                     
@@ -564,7 +640,7 @@ def main():
                     _loss_attr = total_attr_loss_dict[f'loss_{_attr}'] / num_samples_eval
                     our_loss_str += f" \t {_attr}: {_loss_attr:.3f}"
             print(our_loss_str, file=f)
-            print(f"Total - LGM_psnr = {total_psnr_LGM:.3f}, \t lpips = {total_lpips_LGM:.3f}", file=f)
+            print(f"Total - LGM_optimized_GT_psnr = {total_psnr_LGM:.3f}, \t lpips = {total_lpips_LGM:.3f}", file=f)
             
     
 

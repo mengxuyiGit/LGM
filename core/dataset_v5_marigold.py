@@ -471,7 +471,8 @@ class ObjaverseDataset(Dataset):
             ## for adding additonal input for lgm
             rays_embeddings = []
             for i in range(self.opt.num_input_views):
-                rays_o, rays_d = get_rays(cam_poses_input[i], 256, 256, self.opt.fovy) # [h, w, 3]
+                # rays_o, rays_d = get_rays(cam_poses_input[i], 256, 256, self.opt.fovy) # [h, w, 3]
+                rays_o, rays_d = get_rays(cam_poses_input[i], 256, 256, 49.1) # [h, w, 3]
                 rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
                 rays_embeddings.append(rays_plucker)
 

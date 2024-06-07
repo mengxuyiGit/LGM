@@ -93,7 +93,7 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/datasets/xuyimen
 # export CUDA_VISIBLE_DEVICES=4,5
 accelerate launch --config_file acc_configs/gpu2.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
     --workspace runs/finetune_decoder/workspace_train \
-    --lr 1e-5 --num_epochs 3000 --eval_iter 200 --save_iter 600 --lr_scheduler Plat \
+    --lr 1e-5 --num_epochs 3000 --eval_iter 600 --save_iter 600 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 10 --lambda_rendering 0.1 --lambda_alpha 0 --lambda_lpips 0.1 \

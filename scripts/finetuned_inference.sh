@@ -363,7 +363,8 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/sw/envs/xuyimeng
 
 # [June 07 Friday meeting. I am so stressed] inference decoder with optimized 3 channel splatters
 export CUDA_VISIBLE_DEVICES=4
-DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER_3CHANNEL=/mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_optimized_3channel/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
+DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER_3CHANNEL=/mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
+# /mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_optimized_3channel/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
 # /mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
 # /mnt/kostas-graid/datasets/xuyimeng/lvis_dataset/workspace_/testing/1000-1999/20240607-fov60-opt_3channel-LPIPS_splatter_loss-random_bg-loss_render1.0_lpips1.0-lr0.001-/splatters_mv_inference
 accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference.py big \
@@ -372,7 +373,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'inference_DEBUG_GT_TRAINED_optimized3channel_splatter' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+    --desc 'inference_96OBJs_4800steps_add_lgm_init_rendering_FOV49.1_optimized3channel_splatter' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER_3CHANNEL} \
     --set_random_seed --batch_size 1 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -383,8 +384,9 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 60 --rendering_loss_use_weight_t \
     --inference_finetuned_decoder --splatter_mv_already_normalized \
-    --log_each_attribute_loss --render_video \
-    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00016-decoder_finetune-load_normed_splatter_mv2999-lpips0.1-fov60-random_bg-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter10.0_lpips0.1-lr1e-05-Plat5/eval_global_step_23400_ckpt/model.safetensors
+    --log_each_attribute_loss --render_video --render_lgm_infer LGM_init  \
+    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00018-decoder_finetune-96OBJs-resume24k_28objs-load_normed_splatter_mv2999-lpips0.1-fov60-random_bg-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter10.0_lpips0.1-lr1e-05-Plat5/eval_global_step_4800_ckpt/model.safetensors
+    # /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00016-decoder_finetune-load_normed_splatter_mv2999-lpips0.1-fov60-random_bg-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter10.0_lpips0.1-lr1e-05-Plat5/eval_global_step_23400_ckpt/model.safetensors
 # --render_lgm_infer "zero123++" "mvdream" 
 # --only_train_attention --guidance_scale 4.0 \
 
