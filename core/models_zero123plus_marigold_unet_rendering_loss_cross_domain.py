@@ -430,28 +430,27 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 loss_latent = F.mse_loss(v_pred, v_target)     
                 results['loss_latent'] = loss_latent * self.opt.lambda_latent
                 
-            if save_path is None and (self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0:
-                return results
+            # if save_path is None and (self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0:
+            #     return results
 
             # calculate x0 from v_pred
             noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
             x = (noisy_latents - noise_pred * sigma_t) / alpha_t
       
-        
             if self.opt.cd_spatial_concat:
                 latents_all_attr_to_decode = einops.rearrange(x, "B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
             else:
                 latents_all_attr_to_decode = x
             assert latents_all_attr_to_decode.shape == latents_all_attr_encoded.shape
             
-            
             # Calculate rendering losses weights
             if self.opt.rendering_loss_use_weight_t:
-                _alpha_t = alpha_t.flatten()[0]
-                _rendering_w_t = _alpha_t ** 2 # TODOL make this to adapt B>1
-                # print(f"_rendering_w_t of {t[0].item()}: ", _rendering_w_t)
+                _alpha_t = einops.rearrange(alpha_t.flatten(), "(B A)-> B A", B=B, A=A)[:,0]
+                _rendering_w_t = _alpha_t ** 2 # shape [B]
+                # print(f"_rendering_w_t of {t}: ", _rendering_w_t)
             else:
                 _rendering_w_t = 1
+        
         # allow inference
         elif self.opt.inference_finetuned_unet:
             with torch.no_grad():
@@ -585,7 +584,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 weighted_loss_splatter =  l2_each_attr * torch.tensor(self.opt.lambda_each_attribute_loss, device=l2_each_attr.device)
                 results["loss_splatter"] = torch.mean(weighted_loss_splatter)
         
-        if self.opt.train_unet and save_path is None:
+        if self.opt.lambda_rendering <= 0 and self.opt.train_unet and save_path is None:
             return results
 
         # debug = False
@@ -725,10 +724,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
        
         # if self.opt.lambda_rendering > 0:
         if True:
-            loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
-            loss_mse_rendering *= _rendering_w_t
+            # loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
+            # calculate using batch 
+            loss_mse_rendering = (pred_images - gt_images) ** 2 + (pred_alphas - gt_masks) ** 2
+            loss_mse_rendering = _rendering_w_t * torch.mean(loss_mse_rendering, dim=np.arange(1,loss_mse_rendering.dim()).tolist())
+            loss_mse_rendering = loss_mse_rendering.mean()
             results['loss_rendering'] = loss_mse_rendering
-            # results['loss_rendering_rendering_w_t'] = loss_mse_rendering
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
@@ -750,10 +751,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
                 F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                 F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            ).mean()
+            )
+            loss_lpips = _rendering_w_t * torch.mean(einops.rearrange(loss_lpips.flatten(), "(B N) -> B N", B=B), dim=1)
+            loss_lpips = loss_lpips.mean()
             results['loss_lpips'] = loss_lpips
-            loss_lpips *= _rendering_w_t
-            # results['loss_lpips_weight-t'] = loss_lpips
             loss += self.opt.lambda_lpips * loss_lpips
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
@@ -768,7 +769,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
         results['loss'] = loss
         # print("loss: ", loss)
-        
         
         return results
     
