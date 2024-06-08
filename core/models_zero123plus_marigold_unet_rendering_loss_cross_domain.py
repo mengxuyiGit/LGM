@@ -307,13 +307,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
         
-
-        # save_path = f"{self.opt.workspace}/verify_bsz2"
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            # kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_to_encode.jpg', images_to_save)
 
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
@@ -343,12 +340,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             if self.opt.decoder_with_domain_embedding:
                 decoder_domain_embedding = self.decoder_domain_embedding.unsqueeze(1).repeat(1,6,1,1)
                 decoder_domain_embedding = einops.rearrange(decoder_domain_embedding, "a (m n) h w -> a 1 (m h) (n w)", m=3, n=2)
-                # latents_all_attr_to_decode = torch.cat([latents_all_attr_to_decode, decoder_domain_embedding], dim=1)
                 latents_all_attr_to_decode = latents_all_attr_to_decode + decoder_domain_embedding.repeat(B,1,1,1)
                 
 
         elif self.opt.train_unet:
-            # print('Doing unet prediction')
             cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
             
             # unet 
@@ -357,7 +352,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 cross_attention_kwargs_stu = cross_attention_kwargs        
         
             # same t for all domain
-            # TODO: adapt this to batch_Size > 1 to run larger batch size
             t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
             t = t.unsqueeze(1).repeat(1,A)
             
@@ -374,31 +368,23 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             if self.opt.fixed_noise_level is not None:
                 t = torch.ones_like(t).to(t.device) * self.opt.fixed_noise_level
                 print(f"fixed noise level = {self.opt.fixed_noise_level}")
-            # print("t=",t)
             
             noise = torch.randn_like(gt_latents, device=gt_latents.device)
             noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
-            # print(noisy_latents.shape)
         
             domain_embeddings = torch.eye(5).to(noisy_latents.device)
             if self.opt.train_unet_single_attr is not None:
-                # TODO: get index of that attribute
                 domain_embeddings = domain_embeddings[:len(self.opt.train_unet_single_attr)]
-            # st()
             if self.opt.cd_spatial_concat:
                 domain_embeddings = torch.sum(domain_embeddings, dim=0, keepdims=True) # feed all domains
-            
             # add pos embedding on domain embedding
             domain_embeddings = torch.cat([
                     torch.sin(domain_embeddings),
                     torch.cos(domain_embeddings)
                 ], dim=-1)
-            
-            # repeat for batch
-            domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:])
+            domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:]) # repeat for batch
 
             # v-prediction with unet: (B A) 4 48 32
-            # print(text_embeddings)
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
             # get v_target
@@ -409,11 +395,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
             v_target = alpha_t * noise - sigma_t * gt_latents # (B A) 4 48 32
 
-            
-            # calbculate loss
-                # weight = alpha_t ** 2 / sigma_t ** 2 # SNR
-            # reshape back to the batch to calculate loss?? loss is of shape [] without batch dim?
-           
             # calculate the latent loss of each attribute separately
             if self.opt.log_each_attribute_loss or (self.opt.lambda_each_attribute_loss is not None):
                 v_pred_AB = einops.rearrange(v_pred, "(B A) C H W -> A B C H W", B=B, A=A)
@@ -430,9 +411,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 loss_latent = F.mse_loss(v_pred, v_target)     
                 results['loss_latent'] = loss_latent * self.opt.lambda_latent
                 
-            # if save_path is None and (self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0:
-            #     return results
-
             # calculate x0 from v_pred
             noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
             x = (noisy_latents - noise_pred * sigma_t) / alpha_t
@@ -621,17 +599,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
                     Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
             
-            
 
         if self.opt.train_unet_single_attr is not None:
             return results # not enough attr for gs rendering
             
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-        # TODO: add option to caluclate loss directly on the rendering 
         
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
-        # results['splatters_from_code'] = splatters_to_render # [B, 6, 14, 256, 256]
         gaussians = fuse_splatters(splatters_to_render) # B, N, 14
 
         if self.opt.fancy_video or self.opt.render_video:
@@ -643,10 +618,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) * self.opt.bg # white bg
 
         #  render & calculate rendering loss
-            
-        ## ------- begin render ----------
-        # use the other views for rendering and supervision
-        # if (self.opt.lambda_lpips + self.opt.lambda_rendering) > 0 and self.training:
         if self.training:
             gs_results = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
         else:
@@ -672,7 +643,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
             # render LGM output 
             image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
-            
             # decode latents into attrbutes again
             decoded_attr_list = []
             for i, _attr in enumerate(ordered_attr_list_local):
@@ -681,11 +651,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
                 decoded_attr_list.append(decoded_attr)
                 # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
-                
             splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-            # TODO: add option to caluclate loss directly on the rendering 
-            
-            # ## reshape 
             splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
             gaussians = fuse_splatters(splatters_to_render) # B, N, 14
             gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
@@ -701,17 +667,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             # calculate lpips
             loss_lpips_LGM = self.lpips_loss(
-                # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-                # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-                # downsampled to at most 256 to reduce memory cost
-
                 F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                 F.interpolate(gs_results_LGM['image'].view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             ).mean()
             results['loss_lpips_LGM'] = loss_lpips_LGM
-            
-        
-            # -------
             
       
         # # save training pairs
@@ -745,10 +704,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # if self.opt.lambda_lpips > 0:
         if True:
             loss_lpips = self.lpips_loss(
-                # gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-                # pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1,
-                # downsampled to at most 256 to reduce memory cost
-
                 F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                 F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
             )

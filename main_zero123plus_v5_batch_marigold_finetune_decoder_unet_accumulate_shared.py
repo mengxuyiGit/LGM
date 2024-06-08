@@ -448,8 +448,6 @@ def main():
 
                     torch.cuda.empty_cache()
 
-                # if epoch % opt.eval_iter == 0: 
-                # if global_step % opt.eval_iter == 0:  # eval by global step, not epoch
                 if global_step % opt.eval_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}")):  # eval by global step, not epoch
                     # eval
                     accelerator.wait_for_everyone()
