@@ -404,7 +404,7 @@ def main():
                     
                     # compare_weights(initial_weights=initial_weights, model=model)
                     
-                    psnr = out['psnr'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
+                    psnr = out['psnr'] if 'psnr' in out.keys() else torch.zeros_like(out['loss_latent'])
                     total_loss += loss.detach()
                     total_psnr += psnr.detach()
                     total_loss_latent += loss_latent.detach()
@@ -415,10 +415,8 @@ def main():
                         total_loss_rendering += out['loss_rendering'].detach()
                     elif 'loss_alpha' in out.keys():
                         total_loss_alpha += out["loss_alpha"].detach()
-                        
                     if 'loss_lpips' in out.keys():
                         total_loss_lpips += out['loss_lpips'].detach()
-                    
                     if opt.log_each_attribute_loss:
                         for _attr in ordered_attr_list:
                             total_attr_loss_dict[f"loss_{_attr}"] += out[f"loss_{_attr}"].detach()
