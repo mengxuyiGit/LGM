@@ -257,8 +257,6 @@ def main():
             # normalize
         ])
         
-       
-            
         def prepare_default_rays( device, elevation, azimuth):
             cams = [orbit_camera(ele, azi, radius=opt.cam_radius) for (ele, azi) in zip(elevation, azimuth)]
             cam_poses = np.stack(cams, axis=0)
@@ -428,7 +426,6 @@ def main():
                 image_all_attr_to_decode = model.pipe.vae.decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, return_dict=False)[0]
                 image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
                 image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
-              
                 image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=1, A=num_A)
                 decoded_attr_list = []
                 for j, _attr in enumerate(ordered_attr_list):

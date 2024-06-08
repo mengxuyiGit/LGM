@@ -640,11 +640,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
         
 
-        if self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
-            # render LGM output 
+        if (save_path is not None) or self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
+            # render LGM GT output 
             image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
-            # decode latents into attrbutes again
-            decoded_attr_list = []
+            decoded_attr_list = [] # decode latents into attrbutes again
             for i, _attr in enumerate(ordered_attr_list_local):
                 batch_attr_image = image_all_attr_to_decode[i]
                 # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
@@ -654,6 +653,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
             splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
             gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+            
             gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
 
             if self.opt.fancy_video or self.opt.render_video:
@@ -672,12 +672,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             ).mean()
             results['loss_lpips_LGM'] = loss_lpips_LGM
             
-      
-        # # save training pairs
-        # pair_images = torch.cat([gt_images, pred_images]).detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-        # pair_images = pair_images.transpose(0, 3, 1, 4, 2).reshape(-1, pair_images.shape[1] * pair_images.shape[3], 3)
-        # kiui.write_image(f'{self.opt.workspace}/train_gt_pred_images.jpg', pair_images)
-        # st()
         ## ------- end render ----------
 
        

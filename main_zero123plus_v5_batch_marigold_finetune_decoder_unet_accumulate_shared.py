@@ -505,7 +505,7 @@ def main():
                                 # kiui.write_image(f'{opt.workspace}/eval_global_step_{global_step}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
                                 
                                 # save the above 3 images in one
-                                three_in_one = torch.cat([data['images_output'], out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
+                                three_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], out['alphas_pred_LGM'].repeat(1,1,3,1,1), out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
                                 gt_images = three_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                                 gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                                 # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
