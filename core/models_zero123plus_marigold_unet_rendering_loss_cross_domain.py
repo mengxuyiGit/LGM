@@ -636,41 +636,41 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # get gt_mask from gt gaussian rendering
         if self.opt.data_mode == "srn_cars":
             gt_masks = self.gs.render(fuse_splatters(data['splatters_output']), data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)['alpha']
-
         gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
         
 
         if (save_path is not None) or self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
-            # render LGM GT output 
-            image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
-            decoded_attr_list = [] # decode latents into attrbutes again
-            for i, _attr in enumerate(ordered_attr_list_local):
-                batch_attr_image = image_all_attr_to_decode[i]
-                # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
-                decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
-                decoded_attr_list.append(decoded_attr)
-                # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
-            splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-            splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
-            gaussians = fuse_splatters(splatters_to_render) # B, N, 14
-            
-            gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+            with torch.no_grad():
+                # render LGM GT output 
+                image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+                decoded_attr_list = [] # decode latents into attrbutes again
+                for i, _attr in enumerate(ordered_attr_list_local):
+                    batch_attr_image = image_all_attr_to_decode[i]
+                    # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
+                    decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+                    decoded_attr_list.append(decoded_attr)
+                    # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
+                splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
+                splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
+                gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+                
+                gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
 
-            if self.opt.fancy_video or self.opt.render_video:
-                results['gaussians_LGM'] = gaussians
+                if self.opt.fancy_video or self.opt.render_video:
+                    results['gaussians_LGM'] = gaussians
 
-            results['images_pred_LGM'] = gs_results_LGM['image'] 
-            results['alphas_pred_LGM'] = gs_results_LGM['alpha']
-            
-            psnr_LGM = -10 * torch.log10(torch.mean((gs_results_LGM['image'].detach() - gt_images) ** 2))
-            results['psnr_LGM'] = psnr_LGM.detach()
-            
-            # calculate lpips
-            loss_lpips_LGM = self.lpips_loss(
-                F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-                F.interpolate(gs_results_LGM['image'].view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            ).mean()
-            results['loss_lpips_LGM'] = loss_lpips_LGM
+                results['images_pred_LGM'] = gs_results_LGM['image'] 
+                results['alphas_pred_LGM'] = gs_results_LGM['alpha']
+                
+                psnr_LGM = -10 * torch.log10(torch.mean((gs_results_LGM['image'].detach() - gt_images) ** 2))
+                results['psnr_LGM'] = psnr_LGM.detach()
+                
+                # calculate lpips
+                loss_lpips_LGM = self.lpips_loss(
+                    F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+                    F.interpolate(gs_results_LGM['image'].view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                ).mean()
+                results['loss_lpips_LGM'] = loss_lpips_LGM
             
         ## ------- end render ----------
 
@@ -695,8 +695,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             if self.opt.verbose_main:
                 print(f"loss alpha:{loss_mse_alpha}")
             
-        # if self.opt.lambda_lpips > 0:
-        if True:
+        if self.opt.lambda_lpips > 0:
+        # if True:
             loss_lpips = self.lpips_loss(
                 F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                 F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),

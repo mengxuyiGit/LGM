@@ -347,7 +347,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 15 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
     --desc 'inference_metric_GSO_video_cond_guidance4.0_30steps_20240549_unet_pipev8_only_attn' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
-    --set_random_seed --batch_size 1 --num_workers 2 \
+    --set_random_seed --batch_size 1 --num_workers 1 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --scale_clamp_max -2 --scale_clamp_min -10 \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \

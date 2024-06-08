@@ -25,6 +25,32 @@ IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
 
+def save_all_56_in_1(image_dir):
+    # Get a sorted list of all the PNG files in the directory
+    image_files = sorted([f for f in os.listdir(image_dir) if f.endswith(".png") and f.split('.')[0].isdigit() and 0 <= int(f.split('.')[0]) <= 55])
+
+    # Load all the images into a list
+    images = [Image.open(os.path.join(image_dir, file)) for file in image_files]
+
+    # Determine the size for the final big image
+    total_width = images[0].width * 8  # 8 images per row
+    total_height = images[0].height * (len(images) // 8 + (1 if len(images) % 8 != 0 else 0))  # Calculate the number of rows
+
+    # Create a new blank image with the appropriate size
+    big_image = Image.new("RGB", (total_width, total_height))
+
+    # Paste each image into the big image
+    for idx, img in enumerate(images):
+        x_offset = (idx % 8) * img.width
+        y_offset = (idx // 8) * img.height
+        big_image.paste(img, (x_offset, y_offset))
+
+    # Save the big image
+    big_image_path = os.path.join(f"big_image/{os.path.basename(image_dir)}.png")
+    big_image.save(big_image_path)
+
+    print("Big image saved at:", big_image_path)
+
 # exactly the same as self.load_ply() in the the gs.py 
 def save_ply(path):
     from plyfile import PlyData, PlyElement
@@ -233,6 +259,11 @@ class ObjaverseDataset(Dataset):
         #     self.items = self.items[-self.opt.batch_size:]
         # self.items = self.items[:16]
         print(f"There are total {len(self.items)} in dataloader")
+
+        # for _sn in all_items[282*4:284*4]:
+        #     _rendering_path = self.data_path_rendering[_sn]
+        #     save_all_56_in_1(_rendering_path)
+        # st()
         
         # default camera intrinsics
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
