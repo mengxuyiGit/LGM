@@ -84,8 +84,8 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
 
 
 # [JUN 7] Add rendering loss
-accelerate launch --main_process_port 29517 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
-    --workspace runs/finetune_unet/workspace_debug \
+accelerate launch --main_process_port 29517 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
+    --workspace runs/finetune_unet/workspace_train \
     --lr 1e-5 --max_train_steps 30000 --eval_iter 200 --save_iter 200 --lr_scheduler Plat \
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
