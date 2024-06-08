@@ -106,7 +106,7 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 accelerate launch --main_process_port 29518 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
     --workspace runs/finetune_unet/workspace_train \
-    --lr 1e-5 --max_train_steps 30000 --eval_iter 200 --save_iter 200 --lr_scheduler Plat \
+    --lr 1e-5 --max_train_steps 30000 --eval_iter 500 --save_iter 1000 --lr_scheduler Plat \
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 10 \
     --lambda_splatter 0 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1  --lambda_splatter_lpips 0 \
