@@ -355,7 +355,8 @@ def main():
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 if i > 0 and opt.skip_training:
                     break
-              
+                # if i > 280 and i < 285:
+                #     print(f"global step: {i}-gpu-{accelerator.process_index} may contain dirty data: {data['scene_name']}")
                 if opt.verbose_main:
                     print(f"data['input']:{data['input'].shape}")
                     
@@ -367,12 +368,12 @@ def main():
                     # initial_weights = store_initial_weights(model)
 
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
-                    # del data
-                    loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
+                    # loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
+                    loss = out['loss'] if 'loss' in out.keys() else torch.zeros_like(out['loss_latent'])
                     loss_splatter = out['loss_splatter'] if 'loss_splatter' in out.keys() else torch.zeros_like(out['loss_latent'])  # if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
                     loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_latent'])
-                    # print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent, "loss_splatter_lpips", loss_splatter_lpips)
+                    print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent, "loss_splatter_lpips", loss_splatter_lpips)
                     lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
                     accelerator.backward(lossback)
 
