@@ -540,7 +540,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # images_all_attr_batch.shape
         loss_splatter = self.opt.lambda_splatter * F.mse_loss(image_all_attr_to_decode, images_all_attr_batch)
         results["loss_splatter"] = loss_splatter 
-        # print("loss splatter: ", loss_splatter)
         if self.opt.lambda_splatter_lpips > 0:
             loss_splatter_lpips = self.lpips_loss(
                 images_all_attr_batch, # gt, alr in [-1,1]
