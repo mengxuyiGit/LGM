@@ -244,6 +244,7 @@ def main():
     )
 
     ## load LGM model for inference
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if opt.render_lgm_infer is not None:
         
         ## helpers
@@ -261,7 +262,6 @@ def main():
             # normalize
         ])
         
-        from kiui.cam import orbit_camera
         from core.utils import get_rays
             
         def prepare_default_rays( device, elevation, azimuth):
@@ -284,7 +284,6 @@ def main():
             return rays_embeddings
         
         ckpt = load_file("pretrained/model_fp16.safetensors", device='cpu')
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # load either zerpo123++ or mvdream
         if "zero123++" in opt.render_lgm_infer:
             # load lgm
@@ -473,7 +472,8 @@ def main():
                     proj_matrix[2, 3] = 1
                     
                     images_dict = {}
-                    gaussian_key_list = ["gaussians_LGM", "gaussians_pred", "gaussians_LGM_infer_zero123++", "gaussians_LGM_infer_mvdream"]
+                    gaussian_key_list = ["gaussians_LGM", "gaussians_pred"]
+                                        #  , "gaussians_LGM_infer_zero123++", "gaussians_LGM_infer_mvdream"]
                     for key in gaussian_key_list:
                         gaussians = out[key]
                         images = []
