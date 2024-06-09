@@ -244,7 +244,7 @@ def main():
         model, test_dataloader 
     )
     
-    def get_proj_matrix(custom_fovy):
+    def get_proj_matrix(custom_fovy, device="cuda"):
         tan_half_fov = np.tan(0.5 * np.deg2rad(custom_fovy))
         proj_matrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
         proj_matrix[0, 0] = 1 / tan_half_fov
@@ -400,6 +400,7 @@ def main():
             # save some images
             # if True:
             if opt.train_unet_single_attr is None:
+                device = data['images_output'].device
                 # 5-in-1
                 five_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], out['alphas_pred_LGM'].repeat(1,1,3,1,1), out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
                 all_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
@@ -412,7 +413,7 @@ def main():
                 
                 for key in gaussian_key_list:
                     proj_matrix_dict.update({
-                        key: get_proj_matrix(opt.fovy)
+                        key: get_proj_matrix(opt.fovy, device=device)
                     })
                     
                 # add lgm infer gaussian 
@@ -451,7 +452,7 @@ def main():
                             # generate gaussians
                             gaussians = lgm_model.forward_gaussians(data['input_lgm'])
                             # calculate psnr and lpips
-                            key_proj_matrix = get_proj_matrix(49.1)
+                            key_proj_matrix = get_proj_matrix(49.1, device=device)
                             proj_matrix_dict.update({
                                 f"gaussians_{key}": key_proj_matrix,
                             })
@@ -509,7 +510,7 @@ def main():
                         out[f"gaussians_LGM_infer_zero123++"] = gaussians
                         gaussian_key_list.append("gaussians_LGM_infer_zero123++")
                         proj_matrix_dict.update({
-                            key: get_proj_matrix(49.1)
+                            key: get_proj_matrix(49.1, device=device)
                         })
                         lgm_model.clear_splatter_out()
                         
@@ -537,13 +538,12 @@ def main():
                         out[f"gaussians_LGM_infer_mvdream"] = gaussians
                         gaussian_key_list.append("gaussians_LGM_infer_mvdream")
                         proj_matrix_dict.update({
-                            key: get_proj_matrix(49.1)
+                            key: get_proj_matrix(49.1, device=device)
                         })
         
                 # render 360 video 
                 if opt.fancy_video or opt.render_video:
                     
-                    device = data['images_output'].device
                 
                     images_dict = {}
                         
