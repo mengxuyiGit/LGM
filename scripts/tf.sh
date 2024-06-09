@@ -91,12 +91,9 @@
 # LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_debug/20240523-180126-debug_tb_log_splatter-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter100.0_lpips1.0-lr0.0001-Plat5
 # LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/00002-train_unet-4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-skip_predict_x0-loss_render1.0_lpips1.0-lr3e-05-Plat50
 # LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train
-# # LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train
-# # LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240533-train_unet_SPLATTER_LOSS-resume_22000ckpt_ALL_ATTR_pipev7_CD_attn_no_pos_embed_4gpus_bsz2_accumulate2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_splatter1.0_lpips1.0-lr3e-05-Plat50
-# LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_debug/20240529-235019-train_unet_ALL_LAYERS_pipev7_6gpus_bsz2_accumulate2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr3e-05-Plat50
-# LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug
-# LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_test
-LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00016-decoder_finetune-load_normed_splatter_mv2999-lpips0.1-fov60-random_bg-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter10.0_lpips0.1-lr1e-05-Plat5
+# LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train
+# LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240533-train_unet_SPLATTER_LOSS-resume_22000ckpt_ALL_ATTR_pipev7_CD_attn_no_pos_embed_4gpus_bsz2_accumulate2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_splatter1.0_lpips1.0-lr3e-05-Plat50
+LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_debug/20240529-235019-train_unet_ALL_LAYERS_pipev7_6gpus_bsz2_accumulate2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr3e-05-Plat50
 
 TB_PORT=6151
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)

@@ -1,0 +1,1 @@
+GSO=/mnt/kostas-graid/sw/envs/chenwang/data/gso/gso-meshes/

@@ -256,6 +256,8 @@ class Options:
     splatter_mv_already_normalized: bool = False
     
     
+    different_t_schedule: Optional[Tuple[int,...]] = None
+    xyz_zero_t: bool = False
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}

@@ -355,7 +355,8 @@ def main():
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 if i > 0 and opt.skip_training:
                     break
-              
+                # if i > 280 and i < 285:
+                #     print(f"global step: {i}-gpu-{accelerator.process_index} may contain dirty data: {data['scene_name']}")
                 if opt.verbose_main:
                     print(f"data['input']:{data['input'].shape}")
                     
@@ -367,8 +368,8 @@ def main():
                     # initial_weights = store_initial_weights(model)
 
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
-                    # del data
-                    loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
+                    # loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
+                    loss = out['loss'] if 'loss' in out.keys() else torch.zeros_like(out['loss_latent'])
                     loss_splatter = out['loss_splatter'] if 'loss_splatter' in out.keys() else torch.zeros_like(out['loss_latent'])  # if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
                     loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_latent'])
@@ -403,7 +404,7 @@ def main():
                     
                     # compare_weights(initial_weights=initial_weights, model=model)
                     
-                    psnr = out['psnr'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
+                    psnr = out['psnr'] if 'psnr' in out.keys() else torch.zeros_like(out['loss_latent'])
                     total_loss += loss.detach()
                     total_psnr += psnr.detach()
                     total_loss_latent += loss_latent.detach()
@@ -414,10 +415,8 @@ def main():
                         total_loss_rendering += out['loss_rendering'].detach()
                     elif 'loss_alpha' in out.keys():
                         total_loss_alpha += out["loss_alpha"].detach()
-                        
                     if 'loss_lpips' in out.keys():
                         total_loss_lpips += out['loss_lpips'].detach()
-                    
                     if opt.log_each_attribute_loss:
                         for _attr in ordered_attr_list:
                             total_attr_loss_dict[f"loss_{_attr}"] += out[f"loss_{_attr}"].detach()
@@ -448,8 +447,6 @@ def main():
 
                     torch.cuda.empty_cache()
 
-                # if epoch % opt.eval_iter == 0: 
-                # if global_step % opt.eval_iter == 0:  # eval by global step, not epoch
                 if global_step % opt.eval_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}")):  # eval by global step, not epoch
                     # eval
                     accelerator.wait_for_everyone()
@@ -507,7 +504,7 @@ def main():
                                 # kiui.write_image(f'{opt.workspace}/eval_global_step_{global_step}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
                                 
                                 # save the above 3 images in one
-                                three_in_one = torch.cat([data['images_output'], out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
+                                three_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], out['alphas_pred_LGM'].repeat(1,1,3,1,1), out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
                                 gt_images = three_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                                 gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                                 # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_gt.jpg', gt_images)
