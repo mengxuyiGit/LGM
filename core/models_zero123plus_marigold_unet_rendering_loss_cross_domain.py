@@ -463,6 +463,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 else:
                     latents  = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
                 
+                if self.opt.xyz_zero_t:
+                    assert B==1
+                    xyz_t = 10 * torch.ones((1,), device=gt_latents.device, dtype=torch.int)
+                    gt_latents_xyz = gt_latents[:1]
+                    noise_xyz = torch.randn_like(gt_latents_xyz, device='cuda:0', dtype=torch.float32)
+                    latents_xyz = self.pipe.scheduler.add_noise(gt_latents_xyz, noise_xyz, xyz_t)
+                
                 domain_embeddings = torch.eye(5).to(latents.device)
                 if self.opt.train_unet_single_attr is not None:
                     # TODO: get index of that attribute
@@ -481,7 +488,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 # latents_init = latents.clone().detach()
                 for _, t in enumerate(timesteps):
                     print(f"enumerate(timesteps) t={t}")
-            
+                    if self.opt.xyz_zero_t and t >= 10: 
+                        print("use t=10 for latent-xyz")
+                        latents[:1] = latents_xyz
+
                     latent_model_input = torch.cat([latents] * 2)
                     # domain_embeddings = torch.cat([domain_embeddings] * 2)
                     latent_model_input = self.pipe.scheduler.scale_model_input(latent_model_input, t)
