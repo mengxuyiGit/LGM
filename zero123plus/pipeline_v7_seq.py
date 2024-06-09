@@ -188,6 +188,7 @@ class CustomJointAttention(Attention):
         # print("using xformers attention processor")
         
 from diffusers.models.attention import BasicTransformerBlock
+from diffusers.models.resnet import ResnetBlock2D
 # from diffusers.utils import BaseOutput, deprecate, maybe_allow_in_graph
 from diffusers.models.attention import FeedForward, AdaLayerNorm, AdaLayerNormZero, Attention
 if is_xformers_available():
@@ -350,19 +351,64 @@ def init_weights(m):
         nn.init.constant_(m.weight, 1)
         nn.init.constant_(m.bias, 0)
 
-def modify_unet(unet):
+def modify_unet(unet, set_unet_class_embeddings_concat=False):
+    if set_unet_class_embeddings_concat:
+        unet.config.class_embeddings_concat = True
     # Recursive function to modify transformer blocks
-    def replace_transformer_blocks(module):
+    def replace_transformer_blocks(module, set_unet_class_embeddings_concat):
         for name, child in module.named_children():
             if isinstance(child, BasicTransformerBlock):
                 # print(name)
                 # Replace the existing BasicTransformerBlock with a custom one
                 setattr(module, name, BasicTransformerBlockCrossDomainPosEmbed(child))  # configure appropriately
+            elif set_unet_class_embeddings_concat and isinstance(child, ResnetBlock2D):
+            # elif isinstance(child, ResnetBlock2D):
+                # Create a new ResnetBlock2D with doubled temb_channels
+                # Extract dropout probability
+                print("set ResnetBlock2D")
+                dropout_prob = child.dropout.p if isinstance(child.dropout, nn.Dropout) else child.dropout
+                new_resnet = ResnetBlock2D(
+                    in_channels=child.in_channels,
+                    out_channels=child.out_channels,
+                    conv_shortcut=child.use_conv_shortcut,
+                    dropout=dropout_prob,
+                    temb_channels=child.time_emb_proj.in_features * 2 if child.time_emb_proj else None,  # Double the temb_channels
+                    groups=child.norm1.num_groups,
+                    groups_out=child.norm2.num_groups,
+                    pre_norm=child.pre_norm,
+                    eps=child.norm1.eps,
+                    non_linearity=type(child.nonlinearity).__name__.lower(),
+                    skip_time_act=child.skip_time_act,
+                    time_embedding_norm=child.time_embedding_norm,
+                    kernel=None,  # Set as None since we don't have direct access to kernel
+                    output_scale_factor=child.output_scale_factor,
+                    use_in_shortcut=child.use_in_shortcut,
+                    up=child.up,
+                    down=child.down,
+                    conv_shortcut_bias=child.conv_shortcut.bias is not None if child.conv_shortcut else True,
+                    conv_2d_out_channels=child.conv2.out_channels
+                )
+                # Copy weights
+                state_dict = child.state_dict()
+                new_state_dict = new_resnet.state_dict()
+                for key in new_state_dict:
+                    if key in state_dict and state_dict[key].shape == new_state_dict[key].shape:
+                        new_state_dict[key] = state_dict[key]
+                    elif 'time_emb_proj' in key:
+                        # Handle the specific case for time_emb_proj.weight
+                        old_weight = state_dict[key]
+                        new_weight = new_state_dict[key]
+                        new_weight[:old_weight.shape[0], :old_weight.shape[1]] = old_weight
+                        new_state_dict[key] = new_weight
+                        
+                new_resnet.load_state_dict(new_state_dict)
+                setattr(module, name, new_resnet)
             else:
-                replace_transformer_blocks(child)
+                replace_transformer_blocks(child, set_unet_class_embeddings_concat)
 
     # Apply modifications
-    replace_transformer_blocks(unet)
+    replace_transformer_blocks(unet, set_unet_class_embeddings_concat)
+    
     
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -650,7 +696,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         self.is_generator = False
         
         #  set blocks
-        modify_unet(unet=unet)
+        modify_unet(unet=unet, set_unet_class_embeddings_concat=True)
 
         unet_lora_attn_procs = dict()
         # for name, _ in unet.attn_processors.items():
@@ -670,14 +716,9 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             unet_lora_attn_procs[name] = ReferenceOnlyAttnProc(
                 default_attn_proc, enabled=enabled, name=name
             )
-            # if name.endswith("attn_joint_mid.processor"):
-            #     unet_lora_attn_procs[name] = XFormersJointAttnProcessor()
-          
-        # st()
-        # unet.set_attn_processor(unet_lora_attn_procs)
+      
         unet.set_attn_processor(unet_lora_attn_procs)
-        # Random init unet weights
-        # unet.apply(init_weights)
+       
        
         self.unet = unet
         with open("unet_7seq_after_modify.txt", "w") as f:
@@ -1013,7 +1054,6 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
             time_embed_dim=time_embed_dim,
             timestep_input_dim=timestep_input_dim,
         )
-        
         # if isinstance(self.unet, UNet2DConditionModel):
         self.unet = RefOnlyNoisedUNet(self.unet, train_sched, self.scheduler).eval()
 

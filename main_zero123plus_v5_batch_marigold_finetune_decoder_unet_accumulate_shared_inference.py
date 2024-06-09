@@ -36,6 +36,7 @@ logger = get_logger(__name__, log_level="INFO")
 
 from utils.format_helper import get_workspace_name
 from utils.io_helper import print_grad_status
+from utils.metrics_helper import save_real_image_statistics, load_real_image_statistics
 
 import einops, rembg
 from PIL import Image
@@ -349,11 +350,23 @@ def main():
         with open(f"{opt.workspace}/metrics.txt", "w") as f:
             print(f"Total samples to eval = {num_samples_eval}", file=f)
         
+        # Load the saved real image statistics
+        if opt.calculate_FID:
+            assert opt.render_input_views # make the images used for calculating is consistent
+            real_stats_file = 'real_image_statistics.npz'
+            if not os.path.exists(real_stats_file):
+                save_real_image_statistics(test_dataloader, num_samples=len(test_dataloader), file_path=real_stats_file)
+            real_stats = load_real_image_statistics(file_path=real_stats_file)
+            num_images_for_FID = real_stats.pop('num_images')
+            generated_images = []
+        
         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main)):
             if i == num_samples_eval:
                 break
         
             out = model(data, save_path=f'{opt.workspace}/eval_inference', prefix=f"{accelerator.process_index}_{i}_")
+            if opt.calculate_FID:
+                generated_images.append(out['images_pred'])
     
             if opt.train_unet_single_attr is not None:
                 for _attr in ordered_attr_list:
