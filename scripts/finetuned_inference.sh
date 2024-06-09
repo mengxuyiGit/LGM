@@ -336,30 +336,52 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/sw/envs/xuyimeng
 #     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
 #     --resume_unet /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240549-train_unet_pipev8_only_attn-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr3e-05-Plat50/eval_global_step_29800_ckpt/model.safetensors
 
-# [June 01 Children's Day! But I am an adult, I need to work. I did't use "I have to" because I love my job!]
-# GSO inference
-DATA_RENDERING_ROOT_GSO=/mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
-export CUDA_VISIBLE_DEVICES=2
-accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
-    --workspace runs/finetune_unet/workspace_inference \
+# # [June 01 Children's Day! But I am an adult, I need to work. I did't use "I have to" because I love my job!]
+# # GSO inference
+# DATA_RENDERING_ROOT_GSO=/mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
+# export CUDA_VISIBLE_DEVICES=2
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
+#     --workspace runs/finetune_unet/workspace_inference \
+#     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
+#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 15 \
+#     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'inference_metric_GSO_video_cond_guidance4.0_30steps_20240549_unet_pipev8_only_attn' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
+#     --set_random_seed --batch_size 1 --num_workers 1 \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+#     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+#     --inference_finetuned_unet --only_train_attention --guidance_scale 4.0 --save_cond \
+#     --log_each_attribute_loss --render_video --metric_GSO --render_lgm_infer "zero123++" "mvdream" \
+#     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
+#     --resume_unet /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240549-train_unet_pipev8_only_attn-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr3e-05-Plat50/eval_global_step_29800_ckpt/model.safetensors
+
+
+# [Jun 9] inference on finetuning unet for ALL attribute image with CD ATTN. TODO: change to the trained decoder
+accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference.py big \
+    --workspace runs/finetune_unet/workspace_debug \
     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
-    --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 15 \
+    --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'inference_metric_GSO_video_cond_guidance4.0_30steps_20240549_unet_pipev8_only_attn' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
-    --set_random_seed --batch_size 1 --num_workers 1 \
+    --desc 'inference_unet_w_rendering_loss_pipev7' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+    --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
+    --set_random_seed --batch_size 1 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
     --scale_clamp_max -2 --scale_clamp_min -10 \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
-    --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+    --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
-    --inference_finetuned_unet --only_train_attention --guidance_scale 4.0 --save_cond \
-    --log_each_attribute_loss --render_video --metric_GSO --render_lgm_infer "zero123++" "mvdream" \
-    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
-    --resume_unet /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240549-train_unet_pipev8_only_attn-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr3e-05-Plat50/eval_global_step_29800_ckpt/model.safetensors
-
+    --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
+    --log_each_attribute_loss --render_video \
+    --only_train_attention \
+    --resume_unet /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240558-rendering_mse_lpips_loss-only_train_attention-v7-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-numV10-loss_render1.0_lpips1.0-lr1e-05-Plat50/eval_global_step_29000_ckpt/model.safetensors
 
 # ------------------------ from SD weights ---------------------------
 # # [MAY 30] inference on finetuning unet from SD weights
