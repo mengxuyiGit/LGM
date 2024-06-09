@@ -254,6 +254,8 @@ class Options:
     different_t_schedule: Optional[Tuple[int,...]] = None
     xyz_zero_t: bool = False
 
+    calculate_FID: bool = False
+
 # all the default settings
 config_defaults: Dict[str, Options] = {}
 config_doc: Dict[str, str] = {}
