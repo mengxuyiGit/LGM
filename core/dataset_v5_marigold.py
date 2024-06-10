@@ -364,7 +364,8 @@ class ObjaverseDataset(Dataset):
             cam_poses.append(c2w)
 
             vid_cnt += 1
-            if self.training and (vid_cnt == self.opt.num_views):
+            # if self.training and (vid_cnt == self.opt.num_views):
+            if (vid_cnt == self.opt.num_views):
                 break
 
         if vid_cnt < self.opt.num_views:
