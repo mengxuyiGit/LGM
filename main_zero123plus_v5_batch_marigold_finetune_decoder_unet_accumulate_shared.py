@@ -436,7 +436,7 @@ def main():
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
-                if not opt.skip_training and global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
+                if not opt.skip_training and global_step > 0 and global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
                     accelerator.wait_for_everyone()
                     accelerator.save_model(model, opt.workspace)
                     # save a copy 
