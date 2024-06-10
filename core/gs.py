@@ -56,8 +56,7 @@ class GaussianRenderer:
 
             for v in range(V):
                 
-                # try:
-                if True:
+                try:
                     # render novel views
                     view_matrix = cam_view[b, v].float()
                     view_proj_matrix = cam_view_proj[b, v].float()
@@ -92,18 +91,16 @@ class GaussianRenderer:
                         cov3D_precomp=None,
                     )
                     
-                    # print(f"^|______ good: {b}th gaussian, {v}th view")
-                    
                     rendered_image = rendered_image.clamp(0, 1)
 
                     images.append(rendered_image)
                     alphas.append(rendered_alpha)
                 
-                # except:
-                #     print(f"^|_______OOM: {b}th gaussian, {v}th view")
-                #     # st()
-
-       
+                except:
+                    print(f"^|_______OOM: {b}th gaussian, {v}th view")
+                    images.append(torch.ones_like(rendered_image))
+                    alphas.append(torch.ones_like(rendered_alpha))
+                    
         # try:
         if True:
             images = torch.stack(images, dim=0).view(B, V, 3, self.opt.output_size, self.opt.output_size)

@@ -706,16 +706,22 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
         if self.opt.lambda_lpips > 0:
         # if True:
-            loss_lpips = self.lpips_loss(
-                F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-                F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-            )
-            loss_lpips = _rendering_w_t * torch.mean(einops.rearrange(loss_lpips.flatten(), "(B N) -> B N", B=B), dim=1)
-            loss_lpips = loss_lpips.mean()
+            try:
+                loss_lpips = self.lpips_loss(
+                    F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+                    F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                )
+                loss_lpips = _rendering_w_t * torch.mean(einops.rearrange(loss_lpips.flatten(), "(B N) -> B N", B=B), dim=1)
+                loss_lpips = loss_lpips.mean()
+            except:
+                loss_lpips = loss # torch.ones_like(loss)
+                
             results['loss_lpips'] = loss_lpips
             loss += self.opt.lambda_lpips * loss_lpips
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
+            
+                
   
         
         # Calculate metrics
