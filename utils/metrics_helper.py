@@ -5,6 +5,7 @@ import torch
 
 from ipdb import set_trace as st
 import einops
+from PIL import Image
 
 def save_real_image_statistics(dataset, num_samples=100, file_path='real_image_statistics.npz'):
     real_images = []
@@ -45,3 +46,13 @@ def save_generated_image_npz(real_images, file_path='generated_image_statistics.
     
     np.savez(file_path, arr_0 = real_images_arr)# ['mu', 'sigma', 'mu_s', 'sigma_s', 'mu_clip', 'sigma_clip', 'arr_0']
     print(f"Saved {real_images_arr.shape[0]} real image statistics to {file_path}")
+
+def save_generated_image_png(real_images, idx, file_path='generated_image_statistics.npz'):
+    
+    real_images = einops.rearrange(real_images, "N V C H W -> (N V) H W C") # arr_0: (10000, 256, 256, 3)
+    real_images_arr = (real_images * 255).cpu().numpy().astype(np.uint8) # 0-255, uint8 
+    for i, _img in enumerate(real_images_arr):
+        _path = f"{file_path}/{idx}_{i}.png"
+        assert not os.path.exists(_path)
+        Image.fromarray(_img).save(_path)
+    print(f"Saved all {i+1} views for object {idx}")
