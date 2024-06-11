@@ -469,7 +469,7 @@ def main():
                         
                             out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_")
                     
-                            psnr = out['psnr'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
+                            psnr = out['psnr'] if 'psnr' in out.keys() else torch.zeros_like(out['loss_latent'])
                             eval_loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                             loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(eval_loss)
                             total_psnr += psnr.detach()
