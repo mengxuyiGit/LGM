@@ -365,7 +365,7 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/sw/envs/xuyimeng
 # [Jun 9] inference on finetuning unet for ALL attribute image with CD ATTN. TODO: change to the trained decoder
 export CUDA_VISIBLE_DEVICES=1
 accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference.py big \
-    --workspace runs/finetune_unet/workspace_debug \
+    --workspace runs/finetune_unet/workspace_inference \
     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
@@ -380,9 +380,9 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
     --custom_pipeline "./zero123plus/pipeline_v7_seq.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
-    --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
+    --inference_finetuned_decoder --gradient_accumulation_steps 5 --output_size 320 \
     --log_each_attribute_loss --render_video \
-    --only_train_attention \
+    --only_train_attention --calculate_FID \
     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
     --resume_unet /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240561-fted_decoeder-rendering_mse_lpips_loss_RESUME29K-only_train_attention-v7-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-numV10-loss_render1.0_lpips1.0-lr1e-05-Plat50/eval_global_step_1000_ckpt/model.safetensors
     
@@ -399,7 +399,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
 
 # # [Jun 9] inference on finetuning unet for ALL attribute image with CD ATTN. TODO: change to the trained decoder
 # accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference.py big \
-#     --workspace runs/finetune_unet/workspace_debug \
+#     --workspace runs/finetune_unet/workspace_inference \
 #     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
 #     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
