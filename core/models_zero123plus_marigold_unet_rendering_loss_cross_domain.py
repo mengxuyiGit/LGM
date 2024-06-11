@@ -475,7 +475,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
                 
                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
-                self.pipe.scheduler.set_timesteps(30, device='cuda:0')
+                self.pipe.scheduler.set_timesteps(300, device='cuda:0')
                 
                 timesteps = self.pipe.scheduler.timesteps
                 debug = False
@@ -488,6 +488,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     timesteps = [debug_t]
                 else:
                     latents  = torch.randn_like(gt_latents, device='cuda:0', dtype=torch.float32)
+                
+                 # ----------------
+                     
+                if self.opt.xyz_zero_t:
+                    assert B==1
+                    xyz_t = 10 * torch.ones((1,), device=gt_latents.device, dtype=torch.int)
+                    gt_latents_xyz = gt_latents[:1]
+                    noise_xyz = torch.randn_like(gt_latents_xyz, device='cuda:0', dtype=torch.float32)
+                    latents_xyz = self.pipe.scheduler.add_noise(gt_latents_xyz, noise_xyz, xyz_t)
+             
+                # ----------------
+                
                 
                 domain_embeddings = torch.eye(5).to(latents.device)
                 if self.opt.train_unet_single_attr is not None:
@@ -502,12 +514,17 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                         torch.cos(domain_embeddings)
                     ], dim=-1)
                 
+               
                 # cfg
                 domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
                 # latents_init = latents.clone().detach()
                 for _, t in enumerate(timesteps):
                     print(f"enumerate(timesteps) t={t}")
-            
+                    if self.opt.xyz_zero_t and t > 10: 
+                        print("use t=10 for latent-xyz")
+                        latents[:1] = latents_xyz
+                        t = torch.cat([xyz_t, t.repeat(A-1)], dim=0).repeat(2)
+
                     latent_model_input = torch.cat([latents] * 2)
                     # domain_embeddings = torch.cat([domain_embeddings] * 2)
                     latent_model_input = self.pipe.scheduler.scale_model_input(latent_model_input, t)
@@ -538,6 +555,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                         noise_pred = latents * sigma_t.view(-1, 1, 1, 1) + noise_pred * alpha_t.view(-1, 1, 1, 1)
                         latents = (latents - noise_pred * sigma_t) / alpha_t
                     else:
+                        if self.opt.xyz_zero_t and t.dim() > 0 and (t[-1]) > 10:
+                            t = t[-1] # get the t for most attr, since the latent at xyz position will be overwitten anyway
+                            print(f"use t={t} for self.pipe.scheduler.step")
                         latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
                     
                 print(latents.shape)
