@@ -36,7 +36,7 @@ logger = get_logger(__name__, log_level="INFO")
 
 from utils.format_helper import get_workspace_name
 from utils.io_helper import print_grad_status
-from utils.metrics_helper import save_real_image_npz, save_generated_image_npz
+from utils.metrics_helper import save_real_image_npz, save_generated_image_npz, save_generated_image_png
 
 import einops, rembg
 from PIL import Image
@@ -238,20 +238,21 @@ def main():
     
     # Load the saved real image statistics
     if opt.calculate_FID:
-        test_dataloader_FID = torch.utils.data.DataLoader(
-            test_dataset,
-            batch_size=100,
-            shuffle=False,
-            num_workers=0,
-            pin_memory=True,
-            drop_last=False,
-        )
+        # test_dataloader_FID = torch.utils.data.DataLoader(
+        #     test_dataset,
+        #     batch_size=100,
+        #     shuffle=False,
+        #     num_workers=0,
+        #     pin_memory=True,
+        #     drop_last=False,
+        # )
     
-        assert opt.render_input_views # make the images used for calculating is consistent
-        real_stats_file = 'evaluation/Objavese_1k_view1_real_image_statistics.npz'
-        if not os.path.exists(real_stats_file):
-            save_real_image_npz(test_dataloader_FID, num_samples=len(test_dataloader), file_path=real_stats_file)
-        generated_images = []
+        # assert opt.render_input_views # make the images used for calculating is consistent
+        # real_stats_file = 'evaluation/Objavese_1k_view1_real_image_statistics.npz'
+        # if not os.path.exists(real_stats_file):
+        #     save_real_image_npz(test_dataloader_FID, num_samples=len(test_dataloader), file_path=real_stats_file)
+        generated_png_path = os.path.join(f'{opt.workspace}/generated_fid_images')
+        os.makedirs(generated_png_path)
     
 
     # optimizer
@@ -349,7 +350,7 @@ def main():
     # with torch.autograd.profiler.profile(use_cuda=True, record_shapes=True, profile_memory=True) as prof
     with torch.no_grad():  
         model.eval()
-        num_samples_eval = 100
+        num_samples_eval = 2500
         total_psnr = 0
         total_psnr_LGM = 0
         total_lpips = 0
@@ -373,9 +374,8 @@ def main():
         
             out = model(data, save_path=f'{opt.workspace}/eval_inference', prefix=f"{accelerator.process_index}_{i}_")
             if opt.calculate_FID:
-                generated_images.append(out['images_pred'][:,0:1])
-                # if i ==2:
-                #     break
+                save_generated_image_png(out['images_pred'], idx=i, file_path=generated_png_path)
+            
     
             if opt.train_unet_single_attr is not None:
                 for _attr in ordered_attr_list:
@@ -584,20 +584,7 @@ def main():
             print(our_loss_str, file=f)
             print(f"Total - LGM_psnr = {total_psnr_LGM:.3f}, \t lpips = {total_lpips_LGM:.3f}", file=f)
         
-        if opt.calculate_FID:
-            generated_npz_path = os.path.join(f'{opt.workspace}/generated_{len(generated_images)}obj_statistics.npz')
-            save_generated_image_npz(generated_images, file_path=generated_npz_path)
-
-            # cmd
-            from subprocess import run
-            cmds = ['conda','activate', 'tensorflow_env']
-            print(' '.join(cmds))
-            run(cmds)
-            cmds = ['python','evaluation/evaluator.py', f'{real_stats_file}', f'{generated_npz_path}']
-            print(' '.join(cmds))
-            run(cmds)
-            st()
-            
+        
     # prof.export_chrome_trace("output_trace.json")
 if __name__ == "__main__":
     

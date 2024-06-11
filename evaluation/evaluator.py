@@ -84,7 +84,6 @@ class FIDStatistics:
 
         sigma1 = np.atleast_2d(sigma1)
         sigma2 = np.atleast_2d(sigma2)
-        st()
 
         assert (
             mu1.shape == mu2.shape
