@@ -257,6 +257,8 @@ class Options:
     calculate_FID: bool = False
     class_emb_cat: bool = False
 
+    invalid_list: Optional[str] = None
+
 # all the default settings
 config_defaults: Dict[str, Options] = {}
 config_doc: Dict[str, str] = {}
