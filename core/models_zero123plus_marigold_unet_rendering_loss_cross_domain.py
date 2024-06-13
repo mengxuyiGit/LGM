@@ -168,10 +168,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
         
-        self.pipe.prepare() 
+        self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat) 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
 
+    
         if self.opt.decoder_with_domain_embedding:
             # # change the conv_in dim to 5
             # new_conv_in = nn.Conv2d(5,512,3, padding=(1,1)).requires_grad_(False)
@@ -205,39 +206,44 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
         # Gaussian Renderer
         self.gs = GaussianRenderer(opt)
-        # activations...
-        self.pos_act = lambda x: x.clamp(-1, 1)
-        
-        if opt.scale_bias_learnable:
-            self.scale_bias = nn.Parameter(torch.tensor([opt.scale_act_bias]), requires_grad=False)
-        else:
-            self.scale_bias = opt.scale_act_bias
+
+        # # activations...
+        # self.pos_act = lambda x: x.clamp(-1, 1)
+
+        # if opt.scale_bias_learnable:
+        #     self.scale_bias = nn.Parameter(torch.tensor([opt.scale_act_bias]), requires_grad=False)
+        # else:
+        #     self.scale_bias = opt.scale_act_bias
        
-        if self.opt.scale_act == "biased_exp":
-            max_scale = self.opt.scale_clamp_max # in torch.log scale
-            min_scale = self.opt.scale_clamp_min
-            # self.scale_act = lambda x: torch.exp(x + self.scale_bias)
-            self.scale_act = lambda x: torch.exp(torch.clamp(x + self.scale_bias, max=max_scale, min=min_scale))
-        elif self.opt.scale_act == "biased_softplus":
-            max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
-            min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
-            # self.scale_act = lambda x: 0.1 * F.softplus(x + self.scale_bias)
-            self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x + self.scale_bias), max=max_scale, min=min_scale)
-        elif self.opt.scale_act == "softplus":
-            # self.scale_act = lambda x: 0.1 * F.softplus(x)
-            max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
-            min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
-            self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x), max=max_scale, min=min_scale)
-        else: 
-            raise ValueError ("Unsupported scale_act")
+        # if self.opt.scale_act == "biased_exp":
+        #     max_scale = self.opt.scale_clamp_max # in torch.log scale
+        #     min_scale = self.opt.scale_clamp_min
+        #     # self.scale_act = lambda x: torch.exp(x + self.scale_bias)
+        #     self.scale_act = lambda x: torch.exp(torch.clamp(x + self.scale_bias, max=max_scale, min=min_scale))
+        # elif self.opt.scale_act == "biased_softplus":
+        #     max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
+        #     min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
+        #     # self.scale_act = lambda x: 0.1 * F.softplus(x + self.scale_bias)
+        #     self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x + self.scale_bias), max=max_scale, min=min_scale)
+        # elif self.opt.scale_act == "softplus":
+        #     # self.scale_act = lambda x: 0.1 * F.softplus(x)
+        #     max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
+        #     min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
+        #     self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x), max=max_scale, min=min_scale)
+        # else: 
+        #     raise ValueError ("Unsupported scale_act")
         
-        self.opacity_act = lambda x: torch.sigmoid(x)
-        self.rot_act = F.normalize
+        # self.opacity_act = lambda x: torch.sigmoid(x)
+        # self.rot_act = F.normalize
        
         # LPIPS loss
         # if self.opt.lambda_lpips > 0:
         self.lpips_loss = LPIPS(net='vgg')
         self.lpips_loss.requires_grad_(False)
+        
+        self.skip_decoding = (self.opt.lambda_rendering + self.opt.lambda_rendering + self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0 and self.opt.train_unet
+        if self.skip_decoding:
+            print("Skip decoding the latents, save memory")
         
 
         # with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
@@ -410,6 +416,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             else:
                 loss_latent = F.mse_loss(v_pred, v_target)     
                 results['loss_latent'] = loss_latent * self.opt.lambda_latent
+            
+            if self.skip_decoding and save_path is None:
+                return results
                 
             # calculate x0 from v_pred
             noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
@@ -683,9 +692,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
         ## ------- end render ----------
 
-       
-        # if self.opt.lambda_rendering > 0:
-        if True:
+        if self.opt.lambda_rendering > 0:
+        # if True:
             # loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
             # calculate using batch 
             loss_mse_rendering = (pred_images - gt_images) ** 2 + (pred_alphas - gt_masks) ** 2
