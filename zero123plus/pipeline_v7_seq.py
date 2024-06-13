@@ -354,6 +354,9 @@ def init_weights(m):
 def modify_unet(unet, set_unet_class_embeddings_concat=False):
     if set_unet_class_embeddings_concat:
         unet.config.class_embeddings_concat = True
+        temb_channel_factor = 2
+    else:
+        temb_channel_factor = 1
     # Recursive function to modify transformer blocks
     def replace_transformer_blocks(module, set_unet_class_embeddings_concat):
         for name, child in module.named_children():
@@ -372,7 +375,7 @@ def modify_unet(unet, set_unet_class_embeddings_concat=False):
                     out_channels=child.out_channels,
                     conv_shortcut=child.use_conv_shortcut,
                     dropout=dropout_prob,
-                    temb_channels=child.time_emb_proj.in_features * 2 if child.time_emb_proj else None,  # Double the temb_channels
+                    temb_channels=child.time_emb_proj.in_features * temb_channel_factor if child.time_emb_proj else None,  # Double the temb_channels
                     groups=child.norm1.num_groups,
                     groups_out=child.norm2.num_groups,
                     pre_norm=child.pre_norm,
@@ -575,6 +578,7 @@ def forward_unet(
             is_adapter = True
 
         down_block_res_samples = (sample,)
+        # st()
         for downsample_block in unet.down_blocks:
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
                 # For t2i-adapter CrossAttnDownBlock2D
@@ -611,6 +615,7 @@ def forward_unet(
             down_block_res_samples = new_down_block_res_samples
 
         # 4. mid
+        # st()
         if unet.mid_block is not None:
             if hasattr(unet.mid_block, "has_cross_attention") and unet.mid_block.has_cross_attention:
                 sample = unet.mid_block(
@@ -696,7 +701,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         self.is_generator = False
         
         #  set blocks
-        modify_unet(unet=unet, set_unet_class_embeddings_concat=True)
+        modify_unet(unet=unet, set_unet_class_embeddings_concat=False)
 
         unet_lora_attn_procs = dict()
         # for name, _ in unet.attn_processors.items():
@@ -1031,10 +1036,17 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
-    def prepare(self):
+    def prepare(self, random_init_unet):
         train_sched = DDPMScheduler.from_config(self.scheduler.config)
         # self.scheduler = train_sched
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
+
+        # Random init unet weights
+        if random_init_unet: 
+            print("Random init UNet (v7)")
+            random_unet = UNet2DConditionModel.from_config(self.unet.config).to(self.unet.device)
+            del self.unet
+            self.unet = random_unet
     
         ## add class embedding
         # init as wonder3d stagt1

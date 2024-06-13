@@ -22,7 +22,8 @@ from diffusers import (
     DiffusionPipeline,
     EulerAncestralDiscreteScheduler,
     # UNet2DConditionModel,
-    ImagePipelineOutput
+    ImagePipelineOutput,
+    Transformer2DModel
 )
 from custom_unet.unet_original import UNet2DConditionModel, UNet2DConditionOutput
 from diffusers.image_processor import VaeImageProcessor
@@ -87,6 +88,7 @@ class ReferenceOnlyAttnProc(torch.nn.Module):
 # ################################################################################################################################################################################
 import einops
 from diffusers.models.attention import BasicTransformerBlock
+from diffusers.models.resnet import ResnetBlock2D
 # from diffusers.utils import BaseOutput, deprecate, maybe_allow_in_graph
 from diffusers.models.attention import FeedForward, AdaLayerNorm, AdaLayerNormZero, Attention
 if is_xformers_available():
@@ -236,29 +238,123 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
 #     print("Random init UNet weights")
 #     unet.apply(init_weights)
 
-def init_weights(m):
-    print("Random init UNet weights")
-    if isinstance(m, (nn.Conv2d, nn.Linear)):
-        nn.init.kaiming_normal_(m.weight)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.constant_(m.weight, 1)
-        nn.init.constant_(m.bias, 0)
+# def init_weights(m):
+#     print("Random init UNet weights")
+#     if isinstance(m, (nn.Conv2d, nn.Linear)):
+#         nn.init.kaiming_normal_(m.weight)
+#         if m.bias is not None:
+#             nn.init.constant_(m.bias, 0)
+#     elif isinstance(m, nn.LayerNorm):
+#         nn.init.constant_(m.weight, 1)
+#         nn.init.constant_(m.bias, 0)
 
-def modify_unet(unet):
+def init_weights(model):
+    for m in model.modules():
+        print(m.__class__)
+        st()
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm) or isinstance(m, nn.GroupNorm):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, Attention):
+            nn.init.xavier_uniform_(m.to_q.weight)
+            nn.init.xavier_uniform_(m.to_k.weight)
+            nn.init.xavier_uniform_(m.to_v.weight)
+            nn.init.xavier_uniform_(m.to_out[0].weight)
+            if m.to_q.bias is not None:
+                nn.init.constant_(m.to_q.bias, 0)
+            if m.to_k.bias is not None:
+                nn.init.constant_(m.to_k.bias, 0)
+            if m.to_v.bias is not None:
+                nn.init.constant_(m.to_v.bias, 0)
+            if m.to_out[0].bias is not None:
+                nn.init.constant_(m.to_out[0].bias, 0)
+        elif hasattr(m, 'weight') and m.weight is not None:
+            nn.init.xavier_uniform_(m.weight)
+            if hasattr(m, 'bias') and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        else:
+            st()
+            print("module not considered: ", m.__class__)
+        
+    st()
+
+            
+
+# def modify_unet(unet):
+#     # Recursive function to modify transformer blocks
+#     def replace_transformer_blocks(module):
+#         for name, child in module.named_children():
+#             if isinstance(child, BasicTransformerBlock):
+#                 # print(name)
+#                 # Replace the existing BasicTransformerBlock with a custom one
+#                 setattr(module, name, BasicTransformerBlockCrossDomainPosEmbed(child))  # configure appropriately
+#             else:
+#                 replace_transformer_blocks(child)
+
+#     # Apply modifications
+#     replace_transformer_blocks(unet)
+
+def modify_unet(unet, set_unet_class_embeddings_concat=False):
+    if set_unet_class_embeddings_concat:
+        unet.config.class_embeddings_concat = True
     # Recursive function to modify transformer blocks
-    def replace_transformer_blocks(module):
+    def replace_transformer_blocks(module, set_unet_class_embeddings_concat):
         for name, child in module.named_children():
             if isinstance(child, BasicTransformerBlock):
                 # print(name)
                 # Replace the existing BasicTransformerBlock with a custom one
                 setattr(module, name, BasicTransformerBlockCrossDomainPosEmbed(child))  # configure appropriately
+            elif set_unet_class_embeddings_concat and isinstance(child, ResnetBlock2D):
+            # elif isinstance(child, ResnetBlock2D):
+                # Create a new ResnetBlock2D with doubled temb_channels
+                # Extract dropout probability
+                print("set ResnetBlock2D")
+                dropout_prob = child.dropout.p if isinstance(child.dropout, nn.Dropout) else child.dropout
+                new_resnet = ResnetBlock2D(
+                    in_channels=child.in_channels,
+                    out_channels=child.out_channels,
+                    conv_shortcut=child.use_conv_shortcut,
+                    dropout=dropout_prob,
+                    temb_channels=child.time_emb_proj.in_features * 2 if child.time_emb_proj else None,  # Double the temb_channels
+                    groups=child.norm1.num_groups,
+                    groups_out=child.norm2.num_groups,
+                    pre_norm=child.pre_norm,
+                    eps=child.norm1.eps,
+                    non_linearity=type(child.nonlinearity).__name__.lower(),
+                    skip_time_act=child.skip_time_act,
+                    time_embedding_norm=child.time_embedding_norm,
+                    kernel=None,  # Set as None since we don't have direct access to kernel
+                    output_scale_factor=child.output_scale_factor,
+                    use_in_shortcut=child.use_in_shortcut,
+                    up=child.up,
+                    down=child.down,
+                    conv_shortcut_bias=child.conv_shortcut.bias is not None if child.conv_shortcut else True,
+                    conv_2d_out_channels=child.conv2.out_channels
+                )
+                # Copy weights
+                state_dict = child.state_dict()
+                new_state_dict = new_resnet.state_dict()
+                for key in new_state_dict:
+                    if key in state_dict and state_dict[key].shape == new_state_dict[key].shape:
+                        new_state_dict[key] = state_dict[key]
+                    elif 'time_emb_proj' in key:
+                        # Handle the specific case for time_emb_proj.weight
+                        old_weight = state_dict[key]
+                        new_weight = new_state_dict[key]
+                        new_weight[:old_weight.shape[0], :old_weight.shape[1]] = old_weight
+                        new_state_dict[key] = new_weight
+                        
+                new_resnet.load_state_dict(new_state_dict)
+                setattr(module, name, new_resnet)
             else:
-                replace_transformer_blocks(child)
+                replace_transformer_blocks(child, set_unet_class_embeddings_concat)
 
     # Apply modifications
-    replace_transformer_blocks(unet)
+    replace_transformer_blocks(unet, set_unet_class_embeddings_concat)
     
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -537,16 +633,13 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         # -> None:
         super().__init__()
        
-        with open("unet_6set_before_modify.txt", "w") as f:
+        with open("unet_8cat_before_modify.txt", "w") as f:
             print(unet, file=f)
         
         self.duplicate_cond_lat = False
         self.train_sched = train_sched
         self.val_sched = val_sched
         self.is_generator = False
-        
-        #  set blocks
-        modify_unet(unet=unet)
 
         unet_lora_attn_procs = dict()
         # for name, _ in unet.attn_processors.items():
@@ -569,14 +662,13 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             # if name.endswith("attn_joint_mid.processor"):
             #     unet_lora_attn_procs[name] = XFormersJointAttnProcessor()
           
-        # st()
-        # unet.set_attn_processor(unet_lora_attn_procs)
         unet.set_attn_processor(unet_lora_attn_procs)
         # Random init unet weights
-        # unet.apply(init_weights)
+        # st()
+        # init_weights(unet)
        
         self.unet = unet
-        with open("unet_7seq_after_modify.txt", "w") as f:
+        with open("unet_8cat_after_modify.txt", "w") as f:
             print(self.unet, file=f)
         
     
@@ -839,7 +931,21 @@ def copy_model(src_model, dest_model):
         else:
             print(f"Module {src_module_name} does not exist in destination model, adding new module.")
             setattr(dest_model, src_module_name, src_module)
-            
+
+# Function to compare weights
+def compare_weights(model1, model2):
+    for (name1, param1), (name2, param2) in zip(model1.named_parameters(), model2.named_parameters()):
+        if name1 != name2:
+            print(f"Parameter names do not match: {name1} vs {name2}")
+            return False
+        if not torch.equal(param1, param2):
+            pass
+        else:
+            print(f"Weights match for parameter: {name1}")
+            return False
+    print("All weights do not match.")
+    return True
+       
             
 class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
     tokenizer: transformers.CLIPTokenizer
@@ -886,11 +992,18 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
-    def prepare(self):
+    def prepare(self, random_init_unet=False, class_emb_cat=False):
+        print("[pipe-v8]")
         train_sched = DDPMScheduler.from_config(self.scheduler.config)
-        # self.scheduler = train_sched
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
-    
+        
+        # Random init unet weights
+        if random_init_unet: 
+            print("Random init UNet")
+            random_unet = UNet2DConditionModel.from_config(self.unet.config).to(self.unet.device)
+            del self.unet
+            self.unet = random_unet
+        
         ## add class embedding
         # init as wonder3d stagt1
         class_embed_type = "projection"
@@ -909,6 +1022,9 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
             time_embed_dim=time_embed_dim,
             timestep_input_dim=timestep_input_dim,
         )
+        
+        # set blocks
+        modify_unet(unet=self.unet, set_unet_class_embeddings_concat=class_emb_cat)
         
         # if isinstance(self.unet, UNet2DConditionModel):
         self.unet = RefOnlyNoisedUNet(self.unet, train_sched, self.scheduler).eval()

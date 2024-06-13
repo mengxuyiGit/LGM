@@ -216,7 +216,8 @@ def main():
     test_dataset = Dataset(opt, training=False)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
-        batch_size=opt.batch_size,
+        # batch_size=opt.batch_size,
+        batch_size=1,
         shuffle=False,
         num_workers=0,
         pin_memory=True,
@@ -371,7 +372,7 @@ def main():
                     # loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss = out['loss'] if 'loss' in out.keys() else torch.zeros_like(out['loss_latent'])
                     loss_splatter = out['loss_splatter'] if 'loss_splatter' in out.keys() else torch.zeros_like(out['loss_latent'])  # if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
-                    loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
+                    loss_latent = out['loss_latent'] if 'loss_latent' in out.keys()  else torch.zeros_like(loss)
                     loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_latent'])
                     # print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent, "loss_splatter_lpips", loss_splatter_lpips)
                     lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
@@ -470,8 +471,8 @@ def main():
                             out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_")
                     
                             psnr = out['psnr'] if 'psnr' in out.keys() else torch.zeros_like(out['loss_latent'])
-                            eval_loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
-                            loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(eval_loss)
+                            eval_loss = out['loss'] if 'loss' in out.keys() else torch.zeros_like(out['loss_latent'])
+                            loss_latent = out['loss_latent'] if 'loss_latent' in out.keys() else torch.zeros_like(eval_loss)
                             total_psnr += psnr.detach()
                             total_loss += eval_loss.detach()
                             total_loss_latent += loss_latent.detach()

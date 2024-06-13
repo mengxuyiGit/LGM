@@ -255,6 +255,7 @@ class Options:
     xyz_zero_t: bool = False
 
     calculate_FID: bool = False
+    class_emb_cat: bool = False
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}
