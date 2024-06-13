@@ -1083,29 +1083,6 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
             cak['control_depth'] = depth_image
         device = self._execution_device
         do_classifier_free_guidance = guidance_scale > 1.0
-        
-        # prompt_embeds = self._encode_prompt(
-        #     None,
-        #     # "sdfsf",
-        #     device,
-        #     num_images_per_prompt,
-        #     do_classifier_free_guidance,
-        #     negative_prompt=None,
-        #     prompt_embeds=encoder_hidden_states,
-        #     negative_prompt_embeds=None,
-        #     lora_scale=None,
-        # )
-
-        # prompt_embeds_tuple = self.encode_prompt(
-        #     prompt=prompt,
-        #     device=device,
-        #     num_images_per_prompt=num_images_per_prompt,
-        #     do_classifier_free_guidance=do_classifier_free_guidance,
-        #     negative_prompt=None,
-        #     prompt_embeds=prompt_embeds,
-        #     negative_prompt_embeds=None,
-        #     lora_scale=None,
-        # )
 
         prompt_embeds_tuple = self.encode_prompt(
             None,
@@ -1117,7 +1094,7 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
             negative_prompt_embeds=None,
             lora_scale=None,
         )
-        # st()
+        
         if do_classifier_free_guidance:
             prompt_embeds = torch.cat([prompt_embeds_tuple[1], prompt_embeds_tuple[0]])
         else:

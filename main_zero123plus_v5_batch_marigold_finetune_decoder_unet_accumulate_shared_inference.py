@@ -350,7 +350,7 @@ def main():
     # with torch.autograd.profiler.profile(use_cuda=True, record_shapes=True, profile_memory=True) as prof
     with torch.no_grad():  
         model.eval()
-        num_samples_eval = 2500
+        num_samples_eval = 100
         total_psnr = 0
         total_psnr_LGM = 0
         total_lpips = 0
