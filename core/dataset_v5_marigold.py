@@ -18,6 +18,7 @@ from core.utils import get_rays, grid_distortion, orbit_camera_jitter
 import glob
 import einops
 import math
+import json
 
 from ipdb import set_trace as st
 
@@ -211,6 +212,16 @@ class ObjaverseDataset(Dataset):
         # splatters_mv_inference"
         scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
         all_scene_paths = sorted(glob.glob(scene_path_pattern)) # 44815 in total. And sorted by the absolute path
+        
+        # remove invalid uids
+        if opt.invalid_list is not None:
+            print(f"Filter invalid objects by {opt.invalid_list}")
+            with open(opt.invalid_list) as f:
+                self.invalid_objects = json.load(f)
+            self.invalid_objects = [os.path.basename(o).replace(".glb", "") for o in self.invalid_objects]
+        else:
+            self.invalid_objects = []
+        
             
         for scene_path in all_scene_paths:
 
@@ -223,6 +234,11 @@ class ObjaverseDataset(Dataset):
             scene_name = scene_path.split('/')[-1]
             scene_range = scene_path.split('/')[-4]
             # print("scene name:", scene_name)
+            if scene_name.split("_")[-1] in self.invalid_objects:
+                rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
+                print(f"{rendering_folder} is invalid")
+                continue 
+            
             if scene_name in self.data_path_vae_splatter.keys():
                 continue
             
@@ -236,6 +252,7 @@ class ObjaverseDataset(Dataset):
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
         
         all_items = [k for k in self.data_path_vae_splatter.keys()]
+        
         num_val = min(50, len(all_items)//2) # when using small dataset to debug
         if self.training:
             self.items = all_items # NOTE: all scenes are used for training and val
