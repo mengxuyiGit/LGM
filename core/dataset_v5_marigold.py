@@ -147,7 +147,9 @@ sp_min_max_dict = {
 
 def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     
-    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [14, 384, 256]
+    # splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [14, 384, 256]
+    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt"), map_location='cpu').detach().cpu()
+        
     # splatter_mv = torch.load("splatters_mv_02.pt")[0]
     # print("Loading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
 
@@ -236,7 +238,7 @@ class ObjaverseDataset(Dataset):
             # print("scene name:", scene_name)
             if scene_name.split("_")[-1] in self.invalid_objects:
                 rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
-                print(f"{rendering_folder} is invalid")
+                # print(f"{rendering_folder} is invalid")
                 continue 
             
             if scene_name in self.data_path_vae_splatter.keys():
@@ -276,7 +278,7 @@ class ObjaverseDataset(Dataset):
         #     self.items = self.items[-self.opt.batch_size:]
         # self.items = self.items[:16]
         print(f"There are total {len(self.items)} in dataloader")
-
+        del self.invalid_objects
         # for _sn in all_items[282*4:284*4]:
         #     _rendering_path = self.data_path_rendering[_sn]
         #     save_all_56_in_1(_rendering_path)

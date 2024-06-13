@@ -203,6 +203,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
        
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
+        
+        print(f"drop cond with prob {self.opt.drop_cond_prob}")
     
         # Gaussian Renderer
         self.gs = GaussianRenderer(opt)
@@ -356,7 +358,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             with torch.no_grad():
                 # classifier-free guidance
                 if np.random.rand() < self.opt.drop_cond_prob:
-                    print(f"drop cond with prob {self.opt.drop_cond_prob}")
                     cond = torch.zeros_like(cond)
                
                 text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=1.0)
