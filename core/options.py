@@ -256,6 +256,7 @@ class Options:
 
     calculate_FID: bool = False
     class_emb_cat: bool = False
+    drop_cond_prob: float = 0.
 
     invalid_list: Optional[str] = None
 
