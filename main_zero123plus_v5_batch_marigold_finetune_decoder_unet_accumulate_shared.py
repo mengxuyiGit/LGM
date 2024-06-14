@@ -194,6 +194,8 @@ def main():
             else:
                 if k not in state_dict:
                     accelerator.print(f"[WARN] Parameter {k} not found in model. ")
+                elif 'unet' not in k:
+                    pass
                 elif v.shape == state_dict[k].shape:
                     assert opt.only_train_attention
                 else:
