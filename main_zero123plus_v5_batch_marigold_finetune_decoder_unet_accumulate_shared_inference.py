@@ -4,9 +4,10 @@ import random
 
 import torch
 from core.options import AllConfigs
-from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain, fuse_splatters
+from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain
+from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import (
+    fuse_splatters, to_rgb_image, unscale_latents, unscale_image, denormalize_and_activate)
 from core.dataset_v5_marigold import gt_attr_keys, start_indices, end_indices
-from core.dataset_v5_marigold import ObjaverseDataset as Dataset
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from safetensors.torch import load_file
@@ -215,6 +216,13 @@ def main():
     
     torch.cuda.empty_cache()
 
+    if opt.calculate_FID:
+        from core.dataset_v5_marigold_FID import ObjaverseDataset as Dataset
+        from core.dataset_v5_marigold_FID import ordered_attr_list
+    else:
+        from core.dataset_v5_marigold import ObjaverseDataset as Dataset
+        from core.dataset_v5_marigold import ordered_attr_list
+        
     
     train_dataset = Dataset(opt, training=True)
     train_dataloader = torch.utils.data.DataLoader(
@@ -252,7 +260,9 @@ def main():
         # if not os.path.exists(real_stats_file):
         #     save_real_image_npz(test_dataloader_FID, num_samples=len(test_dataloader), file_path=real_stats_file)
         generated_png_path = os.path.join(f'{opt.workspace}/generated_fid_images')
+        reference_png_path = os.path.join(f'{opt.workspace}/reference_fid_images')
         os.makedirs(generated_png_path)
+        os.makedirs(reference_png_path)
     
 
     # optimizer
@@ -350,14 +360,13 @@ def main():
     # with torch.autograd.profiler.profile(use_cuda=True, record_shapes=True, profile_memory=True) as prof
     with torch.no_grad():  
         model.eval()
-        num_samples_eval = 100
+        num_samples_eval = 100 if not opt.calculate_FID else len(test_dataloader)
         total_psnr = 0
         total_psnr_LGM = 0
         total_lpips = 0
         total_lpips_LGM = 0
         
         if opt.log_each_attribute_loss or (opt.train_unet_single_attr is not None):
-            from core.dataset_v5_marigold import ordered_attr_list
             if opt.train_unet_single_attr is not None:
                 ordered_attr_list = opt.train_unet_single_attr 
                 
@@ -369,26 +378,104 @@ def main():
             print(f"Total samples to eval = {num_samples_eval}", file=f)
         
         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main)):
-            if i == num_samples_eval:
-                break
-        
-            out = model(data, save_path=f'{opt.workspace}/eval_inference', prefix=f"{accelerator.process_index}_{i}_")
+           
+            # move the inference code explicitly here
             if opt.calculate_FID:
-                save_generated_image_png(out['images_pred'], idx=i, file_path=generated_png_path)
-            
-    
-            if opt.train_unet_single_attr is not None:
-                for _attr in ordered_attr_list:
-                    total_attr_loss_dict[f"loss_{_attr}"] += out[f"loss_{_attr}"].detach()
+                out = {}
+                latents  = torch.randn([5, 4, 48, 32], device='cuda:0', dtype=torch.float32)
+                # unet diffusion
+                inference_unseen = False
+                if inference_unseen:
+                    import requests
+                    # cond = to_rgb_image(Image.open(requests.get("https://d.skis.ltd/nrp/sample-data/lysol.png", stream=True).raw))
+                    # name = "lysol"
+                    cond = to_rgb_image(Image.open("/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/data_test/anya_rgba.png"))
+                else:
+                    cond = data['cond']
+                guidance_scale = opt.guidance_scale
+                prompt_embeds, cak = model.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
+                prompt_embeds = torch.cat([prompt_embeds[0:1]]*latents.shape[0] + [prompt_embeds[1:]]*latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
+                cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*latents.shape[0] + [cak['cond_lat'][1:]]*latents.shape[0], dim=0)
+                print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
+
+                model.pipe.scheduler.set_timesteps(30, device='cuda:0')
+                timesteps = model.pipe.scheduler.timesteps
+
+                domain_embeddings = torch.eye(5).to(latents.device)
+                domain_embeddings = torch.cat([torch.sin(domain_embeddings),torch.cos(domain_embeddings)], dim=-1)
+                domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
                 
+                for _, t in enumerate(timesteps):
+                    print(f"enumerate(timesteps) t={t}")
+                    latent_model_input = torch.cat([latents] * 2)
+                    latent_model_input = model.pipe.scheduler.scale_model_input(latent_model_input, t)
+
+                    # predict the noise residual
+                    noise_pred = model.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=prompt_embeds,
+                        cross_attention_kwargs=cak,
+                        return_dict=False,
+                        class_labels=domain_embeddings,
+        
+                    )[0]    
+
+                    # perform guidance
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                
+                # decode latents
+                latents_all_attr_to_decode = unscale_latents(latents)
+                image_all_attr_to_decode = model.pipe.vae.decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, return_dict=False)[0]
+                image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
+                image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
+                image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=cond.shape[0], A=5)
+                
+                decoded_attr_list = []
+                for batch_attr_image, _attr in zip(image_all_attr_to_decode, ordered_attr_list):
+                    decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+                    decoded_attr_list.append(decoded_attr)
+
+                # gs render
+                splatter_mv = torch.cat(decoded_attr_list, dim=1) 
+                splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
+                gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+                if opt.fancy_video or opt.render_video:
+                    out['gaussians_pred'] = gaussians
                     
-            else:
-                loss = out['loss']
-                loss_latent = out['loss_latent'] if 'loss_latent' in out.keys() else torch.zeros_like(loss)
+                bg_color = torch.ones(3, dtype=torch.float32, device=gaussians.device) 
+                gs_results = model.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+                out['images_pred'] = gs_results['image']
+                out['alphas_pred'] = gs_results['alpha']
                 
+            
+                assert out['images_pred'].shape == data['images_output'].shape
+                save_generated_image_png(out['images_pred'], idx=i, file_path=generated_png_path)
+                save_generated_image_png(data['images_output'], idx=i, file_path=reference_png_path)
+                continue
+                
+                # # calculate psnr
+                # gt_images = data['images_output'] # [B, V, 3, output_size, output_size], ground-truth novel views
+                # gt_masks = data['masks_output'] # [B, V, 1, output_size, output_size], ground-truth masks
+                # gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
+                # psnr = -10 * torch.log10(torch.mean((out['images_pred'].detach() - gt_images) ** 2))
+                # out['psnr'] = psnr.detach()
+
+                # loss_lpips = model.lpips_loss(
+                #     F.interpolate(gt_images.view(-1, 3, model.opt.output_size, model.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+                #     F.interpolate(out['images_pred'].view(-1, 3, model.opt.output_size, model.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+                # ).mean()
+                # out['loss_lpips'] = loss_lpips
+        
+            
+            # not calculate FID
+            else:
+                out = model(data, save_path=f'{opt.workspace}/eval_inference', prefix=f"{accelerator.process_index}_{i}_")
+           
                 lpips = out['loss_lpips']
                 lpips_LGM = out['loss_lpips_LGM']
-                
                 psnr = out['psnr']
                 psnr_LGM = out['psnr_LGM']
                 
@@ -406,8 +493,8 @@ def main():
     
            
             # save some images
-            # if True:
-            if opt.train_unet_single_attr is None:
+            # if not opt.calculate_FID:
+            # if opt.train_unet_single_attr is None:
                 # 5-in-1
                 five_in_one = torch.cat([data['images_output'], out['images_pred_LGM'], out['alphas_pred_LGM'].repeat(1,1,3,1,1), out['images_pred'], out['alphas_pred'].repeat(1,1,3,1,1)], dim=0)
                 gt_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
@@ -554,19 +641,6 @@ def main():
                     if psnr > 50:
                         print("---------------------", file=f)
                     
-               
-                # also save the predicted splatters and the 
-
-                # # add write images for splatter to optimize
-                # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt.jpg', pred_images)
-
-                # pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
-                    
-        
             torch.cuda.empty_cache()
 
         total_psnr /= num_samples_eval
