@@ -452,7 +452,7 @@ DATA_RENDERING_ROOT_LVIS_46K_SUBSET=/home/chenwang/data/lvis_dataset/testing_sub
 #     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
 #     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-#     --desc 'calculate_FID_0_1250-cfg2.0-train_unet00011-only_attn-pipev8-28kckpt_6k_rendering-no_invalid_uid' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_SUBSET} \
+#     --desc 'calculate_FID_450_850-cfg2.0-train_unet00011-only_attn-pipev8-28kckpt_6k_rendering-no_invalid_uid' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_SUBSET} \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
 #     --set_random_seed --batch_size 1 --num_workers 2 \
 #     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -463,7 +463,7 @@ DATA_RENDERING_ROOT_LVIS_46K_SUBSET=/home/chenwang/data/lvis_dataset/testing_sub
 #     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
 #     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
 #     --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
-#     --only_train_attention --class_emb_cat --calculate_FID --scene_start_index 0 --scene_end_index 1250 \
+#     --only_train_attention --class_emb_cat --calculate_FID --scene_start_index 450 --scene_end_index 850 \
 #     --guidance_scale 2.0 \
 #     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
 #     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00011-train_unet-rendering_mse_lpips_loss-only_attn-pipev8-bsz16-resume28kckpt-lr1e-5-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr1e-05-Plat50/eval_global_step_6000_ckpt/model.safetensors \
@@ -476,7 +476,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'calculate_FID_1250_2500-cfg2.0-train_unet00011-only_attn-pipev8-28kckpt_6k_rendering-no_invalid_uid' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_SUBSET} \
+    --desc 'calculate_FID_1700_2100-cfg2.0-train_unet00011-only_attn-pipev8-28kckpt_6k_rendering-no_invalid_uid' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_SUBSET} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
     --set_random_seed --batch_size 1 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -487,7 +487,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
     --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
-    --only_train_attention --class_emb_cat --calculate_FID --scene_start_index 1250 --scene_end_index 2500 \
+    --only_train_attention --class_emb_cat --calculate_FID --scene_start_index 2100 --scene_end_index 2500 \
     --guidance_scale 2.0 \
     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00011-train_unet-rendering_mse_lpips_loss-only_attn-pipev8-bsz16-resume28kckpt-lr1e-5-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr1e-05-Plat50/eval_global_step_6000_ckpt/model.safetensors \
