@@ -354,9 +354,7 @@ def init_weights(m):
 def modify_unet(unet, set_unet_class_embeddings_concat=False):
     if set_unet_class_embeddings_concat:
         unet.config.class_embeddings_concat = True
-        temb_channel_factor = 2
-    else:
-        temb_channel_factor = 1
+   
     # Recursive function to modify transformer blocks
     def replace_transformer_blocks(module, set_unet_class_embeddings_concat):
         for name, child in module.named_children():
@@ -375,7 +373,7 @@ def modify_unet(unet, set_unet_class_embeddings_concat=False):
                     out_channels=child.out_channels,
                     conv_shortcut=child.use_conv_shortcut,
                     dropout=dropout_prob,
-                    temb_channels=child.time_emb_proj.in_features * temb_channel_factor if child.time_emb_proj else None,  # Double the temb_channels
+                    temb_channels=child.time_emb_proj.in_features * 2 if child.time_emb_proj else None,  # Double the temb_channels
                     groups=child.norm1.num_groups,
                     groups_out=child.norm2.num_groups,
                     pre_norm=child.pre_norm,
@@ -700,8 +698,6 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         self.val_sched = val_sched
         self.is_generator = False
         
-        #  set blocks
-        modify_unet(unet=unet, set_unet_class_embeddings_concat=False)
 
         unet_lora_attn_procs = dict()
         # for name, _ in unet.attn_processors.items():
@@ -1036,7 +1032,7 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
-    def prepare(self, random_init_unet):
+    def prepare(self, random_init_unet, class_emb_cat):
         train_sched = DDPMScheduler.from_config(self.scheduler.config)
         # self.scheduler = train_sched
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
@@ -1066,6 +1062,9 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
             time_embed_dim=time_embed_dim,
             timestep_input_dim=timestep_input_dim,
         )
+        
+        #  set blocks
+        modify_unet(unet=self.unet, set_unet_class_embeddings_concat=class_emb_cat)
         # if isinstance(self.unet, UNet2DConditionModel):
         self.unet = RefOnlyNoisedUNet(self.unet, train_sched, self.scheduler).eval()
 
