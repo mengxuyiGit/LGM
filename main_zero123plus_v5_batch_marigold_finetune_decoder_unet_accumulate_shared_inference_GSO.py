@@ -5,8 +5,7 @@ import random
 import torch
 from core.options import AllConfigs
 from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain, fuse_splatters
-from core.dataset_v5_marigold import gt_attr_keys, start_indices, end_indices
-from core.dataset_v5_marigold import ObjaverseDataset as Dataset
+from core.dataset_v5_marigold import gt_attr_keys, start_indices, end_indices, ordered_attr_list
 
 from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import unscale_latents, unscale_image, denormalize_and_activate
 
@@ -220,6 +219,9 @@ def main():
     
     if opt.metric_GSO:
         from core.dataset_v5_GSO import GSODataset as Dataset
+    else:
+        from core.dataset_v5_marigold import ObjaverseDataset as Dataset
+        
         
     test_dataset = Dataset(opt, training=False)
     test_dataloader = torch.utils.data.DataLoader(
@@ -332,13 +334,16 @@ def main():
         total_lpips_LGM = 0
         
         if opt.log_each_attribute_loss or (opt.train_unet_single_attr is not None):
-            from core.dataset_v5_marigold import ordered_attr_list
             if opt.train_unet_single_attr is not None:
                 ordered_attr_list = opt.train_unet_single_attr 
+            else:
+                from core.dataset_v5_marigold import ordered_attr_list
                 
             total_attr_loss_dict = {}
             for _attr in ordered_attr_list:
                 total_attr_loss_dict[f"loss_{_attr}"] = 0
+        else:
+            from core.dataset_v5_marigold import ordered_attr_list
 
         with open(f"{opt.workspace}/metrics.txt", "w") as f:
             print(f"Total samples to eval = {num_samples_eval}", file=f)
@@ -544,9 +549,8 @@ def main():
                         # calcualte psnr
                         ### remember to exclude the first view?
                         psnr = -10 * torch.log10(torch.mean((pred_images - gt_images) ** 2))
-                        # psnr = -10 * torch.log10(torch.mean((pred_images[1:] - gt_images[1:].to(torch.float32)/255.0) ** 2))
                         with open(f"{opt.workspace}/metrics.txt", "a") as f:
-                            print(f"{data['scene_name']}-{key} [{len(gt_images)} views] PSNR: {psnr.item():.4f}", file=f)
+                            print(f"{data['scene_name']}-{key} [{pred_images.shape[1]} views] PSNR: {psnr.item():.4f}", file=f)
                         
                         total_psnr_dict[key] += psnr
 
