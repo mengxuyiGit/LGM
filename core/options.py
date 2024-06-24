@@ -259,6 +259,7 @@ class Options:
     drop_cond_prob: float = 0.
 
     invalid_list: Optional[str] = None
+    use_video_decoderST: bool = False
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}
