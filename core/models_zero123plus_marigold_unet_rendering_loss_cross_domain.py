@@ -20,6 +20,7 @@ import os
 
 from core.dataset_v5_marigold import ordered_attr_list, attr_map, sp_min_max_dict
 from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
+from diffusers.models.autoencoders.vae import DecoderOutput
 
 def fuse_splatters(splatters):
     # fuse splatters
@@ -168,6 +169,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
         
+        if opt.use_video_decoderST:
+            pipe_svd = DiffusionPipeline.from_pretrained(
+                "stabilityai/stable-video-diffusion-img2vid-xt",
+            ).to('cuda')
+            self.pipe.vae.decoder = pipe_svd.vae.decoder
+            del pipe_svd
+        
+        
         self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat) 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
@@ -289,6 +298,34 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
             splatter_optimizer = optimizer_class([splatter_image], **optimizer_cfg)
         return splatter_optimizer
+    
+    
+    def ST_decode(self, z: torch.Tensor,
+        num_frames: int,
+        return_dict: bool = True,
+    ):
+        """
+        Decode a batch of images.
+
+        Args:
+            z (`torch.Tensor`): Input batch of latent vectors.
+            return_dict (`bool`, *optional*, defaults to `True`):
+                Whether to return a [`~models.vae.DecoderOutput`] instead of a plain tuple.
+
+        Returns:
+            [`~models.vae.DecoderOutput`] or `tuple`:
+                If return_dict is True, a [`~models.vae.DecoderOutput`] is returned, otherwise a plain `tuple` is
+                returned.
+
+        """
+        batch_size = z.shape[0] // num_frames
+        image_only_indicator = torch.zeros(batch_size, num_frames, dtype=z.dtype, device=z.device)
+        decoded = self.pipe.vae.decoder(z, num_frames=num_frames, image_only_indicator=image_only_indicator)
+
+        if not return_dict:
+            return (decoded,)
+
+        return DecoderOutput(sample=decoded)
     
     
     def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
@@ -556,14 +593,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
-        image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+        if self.opt.use_video_decoderST:
+            image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
+        else:
+            image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
         # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
         image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
         
         # L2 loss on the decoded splatter image, BOTH are within range [-1,1]
         # images_all_attr_batch.shape
-        loss_splatter = self.opt.lambda_splatter * F.mse_loss(image_all_attr_to_decode, images_all_attr_batch)
+        # loss_splatter = self.opt.lambda_splatter * F.mse_loss(image_all_attr_to_decode, images_all_attr_batch)
+        loss_splatter = self.opt.lambda_splatter * F.l1_loss(images_all_attr_batch, image_all_attr_to_decode)
         results["loss_splatter"] = loss_splatter 
         if self.opt.lambda_splatter_lpips > 0:
             loss_splatter_lpips = self.lpips_loss(
@@ -571,7 +612,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 image_all_attr_to_decode, # pred, alr in [-1,1]
             ).mean()
             results['loss_splatter_lpips'] = loss_splatter_lpips
-
+        
+      
         # Reshape image_all_attr_to_decode from (B A) C H W -> A B C H W and enumerate on A dim
         image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=B, A=A)
         if self.opt.log_each_attribute_loss or (self.opt.lambda_each_attribute_loss is not None):
@@ -736,8 +778,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 print(f"loss lpips:{loss_lpips}")
             
                 
-  
-        
         # Calculate metrics
         # TODO: add other metrics such as SSIM
         psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
