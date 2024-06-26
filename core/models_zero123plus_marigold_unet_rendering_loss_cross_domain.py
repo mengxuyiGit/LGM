@@ -168,20 +168,26 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             opt.model_path,
             custom_pipeline=opt.custom_pipeline
         ).to('cuda')
+
+        # from main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared import store_initial_weights, compare_weights
         
         if opt.use_video_decoderST:
+            print("Load video pipe anyway")
             pipe_svd = DiffusionPipeline.from_pretrained(
                 "stabilityai/stable-video-diffusion-img2vid-xt",
             ).to('cuda')
             self.pipe.vae.decoder = pipe_svd.vae.decoder
             del pipe_svd
-        
+            # self.pipe_svd = pipe_svd
+            st()
+        else:
+            print("not load pipe_svd")
         
         self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat) 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
 
-    
+        
         if self.opt.decoder_with_domain_embedding:
             # # change the conv_in dim to 5
             # new_conv_in = nn.Conv2d(5,512,3, padding=(1,1)).requires_grad_(False)
@@ -321,6 +327,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         batch_size = z.shape[0] // num_frames
         image_only_indicator = torch.zeros(batch_size, num_frames, dtype=z.dtype, device=z.device)
         decoded = self.pipe.vae.decoder(z, num_frames=num_frames, image_only_indicator=image_only_indicator)
+        # decoded = self.pipe_svd.vae.decoder(z, num_frames=num_frames, image_only_indicator=image_only_indicator)
 
         if not return_dict:
             return (decoded,)
@@ -535,6 +542,43 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                         torch.cos(domain_embeddings)
                     ], dim=-1)
                 
+                # check weights
+                # Save the initial weights
+                # mode = "load" if os.path.exists( 'initial_unet_weights.pth') else "save"
+                mode = "load"
+                if mode == "save":
+                    print("save unet weights")
+                    initial_unet_weights = self.pipe.unet.state_dict()
+                    folder = "svd" if self.opt.use_video_decoderST else "sd"
+                    os.makedirs(folder, exist_ok=True)
+                    torch.save(initial_unet_weights, os.path.join(folder, 'initial_unet_weights.pth'))
+                    with open(os.path.join(folder, 'initial_unet.txt'), "w") as f:
+                        print(self.pipe.unet, file=f)
+                    st()
+                elif mode == "load":
+                    # Load the saved weights
+                    # folder = "sd" if self.opt.use_video_decoderST else "svd"
+                    # assert not self.opt.only_train_attention
+                    folder = "sd_old"
+                    saved_unet_weights = torch.load(os.path.join(folder, 'initial_unet_weights.pth'))
+
+                    # Get the current weights
+                    current_unet_weights = self.pipe.unet.state_dict()
+
+                    # Function to compare weights
+                    def compare_weights(saved_weights, current_weights):
+                        for key in saved_weights.keys():
+                            if not torch.equal(saved_weights[key], current_weights[key]):
+                                print(f"Difference found in layer: {key}")
+                            else:
+                                pass
+                                print("---")
+                                # print(f"No difference in layer: {key}")
+
+                    # Compare the weights
+                    compare_weights(saved_unet_weights, current_unet_weights)
+                # ------- end -------
+                
                 # cfg
                 domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
                 # latents_init = latents.clone().detach()
@@ -594,6 +638,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
         if self.opt.use_video_decoderST:
+            print("video")
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
         else:
             image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]

@@ -75,6 +75,7 @@ def main():
     if opt.set_random_seed:
         # Set a manual seed for reproducibility
         seed = 42
+        print(f"seed = {seed}")
         torch.manual_seed(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -169,17 +170,17 @@ def main():
         # checked: this set is equal to check with model.vae.decoder.named_parameters(), whether dupplicate names
         
         state_dict = model.state_dict()
-        for k, v in ckpt.items():
-            if k in trainable_decoder_params:
-                if k in state_dict and state_dict[k].shape == v.shape:
-                    print(f"Copying {k}")
-                    state_dict[k].copy_(v)
+        for k in trainable_decoder_params:
+            v = ckpt[k]
+            if k in state_dict and state_dict[k].shape == v.shape:
+                print(f"Copying {k}")
+                state_dict[k].copy_(v)
+            else:
+                if k not in state_dict:
+                    accelerator.print(f'[WARN] Parameter {k} not found in model.')
                 else:
-                    if k not in state_dict:
-                        accelerator.print(f'[WARN] Parameter {k} not found in model.')
-                    else:
-                        accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
-        
+                    accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+       
         print("Finish loading finetuned decoder.")
     
     if opt.resume_unet is not None:
@@ -192,27 +193,35 @@ def main():
         # Prepare unet parameter list
         if opt.only_train_attention:
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+            trained_unet_parameters = trained_unet_parameters.union(
+                set(f"unet.{name}" for name, para in model.unet.named_parameters() if "time_emb_proj" in name or "class_embedding" in name)
+            )
         else:
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
         
+        if opt.resume_decoder is not None:
+            assert len(trained_unet_parameters.intersection(trainable_decoder_params)) == 0
+            print("No 9jte")
+
         state_dict = model.state_dict()
-        for k, v in ckpt.items():
-            # print(k)
-            if k in trained_unet_parameters:
-                print(f"Copying {k}")
+        for k in trained_unet_parameters:
+            
+            v = ckpt[k]
+            if k in state_dict and state_dict[k].shape == v.shape:
+                if "class_embedding" in k:
+                    # print(k)
+                    print(f"Copying {k}")
                 state_dict[k].copy_(v)
             else:
                 if k not in state_dict:
                     accelerator.print(f"[WARN] Parameter {k} not found in model. ")
-                elif not k.startswith("unet"):
-                    # accelerator.print(f" Parameter {k} not a unet parameter. ")
-                    pass
                 elif v.shape == state_dict[k].shape:
                     assert opt.only_train_attention
                 else:
                     accelerator.print(f"[WARN] Mismatchinng shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.")
                 
         print("Finish loading trained unet.")
+    
     
     torch.cuda.empty_cache()
 
