@@ -183,6 +183,12 @@ def main():
         # Prepare unet parameter list
         if opt.only_train_attention:
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+            # as well as timeproj and class emb
+            trained_unet_parameters = trained_unet_parameters.union(
+                set(f"unet.{name}" for name, para in model.unet.named_parameters() if "time_emb_proj" in name or "class_embedding" in name)
+            )
+            print("Also train time_emb_proj and class_embedding")
+            
         else:
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
         
@@ -254,6 +260,10 @@ def main():
         if opt.only_train_attention:
             for name, para in model.unet.named_parameters():
                 if 'transformer_blocks' in name:
+                    parameters_list.append(para)
+                    para.requires_grad = True
+                elif "time_emb_proj" in name or "class_embedding" in name:
+                    print(f"{name} also trainable")
                     parameters_list.append(para)
                     para.requires_grad = True
                 else:

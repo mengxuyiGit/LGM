@@ -157,32 +157,6 @@ def main():
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
     
-    # we allow resume from both decoder and unet
-    if opt.resume_decoder is not None:
-        print(f"Resume from decoder ckpt: {opt.resume_decoder}")
-        if opt.resume_decoder.endswith('safetensors'):
-            ckpt = load_file(opt.resume_decoder, device='cpu')
-        else:
-            ckpt = torch.load(opt.resume_decoder, map_location='cpu')
-        
-        # Prepare a set of parpameters that requires_grad=True in decoder
-        trainable_decoder_params = set(f"vae.decoder.{name}" for name, para in model.vae.decoder.named_parameters())
-        # checked: this set is equal to check with model.vae.decoder.named_parameters(), whether dupplicate names
-        
-        state_dict = model.state_dict()
-        for k, v in ckpt.items():
-            if k in trainable_decoder_params:
-                if k in state_dict and state_dict[k].shape == v.shape:
-                    print(f"Copying {k}")
-                    state_dict[k].copy_(v)
-                else:
-                    if k not in state_dict:
-                        accelerator.print(f'[WARN] Parameter {k} not found in model.')
-                    else:
-                        accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
-        
-        print("Finish loading finetuned decoder.")
-    
     if opt.resume_unet is not None:
         print(f"Resume from unet ckpt: {opt.resume_unet}")
         if opt.resume_unet.endswith("safetensors"):
@@ -197,23 +171,48 @@ def main():
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
         
         state_dict = model.state_dict()
-        for k, v in ckpt.items():
-            # print(k)
-            if k in trained_unet_parameters:
+        for k in trained_unet_parameters:
+            v = ckpt[k]
+            if k in state_dict and state_dict[k].shape == v.shape:
                 print(f"Copying {k}")
                 state_dict[k].copy_(v)
             else:
                 if k not in state_dict:
                     accelerator.print(f"[WARN] Parameter {k} not found in model. ")
-                elif not k.startswith("unet"):
-                    # accelerator.print(f" Parameter {k} not a unet parameter. ")
-                    pass
                 elif v.shape == state_dict[k].shape:
                     assert opt.only_train_attention
                 else:
                     accelerator.print(f"[WARN] Mismatchinng shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.")
                 
         print("Finish loading trained unet.")
+    
+    
+    # we allow resume from both decoder and unet
+    if opt.resume_decoder is not None:
+        print(f"Resume from decoder ckpt: {opt.resume_decoder}")
+        if opt.resume_decoder.endswith('safetensors'):
+            ckpt = load_file(opt.resume_decoder, device='cpu')
+        else:
+            ckpt = torch.load(opt.resume_decoder, map_location='cpu')
+        
+        # Prepare a set of parpameters that requires_grad=True in decoder
+        trainable_decoder_params = set(f"vae.decoder.{name}" for name, para in model.vae.decoder.named_parameters())
+        # checked: this set is equal to check with model.vae.decoder.named_parameters(), whether dupplicate names
+        
+        state_dict = model.state_dict()
+        for k in trainable_decoder_params:
+            v = ckpt[k]
+            if k in state_dict and state_dict[k].shape == v.shape:
+                print(f"Copying {k}")
+                state_dict[k].copy_(v)
+            else:
+                if k not in state_dict:
+                    accelerator.print(f'[WARN] Parameter {k} not found in model.')
+                else:
+                    accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+       
+        print("Finish loading finetuned decoder.")
+    
     
     torch.cuda.empty_cache()
     
@@ -428,7 +427,10 @@ def main():
                     
                 # vae.decode (batch process)
                 latents_all_attr_to_decode = unscale_latents(latents)
-                image_all_attr_to_decode = model.pipe.vae.decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, return_dict=False)[0]
+                if opt.use_video_decoderST:
+                    image_all_attr_to_decode = model.ST_decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
+                else:
+                    image_all_attr_to_decode = model.pipe.vae.decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, return_dict=False)[0]
                 image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
                 image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
                 image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B A) C H W -> A B C H W", B=1, A=num_A)

@@ -193,14 +193,17 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
 #     --drop_cond_prob 0.1
 #     # /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00008-train_unet-only_attn-pipev8-bsz32-resume20kckpt-lr1e-5-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr1e-05-Plat50/eval_global_step_8000_ckpt/model.safetensors \
 
+# DATA_RENDERING_ROOT_LVIS_46K_CLUSTER=/home/chenwang/data/lvis_dataset/testing
+# DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lvis/data_processing/testing
+
 # [Junn 16] NO rendering loss. All tricks together: pipev8, class_emb cat, large bsz, , only attn
 accelerate launch --main_process_port 29517 --config_file acc_configs/gpu8.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
     --workspace runs/finetune_unet/workspace_train_june \
-    --lr 1e-5 --max_train_steps 100000 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
+    --lr 4e-6 --max_train_steps 100000 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
-    --desc 'train_unet-bsz256-NO-rendering-only_attn-pipev8-resum50kckpt-lr5e-6' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'train_unet-exp_act-with_timeproj_clsemb-resume29k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
     --set_random_seed \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
@@ -209,9 +212,9 @@ accelerate launch --main_process_port 29517 --config_file acc_configs/gpu8.yaml 
     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
     --train_unet --class_emb_cat --only_train_attention \
-    --batch_size 2 --num_workers 1 --gradient_accumulation_steps 16 \
+    --batch_size 2 --num_workers 1 --gradient_accumulation_steps 2 \
     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
-    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00012-train_unet-rendering_mse_lpips_loss-only_attn-pipev8-bsz16-resume42kckpt-lr5e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr5e-06-Plat50/eval_global_step_7500_ckpt/model.safetensors \
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00016-train_unet-with_timeproj_clsemb-resume28k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr1e-06-Plat50/eval_global_step_1000_ckpt/model.safetensors \
     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
     --drop_cond_prob 0.1
     
