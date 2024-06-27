@@ -116,7 +116,7 @@ def denormalize_and_activate(attr, mv_image):
     # mv_image: B C H W
     
     sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
-    
+    sp_image_o = sp_image_o.clip(0,1) 
     if attr == "pos":
         sp_min, sp_max = sp_min_max_dict[attr]
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
@@ -179,11 +179,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             self.pipe.vae.decoder = pipe_svd.vae.decoder
             del pipe_svd
             # self.pipe_svd = pipe_svd
-            st()
         else:
             print("not load pipe_svd")
         
-        self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat) 
+        num_attributes = 5
+        self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat,
+                          num_attributes=num_attributes) 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
 
@@ -413,6 +414,19 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             if self.opt.xyz_zero_t:
                 t[:,0] = torch.min(10 * torch.ones_like(t[:,0]), t[:,0])
+            elif self.opt.cascade_on_xyz_opacity:
+                cond_t_max = torch.min(200 * torch.ones_like(t[:,0]), t[:,0])
+                cond_t = []
+                for max_val in cond_t_max:
+                    if max_val > 0:
+                        cond_t.append(torch.randint(max_val, (1,)))
+                    else:
+                        cond_t.append(torch.tensor([0]))
+                cond_t = torch.cat(cond_t)
+                # print(cond_t, cond_t.shape)
+                t[:,0] = cond_t # xyz
+                t[:,1] = cond_t # opacity
+                
             # if self.opt.different_t_schedule is not None:
             #     schedule_offset = torch.tensor(self.opt.different_t_schedule, device=t.device).unsqueeze(0)
             #     new_t = t + schedule_offset
@@ -589,6 +603,15 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     if self.opt.xyz_zero_t and t >= 10: 
                         print("use t=10 for latent-xyz")
                         latents[:1] = latents_xyz
+                    elif self.opt.cascade_on_xyz_opacity:
+                        # make sure the xyz and opacity has some noise but smaller than the others
+                        cascade_t = max(min(10, t-100), 0) * torch.ones((1,), device=gt_latents.device, dtype=torch.int)
+                        print(f"cascade_t: {cascade_t}")
+                        gt_latents_xyz_opacity = gt_latents[:2]
+                        noise_xyz_opacity = torch.randn_like(gt_latents_xyz_opacity, device='cuda:0', dtype=torch.float32)
+                        latents_xyz_opacity = self.pipe.scheduler.add_noise(gt_latents_xyz_opacity, noise_xyz_opacity, cascade_t)
+                        assert B==1
+                        latents[:2] = latents_xyz_opacity
                     
                     if guidance_scale > 1.0:
                         latent_model_input = torch.cat([latents] * 2)
@@ -630,8 +653,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", B=data['cond'].shape[0], A=5, m=3, n=2)
                     # latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
                 
+                # if cascade, replace xyz and opacity with gt
+                if self.opt.cascade_on_xyz_opacity:
+                    latents[:2] = gt_latents[:2]
+                    print(f"use gt latent for cascade")
+                
+                # latents[1:2] = gt_latents[1:2]
+                # print(f"use gt scale for inference unet")
+                    
                 latents_all_attr_to_decode = latents
                 _rendering_w_t = 1
+
+                
 
         elif self.opt.inference_finetuned_decoder: # NOTE: this condition must be check at last
             latents_all_attr_to_decode = gt_latents

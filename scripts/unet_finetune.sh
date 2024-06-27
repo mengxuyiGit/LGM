@@ -218,18 +218,64 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
 #     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
 #     --drop_cond_prob 0.1
 
+
+# [Junn 27] NO rendering loss. cascade on xyz and opacity
+accelerate launch --main_process_port 29519 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
+    --workspace runs/finetune_unet/workspace_train_june \
+    --lr 4e-6 --max_train_steps 100000 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
+    --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+    --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
+    --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
+    --desc 'train_unet-cascade_on_xyz_opacity-max_t=200-resume_00020_1k_total39k' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
+    --set_random_seed \
+    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+    --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+    --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+    --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+    --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+    --train_unet --class_emb_cat --only_train_attention \
+    --batch_size 2 --num_workers 1 --gradient_accumulation_steps 1 \
+    --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
+    --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00020-train_unet-cascade_on_xyz_opacity-max_t=200-resume_00019_10k_total39k-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_1000_ckpt/model.safetensors \
+    --drop_cond_prob 0.1 --cascade_on_xyz_opacity --lambda_each_attribute_loss 0 0 1 1 1
+
+# # [Junn 27] train xyz and opacity only, for the use of cascading 
+# export CUDA_VISIBLE_DEVICES=4,5,6,7
+# accelerate launch --main_process_port 29517 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
+#     --workspace runs/finetune_unet/workspace_train_june \
+#     --lr 4e-6 --max_train_steps 100000 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
+#     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
+#     --desc 'train_unet-only_xyz_opacity_for_cascade-pipv8-pass_A=2' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+#     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
+#     --set_random_seed \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+#     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+#     --train_unet --class_emb_cat --only_train_attention \
+#     --batch_size 6 --num_workers 1 --gradient_accumulation_steps 1 \
+#     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
+#     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
+#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00019-train_unet-exp_act-with_timeproj_clsemb-resume29k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors \
+#     --drop_cond_prob 0.1 --train_unet_single_attr pos opacity
+
 # # [DEBUG] 
 # DATA_RENDERING_ROOT_LVIS_46K_CLUSTER=/home/chenwang/data/lvis_dataset/testing
 # DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lvis/data_processing/testing
 
-# # [Junn 16] NO rendering loss. All tricks together: pipev8, class_emb cat, large bsz, , only attn
+# # [Junn 27] train xyz and opacity only
 # accelerate launch --main_process_port 29518 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
 #     --workspace runs/finetune_unet/workspace_debug \
 #     --lr 4e-6 --max_train_steps 100000 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
 #     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
 #     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
-#     --desc 'train_unet-overfit-from_pretrained' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+#     --desc 'train_unet-pipv8-pass_A' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
 #     --set_random_seed \
 #     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
@@ -240,9 +286,54 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
 #     --train_unet --class_emb_cat --only_train_attention \
 #     --batch_size 2 --num_workers 1 --gradient_accumulation_steps 1 \
 #     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
-#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00016-train_unet-with_timeproj_clsemb-resume28k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr1e-06-Plat50/eval_global_step_1000_ckpt/model.safetensors \
 #     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
-#     --drop_cond_prob 0.1 --overfit_one_scene
+#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00019-train_unet-exp_act-with_timeproj_clsemb-resume29k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors \
+#     --drop_cond_prob 0.1 --train_unet_single_attr pos opacity
+
+# # [Junn 27] cascade
+# accelerate launch --main_process_port 29519 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
+#     --workspace runs/finetune_unet/workspace_debug \
+#     --lr 4e-6 --max_train_steps 100000 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
+#     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
+#     --desc 'train_unet-cascade_on_xyz_opacity-max_t=200-resume39k' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+#     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
+#     --set_random_seed \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+#     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+#     --train_unet --class_emb_cat --only_train_attention \
+#     --batch_size 2 --num_workers 1 --gradient_accumulation_steps 1 \
+#     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
+#     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
+#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00019-train_unet-exp_act-with_timeproj_clsemb-resume29k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors \
+#     --drop_cond_prob 0.1 --cascade_on_xyz_opacity --lambda_each_attribute_loss 0 0 1 1 1
+
+
+# # [Junn 26] NO rendering loss. train conv out layers
+# accelerate launch --main_process_port 29520 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
+#     --workspace runs/finetune_unet/workspace_overfit_june \
+#     --lr 4e-6 --max_train_steps 100000 --eval_iter 1000 --save_iter 1000 --lr_scheduler Plat \
+#     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
+#     --desc 'train_unet-conv_out_layers-resume10k-overfit-from_pretrained' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+#     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
+#     --set_random_seed \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+#     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+#     --train_unet --class_emb_cat --only_train_attention \
+#     --batch_size 2 --num_workers 1 --gradient_accumulation_steps 1 \
+#     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
+#     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
+#     --drop_cond_prob 0.1 --overfit_one_scene \
+#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_overfit_june/20240626-200628-train_unet-overfit-from_pretrained-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors
 
 # # [Junn 13] Filter invalid objects
 # accelerate launch --main_process_port 29517 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared.py big \
