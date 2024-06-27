@@ -504,8 +504,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     # cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
                 
                 prompt_embeds, cak = self.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
-                prompt_embeds = torch.cat([prompt_embeds[0:1]]*gt_latents.shape[0] + [prompt_embeds[1:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
-                cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
+                if guidance_scale > 1.0:
+                    prompt_embeds = torch.cat([prompt_embeds[0:1]]*gt_latents.shape[0] + [prompt_embeds[1:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
+                    cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
                 
                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
                 self.pipe.scheduler.set_timesteps(30, device='cuda:0')
@@ -542,54 +543,58 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                         torch.cos(domain_embeddings)
                     ], dim=-1)
                 
-                # check weights
-                # Save the initial weights
-                # mode = "load" if os.path.exists( 'initial_unet_weights.pth') else "save"
-                mode = "load"
-                if mode == "save":
-                    print("save unet weights")
-                    initial_unet_weights = self.pipe.unet.state_dict()
-                    folder = "svd" if self.opt.use_video_decoderST else "sd"
-                    os.makedirs(folder, exist_ok=True)
-                    torch.save(initial_unet_weights, os.path.join(folder, 'initial_unet_weights.pth'))
-                    with open(os.path.join(folder, 'initial_unet.txt'), "w") as f:
-                        print(self.pipe.unet, file=f)
-                    st()
-                elif mode == "load":
-                    # Load the saved weights
-                    # folder = "sd" if self.opt.use_video_decoderST else "svd"
-                    # assert not self.opt.only_train_attention
-                    folder = "sd_old"
-                    saved_unet_weights = torch.load(os.path.join(folder, 'initial_unet_weights.pth'))
+                # # check weights
+                # # Save the initial weights
+                # # mode = "load" if os.path.exists( 'initial_unet_weights.pth') else "save"
+                # mode = "load"
+                # if mode == "save":
+                #     print("save unet weights")
+                #     initial_unet_weights = self.pipe.unet.state_dict()
+                #     folder = "svd" if self.opt.use_video_decoderST else "sd"
+                #     os.makedirs(folder, exist_ok=True)
+                #     torch.save(initial_unet_weights, os.path.join(folder, 'initial_unet_weights.pth'))
+                #     with open(os.path.join(folder, 'initial_unet.txt'), "w") as f:
+                #         print(self.pipe.unet, file=f)
+                #     st()
+                # elif mode == "load":
+                #     # Load the saved weights
+                #     # folder = "sd" if self.opt.use_video_decoderST else "svd"
+                #     # assert not self.opt.only_train_attention
+                #     folder = "sd_old"
+                #     saved_unet_weights = torch.load(os.path.join(folder, 'initial_unet_weights.pth'))
 
-                    # Get the current weights
-                    current_unet_weights = self.pipe.unet.state_dict()
+                #     # Get the current weights
+                #     current_unet_weights = self.pipe.unet.state_dict()
 
-                    # Function to compare weights
-                    def compare_weights(saved_weights, current_weights):
-                        for key in saved_weights.keys():
-                            if not torch.equal(saved_weights[key], current_weights[key]):
-                                print(f"Difference found in layer: {key}")
-                            else:
-                                pass
-                                print("---")
-                                # print(f"No difference in layer: {key}")
+                #     # Function to compare weights
+                #     def compare_weights(saved_weights, current_weights):
+                #         for key in saved_weights.keys():
+                #             if not torch.equal(saved_weights[key], current_weights[key]):
+                #                 print(f"Difference found in layer: {key}")
+                #             else:
+                #                 pass
+                #                 print("---")
+                #                 # print(f"No difference in layer: {key}")
 
-                    # Compare the weights
-                    compare_weights(saved_unet_weights, current_unet_weights)
-                # ------- end -------
+                #     # Compare the weights
+                #     compare_weights(saved_unet_weights, current_unet_weights)
+                # # ------- end -------
                 
                 # cfg
-                domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
+                if guidance_scale > 1.0:
+                    domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
                 # latents_init = latents.clone().detach()
                 for _, t in enumerate(timesteps):
                     print(f"enumerate(timesteps) t={t}")
                     if self.opt.xyz_zero_t and t >= 10: 
                         print("use t=10 for latent-xyz")
                         latents[:1] = latents_xyz
-
-                    latent_model_input = torch.cat([latents] * 2)
-                    # domain_embeddings = torch.cat([domain_embeddings] * 2)
+                    
+                    if guidance_scale > 1.0:
+                        latent_model_input = torch.cat([latents] * 2)
+                    else:
+                        latent_model_input = latents
+                        t = t.repeat(A)
                     latent_model_input = self.pipe.scheduler.scale_model_input(latent_model_input, t)
 
                     # predict the noise residual
@@ -604,7 +609,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     )[0]    
 
                     # perform guidance
-                    if True:
+                    if guidance_scale > 1.0:
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
