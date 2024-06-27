@@ -261,6 +261,9 @@ class Options:
     invalid_list: Optional[str] = None
     use_video_decoderST: bool = False
 
+    cascade_on_xyz_opacity: bool = False
+    
+
 # all the default settings
 config_defaults: Dict[str, Options] = {}
 config_doc: Dict[str, str] = {}

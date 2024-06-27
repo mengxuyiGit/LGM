@@ -107,6 +107,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         
         self,
         block: BasicTransformerBlock,
+        num_attributes: int
     ):
         super().__init__()
         self.only_cross_attention = block.only_cross_attention
@@ -136,6 +137,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         num_positional_embeddings = 4096
         # self.pos_embed = SinusoidalPositionalEmbedding(dim, max_seq_length=num_positional_embeddings)
         self.pos_embed = None
+        
+        self.A = num_attributes
         
     
     def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int):
@@ -186,7 +189,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         # joint attention twice
         ## concat all domain as a big sequence
         # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B A) S C -> B (A S) C", A=5)
+        hidden_states = einops.rearrange(hidden_states, "(B A) S C -> B (A S) C", A=self.A )
         # torch.Size([1, 20480, 320])
         norm_hidden_states = (
             self.norm_joint_mid(hidden_states) # timestamp if self.use_ada_layer_norm else self.norm_joint_mid(hidden_states)
@@ -200,7 +203,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         hidden_states = self.attn_joint_mid(norm_hidden_states) + hidden_states
         # st() # torch.Size([8, 2560, 320])
         # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=1, V=8)
-        hidden_states = einops.rearrange(hidden_states, "B (A S) C -> (B A) S C", A=5)
+        hidden_states = einops.rearrange(hidden_states, "B (A S) C -> (B A) S C", A=self.A )
         # st() # torch.Size([5, 4096, 320])
         
         # hidden_states.shape: torch.Size([5, 4096, 320])
@@ -298,7 +301,7 @@ def init_weights(model):
 #     # Apply modifications
 #     replace_transformer_blocks(unet)
 
-def modify_unet(unet, set_unet_class_embeddings_concat=False):
+def modify_unet(unet, set_unet_class_embeddings_concat=False, num_attributes=5):
     if set_unet_class_embeddings_concat:
         unet.config.class_embeddings_concat = True
     # Recursive function to modify transformer blocks
@@ -307,7 +310,7 @@ def modify_unet(unet, set_unet_class_embeddings_concat=False):
             if isinstance(child, BasicTransformerBlock):
                 # print(name)
                 # Replace the existing BasicTransformerBlock with a custom one
-                setattr(module, name, BasicTransformerBlockCrossDomainPosEmbed(child))  # configure appropriately
+                setattr(module, name, BasicTransformerBlockCrossDomainPosEmbed(child, num_attributes))  # configure appropriately
             elif set_unet_class_embeddings_concat and isinstance(child, ResnetBlock2D):
             # elif isinstance(child, ResnetBlock2D):
                 # Create a new ResnetBlock2D with doubled temb_channels
@@ -992,7 +995,7 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
-    def prepare(self, random_init_unet=False, class_emb_cat=False):
+    def prepare(self, random_init_unet=False, class_emb_cat=False, num_attributes=5):
         print("[pipe-v8]")
         train_sched = DDPMScheduler.from_config(self.scheduler.config)
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
@@ -1024,7 +1027,7 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         )
         
         # set blocks
-        modify_unet(unet=self.unet, set_unet_class_embeddings_concat=class_emb_cat)
+        modify_unet(unet=self.unet, set_unet_class_embeddings_concat=class_emb_cat, num_attributes=num_attributes)
         
         # if isinstance(self.unet, UNet2DConditionModel):
         self.unet = RefOnlyNoisedUNet(self.unet, train_sched, self.scheduler).eval()

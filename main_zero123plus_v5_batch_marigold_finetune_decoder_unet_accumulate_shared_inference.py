@@ -191,13 +191,13 @@ def main():
             ckpt = torch.load(opt.resume_unet, device="cpu")
         
         # Prepare unet parameter list
-        if opt.only_train_attention:
-            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
-            trained_unet_parameters = trained_unet_parameters.union(
-                set(f"unet.{name}" for name, para in model.unet.named_parameters() if "time_emb_proj" in name or "class_embedding" in name)
-            )
-        else:
-            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
+        # if opt.only_train_attention:
+        #     trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+        #     trained_unet_parameters = trained_unet_parameters.union(
+        #         set(f"unet.{name}" for name, para in model.unet.named_parameters() if "time_emb_proj" in name or "class_embedding" in name)
+        #     )
+        # else:
+        trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
         
         if opt.resume_decoder is not None:
             assert len(trained_unet_parameters.intersection(trainable_decoder_params)) == 0
@@ -208,9 +208,9 @@ def main():
             
             v = ckpt[k]
             if k in state_dict and state_dict[k].shape == v.shape:
-                if "class_embedding" in k:
-                    # print(k)
-                    print(f"Copying {k}")
+                # if "class_embedding" in k:
+                #     # print(k)
+                print(f"Copying {k}")
                 state_dict[k].copy_(v)
             else:
                 if k not in state_dict:

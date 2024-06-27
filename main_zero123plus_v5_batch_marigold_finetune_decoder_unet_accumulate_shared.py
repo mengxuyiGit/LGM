@@ -88,7 +88,16 @@ def main():
     model =  Zero123PlusGaussianMarigoldUnetCrossDomain(opt)
     print(f"Model loaded by process {accelerator.process_index}")
     accelerator.wait_for_everyone()
-    
+
+
+    def is_selected_trainable(name):
+        for _key in [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]:
+        # for _key in [ "time_emb_proj",  "class_embedding"]:
+            if _key in name:
+                print(f"{name} also trainable")
+                return True
+        return False        
+
     # Create workspace
     ## check the number of GPUs
     num_gpus = accelerator.num_processes
@@ -180,12 +189,6 @@ def main():
         else:
             ckpt = torch.load(opt.resume_unet, device="cpu")
         
-        def is_selected_trainable(name):
-            for _key in [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]:
-                if _key in name:
-                    print(f"{name} also trainable")
-                    return True
-            return False
         
         # Prepare unet parameter list
         if opt.only_train_attention:
@@ -396,22 +399,22 @@ def main():
                     lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
                     accelerator.backward(lossback)
 
-                    # debug
-                    if global_step > 0:
-                        # Check gradients of the unet parameters
-                        print(f"check unet parameters")
-                        for name, param in model.unet.named_parameters():
-                            if param.requires_grad and param.grad is not None:
-                                print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                        st()
+                    # # debug
+                    # if global_step > 0:
+                    #     # Check gradients of the unet parameters
+                    #     print(f"check unet parameters")
+                    #     for name, param in model.unet.named_parameters():
+                    #         if param.requires_grad and param.grad is not None:
+                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                    #     st()
                     
-                        print(f"check other model parameters")
-                        for name, param in model.named_parameters():
-                            if param.requires_grad and param.grad is not None and "unet" not in name:
-                                print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                        st()
-                        # TODO: CHECK decoder not have grad, especially deocder.others
-                        # TODO: and check self.scale_bias
+                    #     print(f"check other model parameters")
+                    #     for name, param in model.named_parameters():
+                    #         if param.requires_grad and param.grad is not None and "unet" not in name:
+                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                    #     st()
+                    #     # TODO: CHECK decoder not have grad, especially deocder.others
+                    #     # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:
