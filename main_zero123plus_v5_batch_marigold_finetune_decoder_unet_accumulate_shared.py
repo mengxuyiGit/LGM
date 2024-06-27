@@ -180,14 +180,20 @@ def main():
         else:
             ckpt = torch.load(opt.resume_unet, device="cpu")
         
+        def is_selected_trainable(name):
+            for _key in [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]:
+                if _key in name:
+                    print(f"{name} also trainable")
+                    return True
+            return False
+        
         # Prepare unet parameter list
         if opt.only_train_attention:
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
             # as well as timeproj and class emb
             trained_unet_parameters = trained_unet_parameters.union(
-                set(f"unet.{name}" for name, para in model.unet.named_parameters() if "time_emb_proj" in name or "class_embedding" in name)
+                set(f"unet.{name}" for name, para in model.unet.named_parameters() if is_selected_trainable(name=name))
             )
-            print("Also train time_emb_proj and class_embedding")
             
         else:
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
@@ -262,7 +268,7 @@ def main():
                 if 'transformer_blocks' in name:
                     parameters_list.append(para)
                     para.requires_grad = True
-                elif "time_emb_proj" in name or "class_embedding" in name:
+                elif is_selected_trainable(name):
                     print(f"{name} also trainable")
                     parameters_list.append(para)
                     para.requires_grad = True
@@ -390,22 +396,22 @@ def main():
                     lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
                     accelerator.backward(lossback)
 
-                    # # debug
-                    # if global_step > 0:
-                    #     # Check gradients of the unet parameters
-                    #     print(f"check unet parameters")
-                    #     for name, param in model.unet.named_parameters():
-                    #         if param.requires_grad and param.grad is not None:
-                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    #     st()
+                    # debug
+                    if global_step > 0:
+                        # Check gradients of the unet parameters
+                        print(f"check unet parameters")
+                        for name, param in model.unet.named_parameters():
+                            if param.requires_grad and param.grad is not None:
+                                print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                        st()
                     
-                    #     print(f"check other model parameters")
-                    #     for name, param in model.named_parameters():
-                    #         if param.requires_grad and param.grad is not None and "unet" not in name:
-                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    #     st()
-                    #     # TODO: CHECK decoder not have grad, especially deocder.others
-                    #     # TODO: and check self.scale_bias
+                        print(f"check other model parameters")
+                        for name, param in model.named_parameters():
+                            if param.requires_grad and param.grad is not None and "unet" not in name:
+                                print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                        st()
+                        # TODO: CHECK decoder not have grad, especially deocder.others
+                        # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:

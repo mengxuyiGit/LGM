@@ -262,14 +262,14 @@ class ObjaverseDataset(Dataset):
                 # print(f"[WARN]: always fetch the 0th item. For debug use only")
                 # self.items = all_items[:1]
                 print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[2:3]
+                self.items = all_items[1:2]*10000
         else:
             self.items = all_items
             if self.opt.overfit_one_scene:
                 # print(f"[WARN]: always fetch the 0th item. For debug use only")
                 # self.items = all_items[:1]
                 print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[2:3]
+                self.items = all_items[1:2]*10000
         
         # naive split
         # if self.training:
@@ -300,8 +300,8 @@ class ObjaverseDataset(Dataset):
     def __getitem__(self, idx):
         
         scene_name = self.items[idx]
-        if self.opt.overfit_one_scene:
-            print(f"[WARN]: always fetch the {idx} item. For debug use only")
+        # if self.opt.overfit_one_scene:
+        #     print(f"[WARN]: always fetch the {idx} item. For debug use only")
         
         uid = self.data_path_rendering[scene_name]
         splatter_uid = self.data_path_vae_splatter[scene_name] 
