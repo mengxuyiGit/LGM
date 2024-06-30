@@ -481,8 +481,13 @@ def main():
             
             # not calculate FID
             else:
+                if not os.path.exists(f'{opt.workspace}/eval_inference'):
+                    os.makedirs(f'{opt.workspace}/eval_inference')
                 out = model(data, save_path=f'{opt.workspace}/eval_inference', prefix=f"{accelerator.process_index}_{i}_")
-           
+
+                if opt.save_xyz_opacity_for_cascade:
+                    continue 
+                
                 lpips = out['loss_lpips']
                 lpips_LGM = out['loss_lpips_LGM']
                 psnr = out['psnr']
@@ -509,7 +514,10 @@ def main():
                 gt_images = five_in_one.detach().cpu().numpy() # [B, V, 3, output_size, output_size]
                 gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
                 kiui.write_image(f'{opt.workspace}/eval_inference/{accelerator.process_index}_{i}_Ugt_Mlgm_Dpred.jpg', gt_images)
-
+                
+                _out = model(data, get_decoded_gt_latents=True)
+                out['gaussians_LGM_decoded'] = _out['gaussians_LGM_decoded']
+                
                 # add lgm infer gaussian 
                 if opt.render_lgm_infer:
                     cond_save = einops.rearrange(data["cond"], "b h w c -> (b h) w c")
@@ -590,7 +598,7 @@ def main():
                     proj_matrix[2, 3] = 1
                     
                     images_dict = {}
-                    gaussian_key_list = ["gaussians_LGM", "gaussians_pred"]
+                    gaussian_key_list = ["gaussians_LGM", "gaussians_LGM_decoded", "gaussians_pred"]
                                         #  , "gaussians_LGM_infer_zero123++", "gaussians_LGM_infer_mvdream"]
                     for key in gaussian_key_list:
                         gaussians = out[key]
