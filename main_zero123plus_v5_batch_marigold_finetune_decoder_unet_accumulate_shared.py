@@ -35,6 +35,21 @@ from utils.format_helper import get_workspace_name
 from utils.io_helper import print_grad_status
 from core.dataset_v5_marigold import ordered_attr_list
 
+# import os
+# import torch.distributed as dist
+
+# # Set the TORCHELASTIC_ERROR_FILE environment variable
+# os.environ['TORCHELASTIC_ERROR_FILE'] = '/path/to/error.log'
+
+# # Initialize the distributed environment
+# dist.init_process_group(backend='nccl')
+
+# # Your training code here
+
+# # Clean up resources
+# dist.destroy_process_group()
+
+
 def store_initial_weights(model):
     """Stores the initial weights of the model for later comparison."""
     initial_weights = {}
