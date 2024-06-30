@@ -165,10 +165,10 @@ def main():
             ckpt = torch.load(opt.resume_unet, device="cpu")
         
         # Prepare unet parameter list
-        if opt.only_train_attention:
-            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
-        else:
-            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
+        # if opt.only_train_attention:
+        #     trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+        # else:
+        trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
         
         state_dict = model.state_dict()
         for k in trained_unet_parameters:
@@ -379,7 +379,8 @@ def main():
             # replace with explicit calling here 
             with torch.no_grad():
                 guidance_scale = opt.guidance_scale
-                num_A = 5
+                
+                num_A = 5 if not opt.save_xyz_opacity_for_cascade else 2
                 prompt_embeds, cak = model.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
                 prompt_embeds = torch.cat([prompt_embeds[0:1]]*num_A + [prompt_embeds[1:]]*num_A, dim=0) # torch.Size([10, 77, 1024])
                 cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*num_A + [cak['cond_lat'][1:]]*num_A, dim=0)
@@ -388,7 +389,7 @@ def main():
                 model.pipe.scheduler.set_timesteps(30, device='cuda:0')
                 
                 timesteps = model.pipe.scheduler.timesteps
-                latents = torch.randn(5, 4, 48, 32, device='cuda:0', dtype=torch.float32)
+                latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
                 
                 domain_embeddings = torch.eye(5).to(latents.device)
                 if opt.train_unet_single_attr is not None:
@@ -401,8 +402,22 @@ def main():
                 # cfg
                 domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
                 # latents_init = latents.clone().detach()
+                if opt.xyz_opacity_for_cascade_dir is not None:
+                    print("Loading pre-saved xyz_opacity")
+                    gt_latents_xyz_opacity = torch.load(f"{opt.xyz_opacity_for_cascade_dir}/{prefix}_xyz_opacity.pt")
+
+
                 for _, t in enumerate(timesteps):
                     print(f"enumerate(timesteps) t={t}")
+                    
+                    if opt.cascade_on_xyz_opacity:
+                        # make sure the xyz and opacity has some noise but smaller than the others
+                        cascade_t = max(min(100, t-100), 0) * torch.ones((1,), device=latents.device, dtype=torch.int)
+                        print(f"cascade_t: {cascade_t}")
+                        noise_xyz_opacity = torch.randn_like(gt_latents_xyz_opacity, device='cuda:0', dtype=torch.float32)
+                        latents_xyz_opacity = model.pipe.scheduler.add_noise(gt_latents_xyz_opacity, noise_xyz_opacity, cascade_t)
+                        latents[:2] = latents_xyz_opacity
+                        
                     latent_model_input = torch.cat([latents] * 2)
                     latent_model_input = model.pipe.scheduler.scale_model_input(latent_model_input, t)
 
@@ -425,6 +440,12 @@ def main():
                     # compute the previous noisy sample x_t -> x_t-1
                     latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
                     
+                # save the latent for cascade
+                if opt.save_xyz_opacity_for_cascade:
+                    torch.save(latents, f"{save_path}/{prefix}_xyz_opacity.pt")
+                    st()
+                    continue 
+                
                 # vae.decode (batch process)
                 latents_all_attr_to_decode = unscale_latents(latents)
                 if opt.use_video_decoderST:
