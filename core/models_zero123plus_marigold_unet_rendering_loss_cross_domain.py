@@ -182,7 +182,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
             print("not load pipe_svd")
         
-        num_attributes = 5
+        num_attributes = 5 if not opt.save_xyz_opacity_for_cascade else 2
+        print("num_attributes is: ",num_attributes)
         self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat,
                           num_attributes=num_attributes) 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
@@ -336,7 +337,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         return DecoderOutput(sample=decoded)
     
     
-    def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None):
+    def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None, get_decoded_gt_latents=False):
         # Gaussian shape: (B*6, 14, H, W)
 
         results = {}
@@ -344,7 +345,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
       
         # encoder input: all the splatter attr pngs 
         images_all_attr_list = []
-        if self.opt.train_unet and self.opt.train_unet_single_attr is not None:
+        if self.opt.train_unet_single_attr is not None:
             ordered_attr_list_local = self.opt.train_unet_single_attr
         # elif self.opt.finetune_decoder and self.opt.finetune_decoder_single_attr is not None:
         #     ordered_attr_list_local = self.opt.finetune_decoder_single_attr
@@ -503,7 +504,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 _rendering_w_t = 1
         
         # allow inference
-        elif self.opt.inference_finetuned_unet:
+        elif self.opt.inference_finetuned_unet and not get_decoded_gt_latents:
             with torch.no_grad():
                 guidance_scale = self.opt.guidance_scale
 
@@ -597,6 +598,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 # cfg
                 if guidance_scale > 1.0:
                     domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
+                
+                if self.opt.xyz_opacity_for_cascade_dir is not None:
+                    print("Loading pre-saved xyz_opacity    ")
+                    gt_latents_xyz_opacity = torch.load(f"{self.opt.xyz_opacity_for_cascade_dir}/{prefix}_xyz_opacity.pt")
+                    gt_latents[:2] = gt_latents_xyz_opacity
+                else:
+                    gt_latents_xyz_opacity = gt_latents[:2]
+            
                 # latents_init = latents.clone().detach()
                 for _, t in enumerate(timesteps):
                     print(f"enumerate(timesteps) t={t}")
@@ -605,9 +614,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                         latents[:1] = latents_xyz
                     elif self.opt.cascade_on_xyz_opacity:
                         # make sure the xyz and opacity has some noise but smaller than the others
-                        cascade_t = max(min(10, t-100), 0) * torch.ones((1,), device=gt_latents.device, dtype=torch.int)
+                        cascade_t = max(min(100, t-100), 0) * torch.ones((1,), device=gt_latents.device, dtype=torch.int)
                         print(f"cascade_t: {cascade_t}")
-                        gt_latents_xyz_opacity = gt_latents[:2]
                         noise_xyz_opacity = torch.randn_like(gt_latents_xyz_opacity, device='cuda:0', dtype=torch.float32)
                         latents_xyz_opacity = self.pipe.scheduler.add_noise(gt_latents_xyz_opacity, noise_xyz_opacity, cascade_t)
                         assert B==1
@@ -653,9 +661,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", B=data['cond'].shape[0], A=5, m=3, n=2)
                     # latents = einops.rearrange(latents, " B C (A H) (m n W) -> (B A) C (m H) (n W)", A=5, m=3, n=2)
                 
+                if self.opt.save_xyz_opacity_for_cascade:
+                    torch.save(latents, f"{save_path}/{prefix}_xyz_opacity.pt")
+                    return 
                 # if cascade, replace xyz and opacity with gt
                 if self.opt.cascade_on_xyz_opacity:
-                    latents[:2] = gt_latents[:2]
+                    latents[:2] = gt_latents_xyz_opacity
                     print(f"use gt latent for cascade")
                 
                 # latents[1:2] = gt_latents[1:2]
@@ -666,7 +677,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
                 
 
-        elif self.opt.inference_finetuned_decoder: # NOTE: this condition must be check at last
+        elif self.opt.inference_finetuned_decoder or get_decoded_gt_latents: # NOTE: this condition must be check at last
             latents_all_attr_to_decode = gt_latents
             _rendering_w_t = 1
         
@@ -758,6 +769,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
         gaussians = fuse_splatters(splatters_to_render) # B, N, 14
 
+        if get_decoded_gt_latents:
+            results['gaussians_LGM_decoded'] = gaussians
+            return results
         if self.opt.fancy_video or self.opt.render_video:
             results['gaussians_pred'] = gaussians
         
