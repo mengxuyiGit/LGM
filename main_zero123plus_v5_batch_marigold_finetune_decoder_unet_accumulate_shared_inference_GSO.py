@@ -440,6 +440,23 @@ def main():
                     # compute the previous noisy sample x_t -> x_t-1
                     latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
                     
+                    if opt.dynamic_threshold:
+                        #  # Dynamic thresholding
+                        # p = 99.5  # you can adjust this percentile as needed
+                        # s = torch.quantile(torch.abs(latents.view(latents.shape[0], -1)), p / 100.0, dim=1)
+                        # s = torch.maximum(s, torch.tensor(1.0, device=s.device))
+                        # print(f"Dynamic thresholding with s={s}")
+                        # s = s.view(-1,1,1,1)
+                        # latents = torch.clamp(latents, -s, s) / s
+
+                        # Apply dynamic thresholding to latents using statistical properties
+                        mean = latents.mean(dim=list(range(1, latents.ndim)), keepdim=True)
+                        std = latents.std(dim=list(range(1, latents.ndim)), keepdim=True)
+                        threshold = mean + 2 * std  # This can be adjusted as needed
+                        latents_norm = torch.clamp(latents, -threshold, threshold)
+                        latents[:1] = latents_norm[:1] # only normalize xyz
+                        print(f"Dynamic thresholding with s={threshold.view(-1)}")
+                    
                 # save the latent for cascade
                 if opt.save_xyz_opacity_for_cascade:
                     torch.save(latents, f"{save_path}/{prefix}_xyz_opacity.pt")

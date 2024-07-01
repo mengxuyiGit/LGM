@@ -603,28 +603,28 @@ DATA_RENDERING_ROOT_GSO=/home/xuyimeng/Data/gso/liuyuan/view1
 #     --cascade_on_xyz_opacity --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00022-train_unet-cascade_on_xyz_opacity-max_t=200-resume_00020_1k_total39k-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_41000_ckpt/model.safetensors
 #     # --save_xyz_opacity_for_cascade --train_unet_single_attr pos opacity --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00021-train_unet-only_xyz_opacity_for_cascade-pipv8-pass_A=2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_22500_ckpt/model.safetensors
 
-# # [Jun 30] inference diffusion trained with rendering loss on GSO
-# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
-#     --workspace runs/finetune_unet/workspace_inference \
-#     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
-#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
-#     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
-#     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-#     --desc 'inference_unet_WITH_RENDERING_LOSS-sd' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
-#     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
-#     --set_random_seed --batch_size 1 --num_workers 2 \
-#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
-#     --scale_clamp_max -2 --scale_clamp_min -10 \
-#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
-#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
-#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
-#     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
-#     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
-#     --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
-#     --class_emb_cat \
-#     --guidance_scale 2.0 --render_video \
-#     --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
-#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_32000_ckpt/model.safetensors
+# [Jun 30] inference diffusion trained with rendering loss on GSO
+accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
+    --workspace runs/finetune_unet/workspace_inference_GSO \
+    --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
+    --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+    --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+    --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+    --desc 'inference_unet-DYNAMIC_THRES-guidance2.0_with_rendering_LOSS-sd' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
+    --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
+    --set_random_seed --batch_size 1 --num_workers 2 \
+    --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+    --scale_clamp_max -2 --scale_clamp_min -10 \
+    --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+    --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+    --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+    --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+    --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+    --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
+    --class_emb_cat \
+    --guidance_scale 2.0 --render_video --metric_GSO --dynamic_threshold \
+    --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_32000_ckpt/model.safetensors
 
 
 # # [Jun 30] inference diffusion trained with all layers
