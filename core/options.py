@@ -265,6 +265,8 @@ class Options:
     save_xyz_opacity_for_cascade: bool = False
     # load_inferenced_xyz_opacity: bool = False
     xyz_opacity_for_cascade_dir: str = None
+
+    dynamic_threshold: bool = False
     
 
 # all the default settings

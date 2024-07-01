@@ -25,8 +25,11 @@ from diffusers.models.autoencoders.vae import DecoderOutput
 def fuse_splatters(splatters):
     # fuse splatters
     B, V, C, H, W = splatters.shape
-
+    
     x = splatters.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
+    
+    # # SINGLE VIEW splatter 
+    # x = splatters.permute(0, 1, 3, 4, 2)[:,0].reshape(B, -1, 14)
     return x
 
 def unscale_latents(latents):
@@ -643,7 +646,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     if guidance_scale > 1.0:
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-
+                    
                     # compute the previous noisy sample x_t -> x_t-1
                     if debug:
                         alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
