@@ -267,6 +267,11 @@ class Options:
     xyz_opacity_for_cascade_dir: str = None
 
     dynamic_threshold: bool = False
+    refinement_network: Optional[str] = None
+    train_refine_net: bool = False
+    resume_refinenet: Optional[str] = None
+    inference_refinenet: bool = False
+    refinement_input: Optional[Tuple[str,...]] = None
     
 
 # all the default settings

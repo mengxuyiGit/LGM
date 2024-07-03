@@ -222,6 +222,31 @@ def main():
                 
         print("Finish loading trained unet.")
     
+    if opt.resume_refinenet is not None:
+        print(f"Resume from refine net ckpt: {opt.resume_refinenet}")
+        if opt.resume_refinenet.endswith("safetensors"):
+            ckpt = load_file(opt.resume_refinenet, device="cpu")
+        else:
+            ckpt = torch.load(opt.resume_refinenet, device="cpu")
+        
+        trained_refinenet_parameters = set(f"refine_net.{name}" for name, para in model.refine_net.named_parameters())
+        trained_refinenet_parameters = trained_refinenet_parameters.union(set(f"ptv3_feat2offset.{name}" for name, para in model.ptv3_feat2offset.named_parameters()))
+        
+        state_dict = model.state_dict()
+        for k in trained_refinenet_parameters:
+            
+            v = ckpt[k]
+            if k in state_dict and state_dict[k].shape == v.shape:
+                print(f"Copying {k}")
+                state_dict[k].copy_(v)
+            else:
+                if k not in state_dict:
+                    accelerator.print(f"[WARN] Parameter {k} not found in model. ")
+                else:
+                    accelerator.print(f"[WARN] Mismatchinng shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.")
+                
+        print("Finish loading refinement unet.")
+        
     
     torch.cuda.empty_cache()
 

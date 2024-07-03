@@ -388,7 +388,7 @@ def main():
                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
                 model.pipe.scheduler.set_timesteps(30, device='cuda:0')
                 
-                timesteps = model.pipe.scheduler.timesteps
+                timesteps = model.pipe.scheduler.timesteps.to(torch.int)
                 latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
                 
                 domain_embeddings = torch.eye(5).to(latents.device)

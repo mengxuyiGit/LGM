@@ -219,10 +219,10 @@ def main():
         state_dict = model.state_dict()
         for k, v in ckpt.items():
             if k in trained_unet_parameters:
-                print(f"Copying {k}")
-                state_dict[k].copy_(v)
-            else:
-                if k not in state_dict:
+                if k in state_dict and state_dict[k].shape == v.shape:
+                    print(f"Copying {k}")
+                    state_dict[k].copy_(v)
+                elif k not in state_dict:
                     accelerator.print(f"[WARN] Parameter {k} not found in model. ")
                 elif 'unet' not in k:
                     pass
@@ -261,8 +261,9 @@ def main():
     print_grad_status(model, file_path=f"{opt.workspace}/model_grad_status_before.txt")
     print("before ")
     
-    assert not (opt.finetune_decoder and opt.train_unet)
-    assert opt.finetune_decoder or opt.train_unet
+    # assert not (opt.finetune_decoder and opt.train_unet)
+    # assert opt.finetune_decoder or opt.train_unet or opt.train_refine_net
+    assert (opt.finetune_decoder + opt.train_unet + opt.train_refine_net) == 1
     if opt.finetune_decoder:
         if accelerator.is_main_process:
             print("You choose to: finetune_decoder")
@@ -297,16 +298,21 @@ def main():
             for name, para in model.unet.named_parameters():
                 parameters_list.append(para)
                 para.requires_grad = True
+
+    elif opt.train_refine_net:
+        parameters_list = []
+        print("Only train refinenet!!!")
+        parameters_list += model.refine_net.parameters()
+        parameters_list += model.ptv3_feat2offset.parameters()
     
     else:
         raise NotImplementedError("Only train VAE or UNet")
                 
     print_grad_status(model, file_path=f"{opt.workspace}/model_grad_status_after.txt")
     print("after ")
-    
+        
     optimizer = torch.optim.AdamW(parameters_list, lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # TODO: lr can be 1e-3??
     
-
     # scheduler (per-iteration)
     if opt.lr_scheduler == 'CosAnn':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3000, eta_min=1e-6)
@@ -403,13 +409,13 @@ def main():
 
                     # # Store initial weights before the update
                     # initial_weights = store_initial_weights(model)
-
+                    
                     out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                     # loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss = out['loss'] if 'loss' in out.keys() else torch.zeros_like(out['loss_latent'])
                     loss_splatter = out['loss_splatter'] if 'loss_splatter' in out.keys() else torch.zeros_like(out['loss_latent'])  # if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
-                    loss_latent = out['loss_latent'] if 'loss_latent' in out.keys()  else torch.zeros_like(loss)
-                    loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_latent'])
+                    loss_latent = out['loss_latent'] if 'loss_latent' in out.keys() else torch.zeros_like(loss)
+                    loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_splatter'])
                     # print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent, "loss_splatter_lpips", loss_splatter_lpips)
                     lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
                     accelerator.backward(lossback)
@@ -440,6 +446,7 @@ def main():
                         scheduler.step()
                     
                     # compare_weights(initial_weights=initial_weights, model=model)
+                    # st()
                     
                     psnr = out['psnr'] if 'psnr' in out.keys() else torch.zeros_like(out['loss_latent'])
                     total_loss += loss.detach()
@@ -484,10 +491,14 @@ def main():
 
                     torch.cuda.empty_cache()
 
+                
+                # if False:
                 if global_step % opt.eval_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}")):  # eval by global step, not epoch
                     # eval
                     accelerator.wait_for_everyone()
-                    with torch.no_grad():
+                    # with torch.no_grad():
+                    with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.half):
+                    # with torch.cuda.amp.autocast():
                         model.eval()
                 
                         total_loss = 0
@@ -499,12 +510,20 @@ def main():
                         total_loss_lpips = 0
                         
                         print(f"Save to run dir: {opt.workspace}")
-                        num_samples_eval = 1
+                        num_samples_eval = 10
                         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval global_step {global_step}"):
                             if i > num_samples_eval:
                                 break
-                        
+                            # print("Eval: ", data["scene_name"])
+                            # # Convert data to FP32 if it's currently FP16
+                            # for key in data:
+                            #     if isinstance(data[key], torch.Tensor):
+                            #         if data[key].dtype == torch.float32:
+                            #             print(f"Reducing {key} to half")
+                            #             data[key] = data[key].half()
+                            # st()
                             out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_")
+                            # out = model(data, step_ratio, splatter_guidance=splatter_guidance)
                     
                             psnr = out['psnr'] if 'psnr' in out.keys() else torch.zeros_like(out['loss_latent'])
                             eval_loss = out['loss'] if 'loss' in out.keys() else torch.zeros_like(out['loss_latent'])
@@ -572,13 +591,13 @@ def main():
                             total_loss_lpips /= num_samples_eval
                             
                             accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), epoch)
-                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), epoch)
-                            writer.add_scalar('eval/total_psnr', total_psnr.item(), epoch)
-                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, epoch)
-                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, epoch)
-                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, epoch)
-                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, epoch)
+                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), global_step)
+                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), global_step)
+                            writer.add_scalar('eval/total_psnr', total_psnr.item(), global_step)
+                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, global_step)
+                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, global_step)
+                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, global_step)
+                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, global_step)
                             # if opt.log_each_attribute_loss:
                             #     for _attr in ordered_attr_list:
                             #         writer.add_scalar(f'eval/loss_{_attr}',  out[f"loss_{_attr}"].detach().item(), epoch)
@@ -586,7 +605,7 @@ def main():
 
                             if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
                                 scheduler.step(total_loss)
-                                writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
+                                writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], global_step)
                     
                     # back to train mode to have grad
                     accelerator.wait_for_everyone()

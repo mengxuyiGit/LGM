@@ -5,7 +5,7 @@ import numpy as np
 
 import kiui
 from kiui.lpips import LPIPS
-from diffusers import DiffusionPipeline, DDPMScheduler
+from diffusers import DiffusionPipeline, DDPMScheduler, EulerAncestralDiscreteScheduler
 import PIL
 from PIL import Image
 import einops
@@ -22,6 +22,9 @@ from core.dataset_v5_marigold import ordered_attr_list, attr_map, sp_min_max_dic
 from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
 from diffusers.models.autoencoders.vae import DecoderOutput
 
+from ptv3.model import PointTransformerV3
+from addict import Dict
+
 def fuse_splatters(splatters):
     # fuse splatters
     B, V, C, H, W = splatters.shape
@@ -29,7 +32,7 @@ def fuse_splatters(splatters):
     x = splatters.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
     
     # # SINGLE VIEW splatter 
-    # x = splatters.permute(0, 1, 3, 4, 2)[:,0].reshape(B, -1, 14)
+    # x = splatters.permute(0, 1, 3, 4, 2)[:,3].reshape(B, -1, 14)
     return x
 
 def unscale_latents(latents):
@@ -142,7 +145,20 @@ def denormalize_and_activate(attr, mv_image):
         
     return sp_image_o
     
+def get_splatterMV_and_fusedGS(ordered_attr_list_local, image_all_attr_to_decode):
     
+    decoded_attr_list = [] # decode latents into attrbutes again
+    for i, _attr in enumerate(ordered_attr_list_local):
+        batch_attr_image = image_all_attr_to_decode[i]
+        decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+        decoded_attr_list.append(decoded_attr)
+    splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
+    splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
+    gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+    
+    return gaussians
+
+
 class Interpolate(nn.Module):
     def __init__(self, size, mode='bilinear', align_corners=False):
         super(Interpolate, self).__init__()
@@ -175,13 +191,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # from main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared import store_initial_weights, compare_weights
         
         if opt.use_video_decoderST:
-            print("Load video pipe anyway")
+            print("Load video pipe ")
             pipe_svd = DiffusionPipeline.from_pretrained(
                 "stabilityai/stable-video-diffusion-img2vid-xt",
             ).to('cuda')
             self.pipe.vae.decoder = pipe_svd.vae.decoder
             del pipe_svd
-            # self.pipe_svd = pipe_svd
         else:
             print("not load pipe_svd")
         
@@ -221,8 +236,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 self.register_buffer("decoder_domain_embedding", repeat_e)
                 # self.decoder_domain_embedding = repeat_e
     
-       
-        self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
+        if self.opt.train_unet:
+            self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
+        else:
+            print("EulerAncestralDiscreteScheduler")
+            self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+                    self.pipe.scheduler.config, timestep_spacing='trailing'
+                )
         
         print(f"drop cond with prob {self.opt.drop_cond_prob}")
     
@@ -267,6 +287,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.skip_decoding:
             print("Skip decoding the latents, save memory")
         
+        if self.opt.refinement_network == "ptv3":
+            self.refine_net = PointTransformerV3(in_channels=14).to('cuda')
+            self.ptv3_feat2offset = nn.Linear(in_features=64, out_features=14)
+            
+            if self.opt.train_refine_net:
+                self.refine_net.train()
+                torch.nn.init.zeros_(self.ptv3_feat2offset.weight) 
+                torch.nn.init.zeros_(self.ptv3_feat2offset.bias) 
 
         # with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
         #     print(self.unet, file=f)
@@ -398,7 +426,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 decoder_domain_embedding = self.decoder_domain_embedding.unsqueeze(1).repeat(1,6,1,1)
                 decoder_domain_embedding = einops.rearrange(decoder_domain_embedding, "a (m n) h w -> a 1 (m h) (n w)", m=3, n=2)
                 latents_all_attr_to_decode = latents_all_attr_to_decode + decoder_domain_embedding.repeat(B,1,1,1)
-                
 
         elif self.opt.train_unet:
             cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
@@ -506,8 +533,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             else:
                 _rendering_w_t = 1
         
+        elif self.opt.train_refine_net: # NOTE: this condition must be check at last
+            latents_all_attr_to_decode = gt_latents
+            _rendering_w_t = 1
+            
         # allow inference
-        elif self.opt.inference_finetuned_unet and not get_decoded_gt_latents:
+        elif (self.opt.inference_finetuned_unet and not get_decoded_gt_latents):
             with torch.no_grad():
                 guidance_scale = self.opt.guidance_scale
 
@@ -529,7 +560,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
                 self.pipe.scheduler.set_timesteps(30, device='cuda:0')
                 
-                timesteps = self.pipe.scheduler.timesteps
+                timesteps = self.pipe.scheduler.timesteps.to(torch.int)
                 debug = False
                 if debug:
                     debug_t = torch.tensor(50, dtype=torch.int64, device='cuda:0',)
@@ -560,50 +591,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                         torch.sin(domain_embeddings),
                         torch.cos(domain_embeddings)
                     ], dim=-1)
-                
-                # # check weights
-                # # Save the initial weights
-                # # mode = "load" if os.path.exists( 'initial_unet_weights.pth') else "save"
-                # mode = "load"
-                # if mode == "save":
-                #     print("save unet weights")
-                #     initial_unet_weights = self.pipe.unet.state_dict()
-                #     folder = "svd" if self.opt.use_video_decoderST else "sd"
-                #     os.makedirs(folder, exist_ok=True)
-                #     torch.save(initial_unet_weights, os.path.join(folder, 'initial_unet_weights.pth'))
-                #     with open(os.path.join(folder, 'initial_unet.txt'), "w") as f:
-                #         print(self.pipe.unet, file=f)
-                #     st()
-                # elif mode == "load":
-                #     # Load the saved weights
-                #     # folder = "sd" if self.opt.use_video_decoderST else "svd"
-                #     # assert not self.opt.only_train_attention
-                #     folder = "sd_old"
-                #     saved_unet_weights = torch.load(os.path.join(folder, 'initial_unet_weights.pth'))
-
-                #     # Get the current weights
-                #     current_unet_weights = self.pipe.unet.state_dict()
-
-                #     # Function to compare weights
-                #     def compare_weights(saved_weights, current_weights):
-                #         for key in saved_weights.keys():
-                #             if not torch.equal(saved_weights[key], current_weights[key]):
-                #                 print(f"Difference found in layer: {key}")
-                #             else:
-                #                 pass
-                #                 print("---")
-                #                 # print(f"No difference in layer: {key}")
-
-                #     # Compare the weights
-                #     compare_weights(saved_unet_weights, current_unet_weights)
-                # # ------- end -------
-                
+               
                 # cfg
                 if guidance_scale > 1.0:
                     domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
                 
                 if self.opt.xyz_opacity_for_cascade_dir is not None:
-                    print("Loading pre-saved xyz_opacity    ")
+                    print("Loading pre-saved xyz_opacity")
                     gt_latents_xyz_opacity = torch.load(f"{self.opt.xyz_opacity_for_cascade_dir}/{prefix}_xyz_opacity.pt")
                     gt_latents[:2] = gt_latents_xyz_opacity
                 else:
@@ -678,19 +672,17 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 latents_all_attr_to_decode = latents
                 _rendering_w_t = 1
 
-                
-
         elif self.opt.inference_finetuned_decoder or get_decoded_gt_latents: # NOTE: this condition must be check at last
             latents_all_attr_to_decode = gt_latents
             _rendering_w_t = 1
-        
+       
         else:
            raise NotImplementedError
 
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
         if self.opt.use_video_decoderST:
-            print("video")
+            # print("video")
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
         else:
             image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
@@ -731,16 +723,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # debug = False
         # if debug:
         #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
-        
-        # decode latents into attrbutes again
-        decoded_attr_list = []
-        for i, _attr in enumerate(ordered_attr_list_local):
-            batch_attr_image = image_all_attr_to_decode[i]
-            # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
-            decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
-            decoded_attr_list.append(decoded_attr)
-            # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
-
+       
         if save_path is not None:
             images_to_save_encode = images_to_save
             decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
@@ -761,16 +744,47 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 else:
                     cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
                     Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
-            
-
+        
+        
         if self.opt.train_unet_single_attr is not None:
             return results # not enough attr for gs rendering
-            
-        splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
+
+        gaussians = get_splatterMV_and_fusedGS(ordered_attr_list_local, image_all_attr_to_decode)
         
-        # ## reshape 
-        splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
-        gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+        # add post processing using ptv3
+        if self.opt.refinement_network == "ptv3":
+            # with some probability to take the LGM output GS
+            device = gaussians.device
+            # offset = torch.tensor([gaussians.shape[1]] * gaussians.shape[0]).to(device)
+            offset = (torch.arange(gaussians.shape[0], device=device) + 1) * gaussians.shape[1]
+            feat = einops.rearrange(gaussians, "b n c -> (b n) c")
+            coord = feat[:,:3]
+            
+            num_grids = 32
+            coord_min, coord_max = sp_min_max_dict["pos"]
+            grid_size = (coord_max - coord_min) / num_grids
+            
+            point_dict = Dict(
+                feat = feat,
+                coord = coord,
+                grid_size = grid_size,
+                offset = offset,
+            )
+            
+            # print("Begin refine net (ptv3) ...")
+            gaussians_offset = self.refine_net(point_dict) # dict_keys(['feat', 'coord', 'grid_size', 'offset', 'batch', 'grid_coord', 'serialized_depth', 'serialized_code', 'serialized_order', 'serialized_inverse', 'sparse_shape', 'sparse_conv_feat', 'pad', 'unpad', 'cu_seqlens_key'])
+            # feat to coord_offset
+            # coord_offset = self.ptv3_feat2offset(gaussians_offset.feat)
+            # coord_updated = coord + coord_offset
+            # coord_updated = einops.rearrange(coord_updated, "(b n) c -> b n c", b=B, n=gaussians.shape[1])
+            # gaussians[...,:3] = coord_updated
+
+            gaussians_offset_all_attr = self.ptv3_feat2offset(gaussians_offset.feat)
+            gaussians_offset_all_attr = einops.rearrange(gaussians_offset_all_attr, "(b n) c -> b n c", b=B, n=gaussians.shape[1])
+            gaussians = gaussians + gaussians_offset_all_attr
+            
+                        
+        # ---- [end] -----
 
         if get_decoded_gt_latents:
             results['gaussians_LGM_decoded'] = gaussians
@@ -807,19 +821,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         if (save_path is not None) or self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
             with torch.no_grad():
-                # render LGM GT output 
+                # # render LGM GT output 
                 image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
-                decoded_attr_list = [] # decode latents into attrbutes again
-                for i, _attr in enumerate(ordered_attr_list_local):
-                    batch_attr_image = image_all_attr_to_decode[i]
-                    # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
-                    decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
-                    decoded_attr_list.append(decoded_attr)
-                    # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
-                splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-                splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
-                gaussians = fuse_splatters(splatters_to_render) # B, N, 14
-                
+                gaussians = get_splatterMV_and_fusedGS(ordered_attr_list_local, image_all_attr_to_decode)
                 gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
 
                 if self.opt.fancy_video or self.opt.render_video:
