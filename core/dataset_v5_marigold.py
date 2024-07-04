@@ -219,15 +219,17 @@ class ObjaverseDataset(Dataset):
         if opt.invalid_list is not None:
             print(f"Filter invalid objects by {opt.invalid_list}")
             with open(opt.invalid_list) as f:
-                self.invalid_objects = json.load(f)
-            self.invalid_objects = [os.path.basename(o).replace(".glb", "") for o in self.invalid_objects]
+                invalid_objects = json.load(f)
+            invalid_objects = [os.path.basename(o).replace(".glb", "") for o in invalid_objects]
         else:
-            self.invalid_objects = []
-        
+            invalid_objects = []
             
+        
+        test_split =  "40000-40999"
+        
         for scene_path in all_scene_paths:
 
-            if self.opt.overfit_one_scene and len(self.data_path_vae_splatter) > 3:
+            if self.opt.overfit_one_scene and len(self.data_path_vae_splatter) > 13:
                 break
    
             if not os.path.isdir(scene_path):
@@ -235,55 +237,36 @@ class ObjaverseDataset(Dataset):
     
             scene_name = scene_path.split('/')[-1]
             scene_range = scene_path.split('/')[-4]
-            # print("scene name:", scene_name)
-            if scene_name.split("_")[-1] in self.invalid_objects:
-                rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
-                # print(f"{rendering_folder} is invalid")
-                continue 
             
+            if scene_range == test_split:
+                print(f"skipping test set: {test_split}")
+                continue
+            if scene_name.split("_")[-1] in invalid_objects:
+                rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
+                continue 
             if scene_name in self.data_path_vae_splatter.keys():
                 continue
-            
             if not os.path.exists(os.path.join(scene_path, "splatters_mv.pt")):
                 continue
             
             self.data_path_vae_splatter[scene_name] = scene_path
             rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
             self.data_path_rendering[scene_name] = rendering_folder  
-               
+        
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
-        
         all_items = [k for k in self.data_path_vae_splatter.keys()]
-        
-        num_val = min(50, len(all_items)//2) # when using small dataset to debug
-        if self.training:
-            self.items = all_items # NOTE: all scenes are used for training and val
-            if self.opt.overfit_one_scene:
-                # print(f"[WARN]: always fetch the 0th item. For debug use only")
-                # self.items = all_items[:1]
-                print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[1:2]*10000
-        else:
-            self.items = all_items
-            if self.opt.overfit_one_scene:
-                # print(f"[WARN]: always fetch the 0th item. For debug use only")
-                # self.items = all_items[:1]
-                print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[1:2]*10000
-        
+          
+        if self.opt.overfit_one_scene:
+            print(f"[WARN]: always fetch the 1th item. For debug use only")
+            self.items = all_items[11:12]*10000
+
         # naive split
-        # if self.training:
-        #     self.items = self.items[:-self.opt.batch_size]
-        # else:
-        #     self.items = self.items[-self.opt.batch_size:]
-        # self.items = self.items[:16]
+        if self.training:
+            self.items = all_items[:-self.opt.batch_size*5]
+        else:
+            self.items = all_items[-self.opt.batch_size*5:]
         print(f"There are total {len(self.items)} in dataloader")
-        del self.invalid_objects
-        # for _sn in all_items[282*4:284*4]:
-        #     _rendering_path = self.data_path_rendering[_sn]
-        #     save_all_56_in_1(_rendering_path)
-        # st()
-        
+     
         # default camera intrinsics
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
         self.proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
@@ -300,9 +283,6 @@ class ObjaverseDataset(Dataset):
     def __getitem__(self, idx):
         
         scene_name = self.items[idx]
-        # if self.opt.overfit_one_scene:
-        #     print(f"[WARN]: always fetch the {idx} item. For debug use only")
-        
         uid = self.data_path_rendering[scene_name]
         splatter_uid = self.data_path_vae_splatter[scene_name] 
         if self.opt.verbose:
