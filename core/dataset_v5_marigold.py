@@ -258,7 +258,7 @@ class ObjaverseDataset(Dataset):
           
         if self.opt.overfit_one_scene:
             print(f"[WARN]: always fetch the 1th item. For debug use only")
-            self.items = all_items[11:12]*10000
+            all_items = all_items[11:12]*10000
 
         # naive split
         if self.training:
