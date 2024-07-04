@@ -248,8 +248,8 @@ def main():
     test_dataset = Dataset(opt, training=False)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
-        # batch_size=opt.batch_size,
-        batch_size=1,
+        batch_size=opt.batch_size,
+        # batch_size=1,
         shuffle=False,
         num_workers=0,
         pin_memory=True,
@@ -510,7 +510,7 @@ def main():
                         total_loss_lpips = 0
                         
                         print(f"Save to run dir: {opt.workspace}")
-                        num_samples_eval = 10
+                        num_samples_eval = 2
                         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval global_step {global_step}"):
                             if i > num_samples_eval:
                                 break

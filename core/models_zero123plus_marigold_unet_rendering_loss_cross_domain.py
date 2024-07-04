@@ -158,6 +158,13 @@ def get_splatterMV_and_fusedGS(ordered_attr_list_local, image_all_attr_to_decode
     
     return gaussians
 
+def weighted_random_choice(elements, probabilities):
+    # Convert the list of probabilities to a tensor
+    probabilities_tensor = torch.tensor(probabilities)
+    # Sample one index based on the provided probabilities
+    chosen_index = torch.multinomial(probabilities_tensor, 1).item()
+    # Return the corresponding element
+    return elements[chosen_index]
 
 class Interpolate(nn.Module):
     def __init__(self, size, mode='bilinear', align_corners=False):
@@ -373,6 +380,16 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         results = {}
         loss = 0
+        
+        if self.opt.train_refine_net:
+            # Choose one input for refinement
+            elements = ["lgm", "lgm_decoded", "unet_inference"]
+            probabilities = [0.2, 0.2, 0.6]
+            refinement_input = weighted_random_choice(elements, probabilities)
+            print(f"Selected refinement element: {refinement_input}")
+        else:
+            refinement_input = None
+        
       
         # encoder input: all the splatter attr pngs 
         images_all_attr_list = []
@@ -533,9 +550,121 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             else:
                 _rendering_w_t = 1
         
-        elif self.opt.train_refine_net: # NOTE: this condition must be check at last
-            latents_all_attr_to_decode = gt_latents
-            _rendering_w_t = 1
+        elif self.opt.train_refine_net:
+            if refinement_input in ["lgm", "lgm_decoded"] and save_path is None: # NOTE: this condition must be check at last
+                latents_all_attr_to_decode = gt_latents
+                _rendering_w_t = 1   
+            
+            elif refinement_input in ["unet_inference"] or save_path is not None:
+                guidance_scale = self.opt.guidance_scale
+                if True:
+                    cond = data['cond']
+                    
+                    prompt_embeds, cak = self.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
+                    if guidance_scale > 1.0:
+                        # prompt_embeds = torch.cat([prompt_embeds[0:B]].repeat_inter(A, dim=0) + [prompt_embeds[B:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
+                        # cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
+                        prompt_embeds = torch.cat([prompt_embeds[0:B].repeat_interleave(A, dim=0), prompt_embeds[B:].repeat_interleave(A, dim=0)], dim=0)
+                        cak['cond_lat'] = torch.cat([cak['cond_lat'][0:B].repeat_interleave(A, dim=0), cak['cond_lat'][B:].repeat_interleave(A, dim=0)], dim=0)
+                    
+                    print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
+                    self.pipe.scheduler.set_timesteps(30, device=gt_latents.device)
+                    
+                    timesteps = self.pipe.scheduler.timesteps.to(torch.int)
+                    latents  = torch.randn_like(gt_latents, device=gt_latents.device, dtype=torch.float32)
+                    domain_embeddings = torch.eye(5).to(latents.device).repeat(B,1)
+                    domain_embeddings = torch.cat([torch.sin(domain_embeddings), torch.cos(domain_embeddings)], dim=-1)
+            
+                    # cfg
+                    if guidance_scale > 1.0:
+                        domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
+                    for _, t in enumerate(timesteps):
+                        print(f"enumerate(timesteps) t={t}")
+                        if guidance_scale > 1.0:
+                            latent_model_input = torch.cat([latents] * 2)
+                        else:
+                            latent_model_input = latents
+                            t = t.repeat(A)
+                            
+                        latent_model_input = self.pipe.scheduler.scale_model_input(latent_model_input, t)
+                        noise_pred = self.unet(
+                            latent_model_input,
+                            t,
+                            encoder_hidden_states=prompt_embeds,
+                            cross_attention_kwargs=cak,
+                            return_dict=False,
+                            class_labels=domain_embeddings,
+                        )[0]    
+
+                        # perform guidance
+                        if guidance_scale > 1.0:
+                            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                        
+                        latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                        
+                    print(latents.shape)
+                    
+                latents_all_attr_to_decode = latents 
+                _rendering_w_t = 1
+            
+            elif refinement_input in ["unet_inference"] or save_path is not None:
+                
+                guidance_scale = self.opt.guidance_scale
+                gt_latents_all = gt_latents
+                latents_all_attr_to_decode_all = []
+                
+                for k in range(B):
+                    cond = data['cond'][k:k+1]
+                    gt_latents = gt_latents_all[k*A:(k+1)*A]
+                    print(gt_latents.shape)
+                    
+                    prompt_embeds, cak = self.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
+                    if guidance_scale > 1.0:
+                        prompt_embeds = torch.cat([prompt_embeds[0:1]]*gt_latents.shape[0] + [prompt_embeds[1:]]*gt_latents.shape[0], dim=0) # torch.Size([10, 77, 1024])
+                        cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*gt_latents.shape[0] + [cak['cond_lat'][1:]]*gt_latents.shape[0], dim=0)
+                    
+                    print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
+                    self.pipe.scheduler.set_timesteps(30, device=gt_latents.device)
+                    
+                    timesteps = self.pipe.scheduler.timesteps.to(torch.int)
+                    latents  = torch.randn_like(gt_latents, device=gt_latents.device, dtype=torch.float32)
+                    domain_embeddings = torch.eye(5).to(latents.device)
+                    domain_embeddings = torch.cat([torch.sin(domain_embeddings), torch.cos(domain_embeddings)], dim=-1)
+            
+                    # cfg
+                    if guidance_scale > 1.0:
+                        domain_embeddings = torch.cat([domain_embeddings]*2, dim=0)
+                    for _, t in enumerate(timesteps):
+                        print(f"enumerate(timesteps) t={t}")
+                        if guidance_scale > 1.0:
+                            latent_model_input = torch.cat([latents] * 2)
+                        else:
+                            latent_model_input = latents
+                            t = t.repeat(A)
+                            
+                        latent_model_input = self.pipe.scheduler.scale_model_input(latent_model_input, t)
+                        noise_pred = self.unet(
+                            latent_model_input,
+                            t,
+                            encoder_hidden_states=prompt_embeds,
+                            cross_attention_kwargs=cak,
+                            return_dict=False,
+                            class_labels=domain_embeddings,
+                        )[0]    
+
+                        # perform guidance
+                        if guidance_scale > 1.0:
+                            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                        
+                        latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                        
+                    print(latents.shape)
+                    latents_all_attr_to_decode_all.append(latents)
+                    
+                latents_all_attr_to_decode = torch.cat(latents_all_attr_to_decode_all, dim=0)
+                _rendering_w_t = 1   
             
         # allow inference
         elif (self.opt.inference_finetuned_unet and not get_decoded_gt_latents):
@@ -666,9 +795,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     latents[:2] = gt_latents_xyz_opacity
                     print(f"use gt latent for cascade")
                 
-                # latents[1:2] = gt_latents[1:2]
-                # print(f"use gt scale for inference unet")
-                    
                 latents_all_attr_to_decode = latents
                 _rendering_w_t = 1
 
@@ -754,8 +880,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # add post processing using ptv3
         if self.opt.refinement_network == "ptv3":
             # with some probability to take the LGM output GS
+            if refinement_input == "lgm":
+                print(">> refinement_input: lgm")
+                image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+                gaussians = get_splatterMV_and_fusedGS(ordered_attr_list_local, image_all_attr_to_decode)
+            
             device = gaussians.device
-            # offset = torch.tensor([gaussians.shape[1]] * gaussians.shape[0]).to(device)
             offset = (torch.arange(gaussians.shape[0], device=device) + 1) * gaussians.shape[1]
             feat = einops.rearrange(gaussians, "b n c -> (b n) c")
             coord = feat[:,:3]
