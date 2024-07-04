@@ -382,10 +382,15 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         loss = 0
         
         if self.opt.train_refine_net:
-            # Choose one input for refinement
-            elements = ["lgm", "lgm_decoded", "unet_inference"]
-            probabilities = [0.2, 0.2, 0.6]
-            refinement_input = weighted_random_choice(elements, probabilities)
+            refinement_input = "unet_inference"
+            
+            # if save_path is not None:
+            #     refinement_input = "unet_inference"
+            # else:
+            #     # Choose one input for refinement
+            #     elements = ["lgm", "lgm_decoded", "unet_inference"]
+            #     probabilities = [0.2, 0.2, 0.6]
+            #     refinement_input = weighted_random_choice(elements, probabilities)
             print(f"Selected refinement element: {refinement_input}")
         else:
             refinement_input = None
@@ -551,11 +556,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 _rendering_w_t = 1
         
         elif self.opt.train_refine_net:
-            if refinement_input in ["lgm", "lgm_decoded"] and save_path is None: # NOTE: this condition must be check at last
+            if refinement_input in ["lgm", "lgm_decoded"]: # NOTE: this condition must be check at last
                 latents_all_attr_to_decode = gt_latents
                 _rendering_w_t = 1   
             
-            elif refinement_input in ["unet_inference"] or save_path is not None:
+            elif refinement_input in ["unet_inference"]:
                 guidance_scale = self.opt.guidance_scale
                 if True:
                     cond = data['cond']
@@ -912,7 +917,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             gaussians_offset_all_attr = self.ptv3_feat2offset(gaussians_offset.feat)
             gaussians_offset_all_attr = einops.rearrange(gaussians_offset_all_attr, "(b n) c -> b n c", b=B, n=gaussians.shape[1])
             gaussians = gaussians + gaussians_offset_all_attr
-            
+
                         
         # ---- [end] -----
 

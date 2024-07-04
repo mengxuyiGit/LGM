@@ -99,9 +99,10 @@
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_overfit_june
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_refinenet
-LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50
+# LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50
+LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_refinenet/workspace_overfit
 
-TB_PORT=6141
+TB_PORT=6140
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
 
 TB_FOLDER=$1
