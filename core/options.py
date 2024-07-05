@@ -70,6 +70,9 @@ class Options:
     force_cuda_rast: bool = False
     # render fancy video with gaussian scaling effect
     fancy_video: bool = False
+
+    ### customize: finetune lgm
+    data_path_rendering: str = None
     
 
 # all the default settings
