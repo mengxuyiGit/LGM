@@ -188,6 +188,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
         
         # map to [-1,1]
         sp_image = sp_image * 2 - 1
+        sp_image = sp_image.clip(-1,1)
         
         # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
         assert sp_image.shape[0] == 3
@@ -207,22 +208,29 @@ class ObjaverseDataset(Dataset):
 
         self.data_path_rendering = {}
         self.data_path_vae_splatter = {}
+ 
+        excluded_splits = ["40000-49999"] # used for test
+        included_splits = [split for split in os.listdir(opt.data_path_rendering) if split not in excluded_splits]
+
+        scene_path_patterns = [os.path.join(opt.data_path_vae_splatter, split, "*", "splatters_mv_inference", "*") for split in included_splits]
+       
+        all_scene_paths = []
+        for pattern in scene_path_patterns:
+            all_scene_paths.extend(sorted(glob.glob(pattern)))
         
-        # Example:
-        # "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/zero-1-to-G/runs/lvis/data_processing/testing/
-        # 29000-29999/20240521-203345-activated_ply_bsz20_fov50-loss_render1.0_lpips1.0-lr0.006-Plat/
-        # splatters_mv_inference"
-        scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
-        all_scene_paths = sorted(glob.glob(scene_path_pattern)) # 44815 in total. And sorted by the absolute path
+        # st()
+        # scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
+        # all_scene_paths = sorted(glob.glob(scene_path_pattern)) # 44815 in total. And sorted by the absolute path
+        # st()
         
         # remove invalid uids
         if opt.invalid_list is not None:
             print(f"Filter invalid objects by {opt.invalid_list}")
             with open(opt.invalid_list) as f:
-                self.invalid_objects = json.load(f)
-            self.invalid_objects = [os.path.basename(o).replace(".glb", "") for o in self.invalid_objects]
+                invalid_objects = json.load(f)
+            invalid_objects = [os.path.basename(o).replace(".glb", "") for o in invalid_objects]
         else:
-            self.invalid_objects = []
+            invalid_objects = []
         
             
         for scene_path in all_scene_paths:
@@ -236,7 +244,7 @@ class ObjaverseDataset(Dataset):
             scene_name = scene_path.split('/')[-1]
             scene_range = scene_path.split('/')[-4]
             # print("scene name:", scene_name)
-            if scene_name.split("_")[-1] in self.invalid_objects:
+            if scene_name.split("_")[-1] in invalid_objects:
                 rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
                 # print(f"{rendering_folder} is invalid")
                 continue 
@@ -252,39 +260,25 @@ class ObjaverseDataset(Dataset):
             self.data_path_rendering[scene_name] = rendering_folder  
                
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
+
         
-        all_items = [k for k in self.data_path_vae_splatter.keys()]
-        
-        num_val = min(50, len(all_items)//2) # when using small dataset to debug
+        self.items = [k for k in self.data_path_vae_splatter.keys()]
+
+         # naive split
         if self.training:
-            self.items = all_items # NOTE: all scenes are used for training and val
-            if self.opt.overfit_one_scene:
-                # print(f"[WARN]: always fetch the 0th item. For debug use only")
-                # self.items = all_items[:1]
-                print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[1:2]*10000
+            self.items = self.items[:-self.opt.batch_size*4]
         else:
-            self.items = all_items
-            if self.opt.overfit_one_scene:
-                # print(f"[WARN]: always fetch the 0th item. For debug use only")
-                # self.items = all_items[:1]
-                print(f"[WARN]: always fetch the 1th item. For debug use only")
-                self.items = all_items[1:2]*10000
-        
-        # naive split
-        # if self.training:
-        #     self.items = self.items[:-self.opt.batch_size]
-        # else:
-        #     self.items = self.items[-self.opt.batch_size:]
-        # self.items = self.items[:16]
+            self.items = self.items[-self.opt.batch_size*4:]
+
+        if self.opt.overfit_one_scene:
+            self.items = self.items[0:1]
+
         print(f"There are total {len(self.items)} in dataloader")
-        del self.invalid_objects
-        # for _sn in all_items[282*4:284*4]:
-        #     _rendering_path = self.data_path_rendering[_sn]
-        #     save_all_56_in_1(_rendering_path)
-        # st()
         
+
         # default camera intrinsics
+        assert self.opt.fovy==60 # now that we use finetuned LGM splatter, the fovy must be 60
+        
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
         self.proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
         self.proj_matrix[0, 0] = 1 / self.tan_half_fov
