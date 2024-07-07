@@ -307,9 +307,6 @@ def main():
                 for key in gt_attr_keys:
                     total_gs_loss_mse_dict[key] = 0
             
-            splatter_guidance = (opt.lambda_splatter > 0) and (epoch <= opt.splatter_guidance_warmup) or (epoch % opt.splatter_guidance_interval == 0)
-            # if splatter_guidance:
-            #     print(f"splatter_guidance in epoch: {epoch}")
                     
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 if i > 0 and opt.skip_training:
@@ -325,7 +322,7 @@ def main():
                     # # Store initial weights before the update
                     # initial_weights = store_initial_weights(model)
 
-                    out = model(data, step_ratio, splatter_guidance=splatter_guidance)
+                    out = model(data, step_ratio)
                     # del data
                     loss = out['loss']
                     loss_splatter = out['loss_splatter'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
@@ -362,6 +359,7 @@ def main():
                         scheduler.step()
                     
                     # compare_weights(initial_weights=initial_weights, model=model)
+                    # st()
                     
                     psnr = out['psnr']
                     total_loss += loss.detach()
@@ -480,13 +478,13 @@ def main():
                             total_loss_lpips /= num_samples_eval
                             
                             accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), epoch)
-                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), epoch)
-                            writer.add_scalar('eval/total_psnr', total_psnr.item(), epoch)
-                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, epoch)
-                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, epoch)
-                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, epoch)
-                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, epoch)
+                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), global_step)
+                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), global_step)
+                            writer.add_scalar('eval/total_psnr', total_psnr.item(), global_step)
+                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, global_step)
+                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, global_step)
+                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, global_step)
+                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, global_step)
 
                             if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
                                 scheduler.step(total_loss)
