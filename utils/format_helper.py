@@ -15,21 +15,21 @@ def get_workspace_name(opt: Options, time_str: str, num_gpus: int):
         loss_str+=f'_lpips{opt.lambda_lpips}'
 
     desc = opt.desc
-    if opt.splatter_guidance_interval > 0:
-        desc += f"-sp_guide_{opt.splatter_guidance_interval}"
-    if opt.codes_from_encoder:
-        desc += "-codes_from_encoder"
-    else:
-        optimizer_cfg = opt.optimizer.copy()
-        desc += f"-codes_lr{optimizer_cfg['lr']}"
+    # if opt.splatter_guidance_interval > 0:
+    #     desc += f"-sp_guide_{opt.splatter_guidance_interval}"
+    # if opt.codes_from_encoder:
+    #     desc += "-codes_from_encoder"
+    # else:
+    #     optimizer_cfg = opt.optimizer.copy()
+    #     desc += f"-codes_lr{optimizer_cfg['lr']}"
         
-    desc += f"-{opt.decoder_mode}"
-    if opt.decode_splatter_to_128:
-        desc += "-pred128"
-        if opt.decoder_upblocks_interpolate_mode is not None:
-            desc += f"_{opt.decoder_upblocks_interpolate_mode}"
-            if opt.decoder_upblocks_interpolate_mode!="last_layer" and opt.replace_interpolate_with_avgpool:
-                desc += "_avgpool"
+    # desc += f"-{opt.decoder_mode}"
+    # if opt.decode_splatter_to_128:
+    #     desc += "-pred128"
+    #     if opt.decoder_upblocks_interpolate_mode is not None:
+    #         desc += f"_{opt.decoder_upblocks_interpolate_mode}"
+    #         if opt.decoder_upblocks_interpolate_mode!="last_layer" and opt.replace_interpolate_with_avgpool:
+    #             desc += "_avgpool"
         
     ## the following may not exists, thus directly added to opt.desc if exists
     if len(opt.attr_use_logrithm_loss) > 0:

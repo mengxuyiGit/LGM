@@ -229,44 +229,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # Gaussian Renderer
         self.gs = GaussianRenderer(opt)
 
-        # # activations...
-        # self.pos_act = lambda x: x.clamp(-1, 1)
-
-        # if opt.scale_bias_learnable:
-        #     self.scale_bias = nn.Parameter(torch.tensor([opt.scale_act_bias]), requires_grad=False)
-        # else:
-        #     self.scale_bias = opt.scale_act_bias
-       
-        # if self.opt.scale_act == "biased_exp":
-        #     max_scale = self.opt.scale_clamp_max # in torch.log scale
-        #     min_scale = self.opt.scale_clamp_min
-        #     # self.scale_act = lambda x: torch.exp(x + self.scale_bias)
-        #     self.scale_act = lambda x: torch.exp(torch.clamp(x + self.scale_bias, max=max_scale, min=min_scale))
-        # elif self.opt.scale_act == "biased_softplus":
-        #     max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
-        #     min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
-        #     # self.scale_act = lambda x: 0.1 * F.softplus(x + self.scale_bias)
-        #     self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x + self.scale_bias), max=max_scale, min=min_scale)
-        # elif self.opt.scale_act == "softplus":
-        #     # self.scale_act = lambda x: 0.1 * F.softplus(x)
-        #     max_scale = torch.exp(torch.tensor([self.opt.scale_clamp_max])).item() # in torch.log scale
-        #     min_scale = torch.exp(torch.tensor([self.opt.scale_clamp_min])).item()
-        #     self.scale_act = lambda x: torch.clamp(0.1 * F.softplus(x), max=max_scale, min=min_scale)
-        # else: 
-        #     raise ValueError ("Unsupported scale_act")
-        
-        # self.opacity_act = lambda x: torch.sigmoid(x)
-        # self.rot_act = F.normalize
-       
         # LPIPS loss
-        # if self.opt.lambda_lpips > 0:
         self.lpips_loss = LPIPS(net='vgg')
         self.lpips_loss.requires_grad_(False)
         
         self.skip_decoding = (self.opt.lambda_rendering + self.opt.lambda_rendering + self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0 and self.opt.train_unet
         if self.skip_decoding:
             print("Skip decoding the latents, save memory")
-        
 
         # with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
         #     print(self.unet, file=f)
@@ -340,7 +309,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         return DecoderOutput(sample=decoded)
     
     
-    def forward(self, data, step_ratio=1, splatter_guidance=False, save_path=None, prefix=None, get_decoded_gt_latents=False):
+    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False):
         # Gaussian shape: (B*6, 14, H, W)
 
         results = {}
@@ -690,7 +659,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
         if self.opt.use_video_decoderST:
-            print("video")
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
         else:
             image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
@@ -728,8 +696,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.lambda_rendering <= 0 and self.opt.train_unet and save_path is None:
             return results
 
-        # debug = False
+        # debug = True
         # if debug:
+            # print("using GT splatter")
         #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
         
         # decode latents into attrbutes again
