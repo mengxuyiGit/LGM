@@ -560,7 +560,7 @@ DATA_RENDERING_ROOT_GSO=/home/xuyimeng/Data/gso/liuyuan/view1
 #     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
 #     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-#     --desc 'GSO_512-sd_decoder-inference_unet-load_all_layers-guidance2.0-gaussians_LGM_decoded_timeproj10k' --data_path_rendering /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512 \
+#     --desc 'ly_view1-sd0007_decoder-inference_unet-load_all_layers-guidance2.0-gaussians_LGM_decoded_timeproj10k' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
 #     --set_random_seed --batch_size 1 --num_workers 2 \
 #     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -574,10 +574,35 @@ DATA_RENDERING_ROOT_GSO=/home/xuyimeng/Data/gso/liuyuan/view1
 #     --class_emb_cat \
 #     --guidance_scale 2.0 --render_video  --metric_GSO \
 #     --only_train_attention \
-#     --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
-#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00019-train_unet-exp_act-with_timeproj_clsemb-resume29k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors
+#     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
+#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00019-train_unet-exp_act-with_timeproj_clsemb-resume29k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_33000_ckpt/model.safetensors
 
-# # [Jun 28] cascading inference on GSO
+
+# [Jun 28] cascading inference on GSO
+# # step 1: save xyz
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
+#     --workspace runs/finetune_unet/workspace_inference_GSO \
+#     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
+#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'ly_view1-inference_unet-save_xyz_opacity_for_cascade' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
+#     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
+#     --set_random_seed --batch_size 1 --num_workers 2 \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+#     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+#     --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
+#     --class_emb_cat \
+#     --guidance_scale 2.0 --render_video  --metric_GSO \
+#     --only_train_attention \
+#     --resume_decoder /mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train/00007-resume_smallLR_render_lossx10_splatter700steps_4gpus_bsz2_accumulate32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render10.0_splatter0.1_lpips10.0-lr1e-05-Plat50/eval_global_step_1400_ckpt/model.safetensors \
+#     --save_xyz_opacity_for_cascade --train_unet_single_attr pos opacity --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00021-train_unet-only_xyz_opacity_for_cascade-pipv8-pass_A=2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_22500_ckpt/model.safetensors
+
 # accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
 #     --workspace runs/finetune_unet/workspace_inference_GSO \
 #     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
@@ -599,18 +624,19 @@ DATA_RENDERING_ROOT_GSO=/home/xuyimeng/Data/gso/liuyuan/view1
 #     --guidance_scale 2.0 --render_video  --metric_GSO \
 #     --only_train_attention \
 #     --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
-#     --xyz_opacity_for_cascade_dir /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_inference_GSO/20240628-181944-ly_view1-inference_unet-save_xyz_opacity_for_cascade-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr0.0001-Plat5/eval_inference \
+#     --xyz_opacity_for_cascade_dir /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_inference_GSO/20240705-172343-ly_view1-inference_unet-save_xyz_opacity_for_cascade-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render1.0_splatter1.0_lpips1.0-lr0.0001-Plat5/eval_inference \
 #     --cascade_on_xyz_opacity --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00022-train_unet-cascade_on_xyz_opacity-max_t=200-resume_00020_1k_total39k-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_41000_ckpt/model.safetensors
 #     # --save_xyz_opacity_for_cascade --train_unet_single_attr pos opacity --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00021-train_unet-only_xyz_opacity_for_cascade-pipv8-pass_A=2-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_22500_ckpt/model.safetensors
 
-# # [Jun 30] inference diffusion trained with rendering loss on GSO
+# # # [Jun 30] inference diffusion trained with rendering loss on GSO
+# # DATA_RENDERING_ROOT_GSO_FOV60=/home/xuyimeng/Data/gso/liuyuan/fov60
 # accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
 #     --workspace runs/finetune_unet/workspace_inference_GSO \
 #     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
 #     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
 #     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-#     --desc 'inference_unet-SVD47k-guidance2.0_with_rendering_LOSS' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
+#     --desc 'ly_view1-inference_unet-SVD27k-guidance2.0_with_rendering_LOSS' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
 #     --set_random_seed --batch_size 1 --num_workers 2 \
 #     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -623,19 +649,21 @@ DATA_RENDERING_ROOT_GSO=/home/xuyimeng/Data/gso/liuyuan/view1
 #     --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
 #     --class_emb_cat \
 #     --guidance_scale 2.0 --render_video --metric_GSO \
-#     --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00002-svd_decoder-bsz32-resume19.5k-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr1e-06-Plat5/eval_global_step_27500_ckpt/model.safetensors \
-#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_32000_ckpt/model.safetensors
+#     --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00002-svd_decoder-bsz32-resume19.5k-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr1e-06-Plat5/eval_global_step_7500_ckpt/model.safetensors \
+#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00019-train_unet-exp_act-with_timeproj_clsemb-resume29k-bsz64-NO-rendering-only_attn-pipev8-resum50kckpt-lr1e-6-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss-lr4e-06-Plat50/eval_global_step_33000_ckpt/model.safetensors
 #     # --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
+#     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_32000_ckpt/model.safetensors
 
 
-# [Jun 30] view single vioew splatter, inference diffusion trained with rendering loss 
-accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference.py big \
-    --workspace runs/finetune_unet/workspace_debug \
+
+# [Jul 3] apply the above combination on GSO
+accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
+    --workspace runs/finetune_unet/workspace_inference_GSO \
     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'inference_decoder-check_cond_view-svd27k-single_view-guidance2.0_with_rendering_LOSS' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+    --desc 'GSO512-sd_decoder-unet_rendering10k' --data_path_rendering /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512 \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
     --set_random_seed --batch_size 1 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -645,11 +673,36 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
-    --inference_finetuned_decoder --gradient_accumulation_steps 5 --output_size 320 \
+    --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
     --class_emb_cat \
-    --guidance_scale 2.0 --render_video \
-    --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00002-svd_decoder-bsz32-resume19.5k-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr1e-06-Plat5/eval_global_step_7500_ckpt/model.safetensors \
-    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_32000_ckpt/model.safetensors
+    --guidance_scale 2.0 --render_video  --metric_GSO \
+    --only_train_attention \
+    --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors
+
+
+# # [Jun 30] view single vioew splatter, inference diffusion trained with rendering loss 
+# accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference.py big \
+#     --workspace runs/finetune_unet/workspace_debug \
+#     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
+#     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
+#     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
+#     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
+#     --desc 'inference_decoder-check_cond_view-svd27k-single_view-guidance2.0_with_rendering_LOSS' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+#     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
+#     --set_random_seed --batch_size 1 --num_workers 2 \
+#     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
+#     --scale_clamp_max -2 --scale_clamp_min -10 \
+#     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
+#     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
+#     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
+#     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
+#     --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+#     --inference_finetuned_decoder --gradient_accumulation_steps 5 --output_size 320 \
+#     --class_emb_cat \
+#     --guidance_scale 2.0 --render_video \
+#     --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00002-svd_decoder-bsz32-resume19.5k-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr1e-06-Plat5/eval_global_step_7500_ckpt/model.safetensors \
+#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_32000_ckpt/model.safetensors
 
 
 # # [Jun 30] inference diffusion trained with all layers
