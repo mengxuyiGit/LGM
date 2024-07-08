@@ -385,9 +385,6 @@ def main():
             #     for key in gt_attr_keys:
             #         total_gs_loss_mse_dict[key] = 0
             
-            splatter_guidance = (opt.lambda_splatter > 0) and (epoch <= opt.splatter_guidance_warmup) or (epoch % opt.splatter_guidance_interval == 0)
-            # if splatter_guidance:
-            #     print(f"splatter_guidance in epoch: {epoch}")
                     
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 if i > 0 and opt.skip_training:
@@ -404,7 +401,7 @@ def main():
                     # # Store initial weights before the update
                     # initial_weights = store_initial_weights(model)
 
-                    out = model(data, step_ratio, splatter_guidance=splatter_guidance)
+                    out = model(data, step_ratio)
                     # loss = out['loss'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss = out['loss'] if 'loss' in out.keys() else torch.zeros_like(out['loss_latent'])
                     loss_splatter = out['loss_splatter'] if 'loss_splatter' in out.keys() else torch.zeros_like(out['loss_latent'])  # if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
