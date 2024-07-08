@@ -186,7 +186,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
         elif attr_to_encode == "rgbs":
             pass
         
-        # map to [-1,1]
+        
         sp_image = sp_image * 2 - 1
         sp_image = sp_image.clip(-1,1)
         
@@ -262,16 +262,16 @@ class ObjaverseDataset(Dataset):
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
 
         
-        self.items = [k for k in self.data_path_vae_splatter.keys()]
+        all_items = [k for k in self.data_path_vae_splatter.keys()]
 
-         # naive split
+        # naive split
         if self.training:
-            self.items = self.items[:-self.opt.batch_size*4]
+            self.items = all_items[:-self.opt.batch_size*4]
         else:
-            self.items = self.items[-self.opt.batch_size*4:]
+            self.items = all_items[-self.opt.batch_size*4:]
 
         if self.opt.overfit_one_scene:
-            self.items = self.items[0:1]
+            self.items = all_items[1:2]
 
         print(f"There are total {len(self.items)} in dataloader")
         

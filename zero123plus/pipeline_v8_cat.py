@@ -1044,6 +1044,7 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
     @torch.no_grad()
     def prepare_conditions(self, image: Image.Image, depth_image: Image.Image = None, guidance_scale=4.0, prompt="", num_images_per_prompt=1):
         # image = to_rgb_image(image)
+        st() # !! check rgb and bgr, and image type!!!
         image_1 = self.feature_extractor_vae(images=image, return_tensors="pt").pixel_values
         image_2 = self.feature_extractor_clip(images=image, return_tensors="pt").pixel_values
         if depth_image is not None and hasattr(self.unet, "controlnet"):

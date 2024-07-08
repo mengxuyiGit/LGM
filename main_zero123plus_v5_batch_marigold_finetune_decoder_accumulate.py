@@ -47,6 +47,7 @@ def compare_weights(initial_weights, model):
     updated = False
     for name, param in model.named_parameters():
         if param.requires_grad:
+        # if True:
             # Check if the current parameter is different from the initial
             if not torch.equal(initial_weights[name], param.data):
                 print(f"Weight updated: {name}")
@@ -235,7 +236,11 @@ def main():
     print_grad_status(model, file_path=f"{opt.workspace}/model_grad_status_after.txt")
     print("after ")
     
-    optimizer = torch.optim.AdamW(parameters_list, lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) # TODO: lr can be 1e-3??
+    optimizer = torch.optim.AdamW(parameters_list, lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95)) 
+    
+    # create a discrimintor
+    parameters_list_disc = [para for name, para in model.discriminator.named_parameters()]
+    optimizer_disc = torch.optim.AdamW(parameters_list_disc, lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
     
 
     # scheduler (per-iteration)
@@ -251,9 +256,14 @@ def main():
         assert ValueError('Not a valid lr_scheduler option.')
 
     # accelerate
-    model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, test_dataloader, scheduler
+    model, optimizer, optimizer_disc, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
+        model, optimizer, optimizer_disc, train_dataloader, test_dataloader, scheduler
     )
+    optimizers = [optimizer, optimizer_disc]
+    optimizer_loss_keys = [
+        ['loss','loss_splatter', 'loss_g'], # G
+        ['loss_d'], # D
+    ]
 
     # actual batch size 
    
@@ -291,18 +301,16 @@ def main():
 
             # train
             model.train()
-            total_loss = 0
-            total_loss_latent = 0
-            total_psnr = 0
-            total_loss_splatter = 0 #torch.tensor([0]).to()
-            total_loss_rendering = 0 #torch.tensor([0])
-            total_loss_alpha = 0
-            total_loss_lpips = 0 #torch.tensor([0])
             
-            train_loss = 0.0
-            
+            # total_loss = 0
+            # total_loss_latent = 0
+            # total_psnr = 0
+            # total_loss_splatter = 0 #torch.tensor([0]).to()
+            # total_loss_rendering = 0 #torch.tensor([0])
+            # total_loss_alpha = 0
+            # total_loss_lpips = 0 #torch.tensor([0])
+
             if opt.log_gs_loss_mse_dict:
-                # gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
                 total_gs_loss_mse_dict = dict()
                 for key in gt_attr_keys:
                     total_gs_loss_mse_dict[key] = 0
@@ -311,27 +319,41 @@ def main():
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 if i > 0 and opt.skip_training:
                     break
+
               
                 if opt.verbose_main:
                     print(f"data['input']:{data['input'].shape}")
                     
                 with accelerator.accumulate(model):
-                    optimizer.zero_grad()
-                    step_ratio = (epoch + i / len(train_dataloader)) / opt.num_train_epochs
 
-                    # # Store initial weights before the update
-                    # initial_weights = store_initial_weights(model)
+                    # Store initial weights before the update
+                    initial_weights = store_initial_weights(model)
 
-                    out = model(data, step_ratio)
-                    # del data
-                    loss = out['loss']
-                    loss_splatter = out['loss_splatter'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
-                    loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
+
+                    ############## update G ##############
+                    optimizer_idx = 0
+                    for param in model.vae.decoder.parameters():
+                        param.requires_grad = True
+                    for param in model.discriminator.parameters():
+                        param.requires_grad = False
+
+                    out = model(data, optimizer_idx=0)
+
+                    # g loss
+                    if global_step > opt.discriminator_warm_up_steps:
+                        disc_cond = data['cond'] if opt.disc_conditional else None
+                        out['loss_g'] = model.calculate_g_loss(pred_images=out['images_pred'], cond=disc_cond)
+                    else:
+                        out['loss_g'] = torch.zeros_like(out['loss'])
+                        
+                    loss_keys = optimizer_loss_keys[optimizer_idx]
+                    lossback = sum(out[_lk] for _lk in loss_keys) 
+                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
                     
-                    # print("loss: ", loss, " loss_splatter: ", loss_splatter)
-                    lossback = loss + loss_latent + loss_splatter
+                    optimizers[optimizer_idx].zero_grad()
                     accelerator.backward(lossback)
-                    # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
+                    optimizers[optimizer_idx].step()
+                    ########################################################
 
                     # # debug
                     # if global_step > 0:
@@ -340,52 +362,70 @@ def main():
                     #     for name, param in model.unet.named_parameters():
                     #         if param.requires_grad and param.grad is not None:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    #     st()
+                    #     # st()
                     
                     #     print(f"check other model parameters")
                     #     for name, param in model.named_parameters():
                     #         if param.requires_grad and param.grad is not None and "unet" not in name:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     #     st()
-                    #     # TODO: CHECK decoder not have grad, especially deocder.others
-                    #     # TODO: and check self.scale_bias
 
+                    
+                    ############## update D ##############
+                    optimizer_idx = 1
+                    for param in model.discriminator.parameters():
+                        param.requires_grad = True
+                    for param in model.vae.decoder.parameters():
+                        param.requires_grad = False
+                   
+                    
+                    disc_cond = data['cond'] if opt.disc_conditional else None
+                    out['loss_d'] = model.calculate_d_loss(out['gt_images']*0, out['images_pred'], cond=disc_cond)
+                
+                    loss_keys = optimizer_loss_keys[optimizer_idx]
+                    lossback = sum(out[_lk] for _lk in loss_keys) 
+                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
+                    
+                    optimizers[optimizer_idx].zero_grad()
+                    accelerator.backward(lossback)
+                    optimizers[optimizer_idx].step()
+                    ########################################################
+                    
+                  
                     # gradient clipping
                     if accelerator.sync_gradients:
                         accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
 
-                    optimizer.step()
                     if opt.lr_scheduler != 'Plat':
                         scheduler.step()
                     
+                    
                     # compare_weights(initial_weights=initial_weights, model=model)
                     # st()
-                    
-                    psnr = out['psnr']
-                    total_loss += loss.detach()
-                    total_psnr += psnr.detach()
-                    total_loss_latent += loss_latent.detach()
-                    
-                    if 'loss_splatter' in out.keys():
-                        total_loss_splatter += out['loss_splatter'].detach()
-                    if 'loss_rendering' in out.keys():
-                        total_loss_rendering += out['loss_rendering'].detach()
-                    elif 'loss_alpha' in out.keys():
-                        total_loss_alpha += out["loss_alpha"].detach()
-                        
-                    if 'loss_lpips' in out.keys():
-                        total_loss_lpips += out['loss_lpips'].detach()
 
-                # Log metrics after every step, not at the end of the epoch
-                if accelerator.is_main_process:
-                    writer.add_scalar('train/loss', loss.item(), global_step)
-                    writer.add_scalar('train/psnr', psnr.item(), global_step)
-                    writer.add_scalar('train/loss_latent', loss_latent.item(), global_step)
-                    writer.add_scalar('train/loss_splatter', loss_splatter.item(), global_step)
+                    # Log metrics after every step, not at the end of the epoch
+                    if accelerator.is_main_process:
+                        writer.add_scalar('train/loss',  out['loss'].item(), global_step)
+                        writer.add_scalar('train/psnr',  out['psnr'].item(), global_step)
+                        writer.add_scalar('train/loss_splatter', out['loss_splatter'].item(), global_step)
+                        writer.add_scalar('train/loss_lpips', out['loss_splatter'].item(), global_step)
+                        writer.add_scalar('train/loss_rendering', out['loss_splatter'].item(), global_step)
+                        writer.add_scalar('train/alpha', out['loss_alpha'].item(), global_step)
+                        writer.add_scalar('train/G/loss_g', out['loss_g'].item(), global_step)
+                        writer.add_scalar('train/D/loss_d', out['loss_d'].item(), global_step)
+                    
+                   
+                if opt.finetune_decoder:
+                    logs = {"step_loss_rendering": out['loss'].detach().item(), "step_loss_splatter": out['loss_splatter'].detach().item(), "step_loss_G": out['loss_g'].detach().item(), "lr": optimizers[0].param_groups[0]['lr']} 
+                    logs.update({"step_loss_D": out['loss_d'].detach().item(), "lr": optimizers[1].param_groups[0]['lr']})
+                else:
+                    logs = {"step_loss_latent": loss_latent.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
+                
+                    
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
-                if global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
+                if global_step > 0 and global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
                     accelerator.wait_for_everyone()
                     accelerator.save_model(model, opt.workspace)
                     # save a copy 
@@ -418,13 +458,13 @@ def main():
                             if i > num_samples_eval:
                                 break
                         
-                            out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_")
+                            out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_", optimizer_idx=0)
                     
                             psnr = out['psnr']
                             total_psnr += psnr.detach()
                             eval_loss = out['loss']
                             total_loss += eval_loss.detach()
-                            loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
+                            loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(eval_loss)
                             total_loss_latent += loss_latent.detach()
                             if 'loss_splatter' in out.keys():
                                 total_loss_splatter += out['loss_splatter'].detach()
@@ -453,18 +493,7 @@ def main():
                                 # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
                                 kiui.write_image(f'{opt.workspace}/eval_global_step_{global_step}/{accelerator.process_index}_{i}_image_alpha.jpg', pred_alphas)
                                 
-                                # also save the predicted splatters and the 
-
-                                # # add write images for splatter to optimize
-                                # pred_images = out['images_opt'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                                # pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt.jpg', pred_images)
-
-                                # pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                                # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                                # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
                                 
-                    
                         torch.cuda.empty_cache()
 
                         total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
@@ -499,15 +528,8 @@ def main():
                     #     ema_unet.step(unet.parameters())
                     progress_bar.update(1)
                     global_step += 1
-                    accelerator.log({"train_loss": train_loss}, step=global_step)
-                    train_loss = 0.0
-                
-                # logs = {"step_loss": loss.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
-                if opt.finetune_decoder:
-                    logs = {"step_loss": loss.detach().item(), "step_loss_splatter": loss_splatter.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
-                else:
-                    logs = {"step_loss_latent": loss_latent.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
-                
+                    
+             
                 progress_bar.set_postfix(**logs)
                 
                 if global_step >= opt.max_train_steps:

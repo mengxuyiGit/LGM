@@ -12,6 +12,7 @@ import einops
 
 from core.options import Options
 from core.gs import GaussianRenderer
+from core.discriminator import NLayerDiscriminator, weights_init
 
 from ipdb import set_trace as st
 import matplotlib.pyplot as plt
@@ -142,17 +143,19 @@ def denormalize_and_activate(attr, mv_image):
         
     return sp_image_o
     
-    
-class Interpolate(nn.Module):
-    def __init__(self, size, mode='bilinear', align_corners=False):
-        super(Interpolate, self).__init__()
-        self.size = size
-        self.mode = mode
-        self.align_corners = align_corners if mode in ['linear', 'bilinear', 'bicubic', 'trilinear'] else None
 
-    def forward(self, x):
-        x = F.interpolate(x, size=self.size, mode=self.mode, align_corners=self.align_corners)
-        return x
+def hinge_d_loss(logits_real, logits_fake):
+    loss_real = torch.mean(F.relu(1. - logits_real))
+    loss_fake = torch.mean(F.relu(1. + logits_fake))
+    d_loss = 0.5 * (loss_real + loss_fake)
+    return d_loss
+
+
+def vanilla_d_loss(logits_real, logits_fake):
+    d_loss = 0.5 * (
+        torch.mean(torch.nn.functional.softplus(-logits_real)) +
+        torch.mean(torch.nn.functional.softplus(logits_fake)))
+    return d_loss
 
         
 class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
@@ -192,35 +195,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
 
-        
-        if self.opt.decoder_with_domain_embedding:
-            # # change the conv_in dim to 5
-            # new_conv_in = nn.Conv2d(5,512,3, padding=(1,1)).requires_grad_(False)
-            # new_conv_in.weight[:,:4].copy_(self.pipe.vae.decoder.conv_in.weight)
-            # self.pipe.vae.decoder.conv_in = new_conv_in
-            # # post_quant_conv
-            # new_post_quant_conv = nn.Conv2d(5,5,1, padding=(1,1)).requires_grad_(False)
-            # new_post_quant_conv.weight[:4,:4].copy_(self.pipe.vae.post_quant_conv.weight)
-            # self.pipe.vae.post_quant_conv = new_post_quant_conv
-            
-            # init learnable embeddings for decoder
-            # self.decoder_domain_embedding = nn.Parameter(torch.randn(5,16,16))
-            if self.opt.decoder_domain_embedding_mode == "learnable":
-                self.decoder_domain_embedding = nn.Parameter(torch.zeros(5,16,16))
-            elif self.opt.decoder_domain_embedding_mode == "sincos":
-                # add pos embedding on domain embedding
-                one_hot = torch.eye(5)
-                sin_cos = torch.cat([
-                        torch.sin(one_hot),
-                        torch.cos(one_hot)
-                    ], dim=-1)
-                sin_cos *= 0.1
-                padded_e = F.pad(sin_cos,(3,3,0,0))  # 5, 16
-                sqr_e = einops.rearrange(padded_e, "b (h w) -> b h w", h=4, w=4)  # 5,4,4
-                repeat_e = sqr_e.repeat(1,4,4)
-                self.register_buffer("decoder_domain_embedding", repeat_e)
-                # self.decoder_domain_embedding = repeat_e
-    
        
         self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
         
@@ -232,6 +206,28 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # LPIPS loss
         self.lpips_loss = LPIPS(net='vgg')
         self.lpips_loss.requires_grad_(False)
+        # GAN loss
+        disc_in_channels = 6 if opt.disc_conditional else 3
+        disc_num_layers = 3
+        use_actnorm = False
+        disc_ndf = 64
+        self.discriminator = NLayerDiscriminator(input_nc=disc_in_channels,
+                                                 n_layers=disc_num_layers,
+                                                 use_actnorm=use_actnorm,
+                                                 ndf=disc_ndf
+                                                 ).apply(weights_init)
+        disc_loss = "vanilla"
+        if disc_loss == "hinge":
+                self.disc_loss = hinge_d_loss
+        elif disc_loss == "vanilla":
+            self.disc_loss = vanilla_d_loss
+        else:
+            raise ValueError(f"Unknown GAN loss '{disc_loss}'.")
+        print(f"VQLPIPSWithDiscriminator running with {disc_loss} loss.")
+        self.disc_factor = opt.disc_factor
+        # self.discriminator_weight = opt.disc_weight
+        self.disc_conditional = opt.disc_conditional
+
         
         self.skip_decoding = (self.opt.lambda_rendering + self.opt.lambda_rendering + self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0 and self.opt.train_unet
         if self.skip_decoding:
@@ -308,8 +304,42 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         return DecoderOutput(sample=decoded)
     
+    def calculate_d_loss(self, gt_images, pred_images, cond=None):
+        cond = torch.repeat_interleave(cond, pred_images.shape[1], dim=0).permute(0,3,1,2).to(torch.float32) / 255.0
+        gt_images = einops.rearrange(gt_images, 'b n c h w -> (b n) c h w')
+        pred_images = einops.rearrange(pred_images, 'b n c h w -> (b n) c h w')
+
+        # images_to_save = einops.rearrange(torch.cat([cond, gt_images, pred_images], dim=-2), "(b v) c h w -> (b h) (v w) c", v=20)
+        # kiui.write_image(f'd_loss_cond_1.jpg', images_to_save)
+        # st()
+        
+        if cond is not None:
+            logits_real = self.discriminator(torch.cat((gt_images.contiguous().detach(), cond), dim=1))
+            logits_fake = self.discriminator(torch.cat((pred_images.contiguous().detach(), cond), dim=1))
+        else:
+            logits_real = self.discriminator(gt_images.contiguous().detach())
+            logits_fake = self.discriminator(pred_images.contiguous().detach())
+        
+        d_loss = self.disc_factor * self.disc_loss(logits_real, logits_fake)
+
+        return d_loss
+
+    def calculate_g_loss(self, pred_images, cond=None):
+        cond = torch.repeat_interleave(cond, pred_images.shape[1], dim=0).permute(0,3,1,2).to(torch.float32) / 255.0
+        pred_images = einops.rearrange(pred_images, 'b n c h w -> (b n) c h w')
+        
+        if cond is not None:
+            print("use cond")
+            logits_fake = self.discriminator(torch.cat((pred_images.contiguous(), cond), dim=1))
+        else:
+            logits_fake = self.discriminator(pred_images.contiguous())
+
+        g_loss = -torch.mean(logits_fake)
+
+        return g_loss
     
-    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False):
+    
+    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False, optimizer_idx=0):
         # Gaussian shape: (B*6, 14, H, W)
 
         results = {}
@@ -330,8 +360,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_all_attr_list.append(sp_image)
         images_all_attr_batch = torch.stack(images_all_attr_list)
     
+      
+        if save_path is not None:
+            # -----------
+            cond_path = '/mnt/kostas_home/lilym/LGM/LGM/birddrawnbyachild.png'
+            cond_path = torch.tensor(np.array(Image.open(cond_path))).permute(2,0,1)[None][None] # B C H W
+            print("real img" )
+            images_all_attr_batch = (cond_path / 255).to(images_all_attr_batch.dtype).to(device=images_all_attr_batch.device)
+            # -----------
+            
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
+        
         
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
@@ -339,6 +379,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
 
         # do vae.encode
+        
+    
         sp_image_batch = scale_image(images_all_attr_batch)
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
@@ -647,7 +689,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 latents_all_attr_to_decode = latents
                 _rendering_w_t = 1
 
-                
 
         elif self.opt.inference_finetuned_decoder or get_decoded_gt_latents: # NOTE: this condition must be check at last
             latents_all_attr_to_decode = gt_latents
@@ -659,7 +700,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
         if self.opt.use_video_decoderST:
-            image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
+            image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=A, return_dict=False)[0]
         else:
             image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
@@ -701,14 +742,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # print("using GT splatter")
         #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
         
-        # decode latents into attrbutes again
-        decoded_attr_list = []
-        for i, _attr in enumerate(ordered_attr_list_local):
-            batch_attr_image = image_all_attr_to_decode[i]
-            # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
-            decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
-            decoded_attr_list.append(decoded_attr)
-            # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
 
         if save_path is not None:
             images_to_save_encode = images_to_save
@@ -731,7 +764,15 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
                     Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
             
-
+        # decode latents into attrbutes again
+        decoded_attr_list = []
+        for i, _attr in enumerate(ordered_attr_list_local):
+            batch_attr_image = image_all_attr_to_decode[i]
+            # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
+            decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+            decoded_attr_list.append(decoded_attr)
+            # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
+            
         if self.opt.train_unet_single_attr is not None:
             return results # not enough attr for gs rendering
             
@@ -820,7 +861,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
-        elif self.opt.lambda_alpha > 0:
+        if self.opt.lambda_alpha > 0:
             loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
             loss_mse_alpha *= _rendering_w_t
             results['loss_alpha'] = loss_mse_alpha
@@ -845,7 +886,17 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loss += self.opt.lambda_lpips * loss_lpips
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
+        
+        # GAN loss
+        if self.disc_factor > 0:
             
+            if optimizer_idx == 0:
+                # results['loss_g'] = self.calculate_g_loss(pred_images=pred_images)
+                results['gt_images'] = gt_images
+                
+            if optimizer_idx == 1:
+                results['loss_d'] = self.calculate_d_loss(gt_images=gt_images, pred_images=pred_images)
+
                 
         # Calculate metrics
         # TODO: add other metrics such as SSIM

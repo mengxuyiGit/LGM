@@ -267,6 +267,11 @@ class Options:
     xyz_opacity_for_cascade_dir: str = None
 
     dynamic_threshold: bool = False
+
+    # D
+    disc_factor: float = 1.0
+    disc_conditional: bool = False
+    discriminator_warm_up_steps: int = 500
     
 
 # all the default settings
