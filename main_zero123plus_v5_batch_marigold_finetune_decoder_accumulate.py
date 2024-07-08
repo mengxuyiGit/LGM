@@ -385,7 +385,7 @@ def main():
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
-                if global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
+                if global_step > 0 and global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
                     accelerator.wait_for_everyone()
                     accelerator.save_model(model, opt.workspace)
                     # save a copy 
@@ -413,7 +413,7 @@ def main():
                         total_loss_lpips = 0
                         
                         print(f"Save to run dir: {opt.workspace}")
-                        num_samples_eval = 2
+                        num_samples_eval = len(test_dataloader)
                         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), disable=(opt.verbose_main), desc = f"Eval global_step {global_step}"):
                             if i > num_samples_eval:
                                 break
