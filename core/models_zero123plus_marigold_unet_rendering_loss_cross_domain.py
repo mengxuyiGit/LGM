@@ -698,7 +698,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # debug = True
         # if debug:
-            # print("using GT splatter")
+        #     print("using GT splatter")
         #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
         
         # decode latents into attrbutes again
@@ -820,7 +820,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
-        elif self.opt.lambda_alpha > 0:
+        if self.opt.lambda_alpha > 0:
             loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
             loss_mse_alpha *= _rendering_w_t
             results['loss_alpha'] = loss_mse_alpha
