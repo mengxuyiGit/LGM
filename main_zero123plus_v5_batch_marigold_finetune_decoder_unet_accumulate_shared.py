@@ -217,20 +217,18 @@ def main():
             trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters())
         
         state_dict = model.state_dict()
-        for k, v in ckpt.items():
-            if k in trained_unet_parameters:
-                print(f"Copying {k}")
-                state_dict[k].copy_(v)
-            else:
-                if k not in state_dict:
-                    accelerator.print(f"[WARN] Parameter {k} not found in model. ")
-                elif 'unet' not in k:
-                    pass
-                elif v.shape == state_dict[k].shape:
-                    assert opt.only_train_attention
+        for k in trained_unet_parameters:
+            v = ckpt[k]
+            if k in state_dict: 
+                if state_dict[k].shape == v.shape:
+                    # print("... copying ", k)
+                    print(f"Copying {k}")
+                    state_dict[k].copy_(v)
                 else:
-                    accelerator.print(f"[WARN] Mismatchinng shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.")
-                
+                    accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+            else:
+                accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
+                    
         print("Finish loading trained unet.")
     
     torch.cuda.empty_cache()
