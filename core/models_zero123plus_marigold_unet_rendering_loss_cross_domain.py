@@ -646,7 +646,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     
                 latents_all_attr_to_decode = latents
                 _rendering_w_t = 1
-
                 
 
         elif self.opt.inference_finetuned_decoder or get_decoded_gt_latents: # NOTE: this condition must be check at last

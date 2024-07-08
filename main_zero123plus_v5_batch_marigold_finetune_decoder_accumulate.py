@@ -122,7 +122,7 @@ def main():
         for folder in ['core', 'scripts', 'zero123plus']:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
-        for file in ['main_zero123plus_v5_batch_marigold_unet_rendering_loss.py']:
+        for file in ['main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py']:
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
