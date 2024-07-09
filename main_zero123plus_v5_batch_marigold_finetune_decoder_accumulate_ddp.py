@@ -55,6 +55,13 @@ def compare_weights(initial_weights, model):
         print("No weights were updated.")
         
 
+def get_optimizer_idx(i, accumulation_step):
+    global_step = i // accumulation_step
+    get_optimizer_idx = global_step % 2
+    return 
+    
+    
+
 # Set the start method to 'spawn'
 import torch.multiprocessing as mp
 mp.set_start_method('spawn', force=True)
@@ -266,7 +273,7 @@ def main():
     model, discriminator_model, optimizer, train_dataloader, test_dataloader, scheduler = accelerator.prepare(
         model,discriminator_model, optimizer, train_dataloader, test_dataloader, scheduler
     )
-
+   
     # actual batch size 
    
     total_batch_size = opt.batch_size * accelerator.num_processes * opt.gradient_accumulation_steps
@@ -282,6 +289,12 @@ def main():
     
     logger.info(f"  num_update_steps_per_epoch = {num_update_steps_per_epoch}")
     logger.info(f"  Total train num_train_epochs = {opt.num_train_epochs}")
+    
+    def cycle(iterable):
+        while True:
+            for i in iterable:
+                yield i
+
    
 
     # loop
@@ -319,35 +332,39 @@ def main():
                 for key in gt_attr_keys:
                     total_gs_loss_mse_dict[key] = 0
             
-                    
-            for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
-                if i > 0 and opt.skip_training:
-                    break
-              
-                if opt.verbose_main:
-                    print(f"data['input']:{data['input'].shape}")
-                    
-                with accelerator.accumulate(model):
+            print("total: ", len(train_dataloader)//opt.gradient_accumulation_steps)
+            repeat_load = 2
+            actual_loader_len = (len(train_dataloader)//opt.gradient_accumulation_steps)//2
+            # for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
+            
+            train_dataloader_iterable = cycle(train_dataloader)
+            
+            for i in tqdm(range(actual_loader_len), total=actual_loader_len, disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
+                print("current steps: ", i)
 
-                    # # Store initial weights before the update
-                    # initial_weights = store_initial_weights(model)
-
-                    ############## update G ##############
-             
+                ############## update G ##############
+                if global_step > opt.discriminator_warm_up_steps:
                     optimizer_idx = 0
-                    out = model(data, optimizer_idx=0)
+                    optimizer.zero_grad()
+                  
+                    for j in range(opt.gradient_accumulation_steps):
+                        print(f"G: accumulate {j}")
                     
-                    # g loss
-                    loss_keys = optimizer_loss_keys[optimizer_idx]
-                    if global_step > opt.discriminator_warm_up_steps: # only update G when discriminator_warm_up_steps is warmed up
+                        data = next(train_dataloader_iterable)
 
+                        # # Store initial weights before the update
+                        # initial_weights = store_initial_weights(discriminator_model)
+
+                        out = model(data, optimizer_idx=0)
+                        
+                        # g loss
                         disc_cond = data['cond'] if opt.disc_conditional else None
                         out['loss_g'] = discriminator_model.module.calculate_g_loss(pred_images=out['images_pred'], cond=disc_cond)
 
+                        loss_keys = optimizer_loss_keys[optimizer_idx]
                         lossback = sum(out[_lk] for _lk in loss_keys) 
                         print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
                     
-                        optimizer.zero_grad()
                         # # debug
                         # if global_step > 0:
                         #     print(f"check other model parameters")
@@ -357,8 +374,9 @@ def main():
                         #     print("generator zero grad")                       
                         #     st()
                     
+                        lossback /= opt.gradient_accumulation_steps
                         accelerator.backward(lossback)
-                        
+                            
                         # # debug
                         # if global_step > 0:
                         #     print(f"check other model parameters")
@@ -368,82 +386,60 @@ def main():
                         #     print("generator loss back")                       
                         #     st()
                         
-                        ## gradient clipping
-                        if accelerator.sync_gradients:
-                            accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
-                        optimizer.step()
+                        # compare_weights(initial_weights=initial_weights, model=model)
+                        ########################################################
 
-                    else:
-                        out['loss_g'] = torch.zeros_like(out['loss'])
+                    
+                    ## gradient clipping
+                    if accelerator.sync_gradients:
+                        accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
 
-                 
+                    optimizer.step()
+                    # print("-----------> G opt step")
+                    # compare_weights(initial_weights=initial_weights, model=model)
+                    # compare_weights(initial_weights=initial_weights, model=discriminator_model)
+                        
                     # Detach unnecessary tensors to free up memory
                     for key in out:
                         out[key] = out[key].detach()
                                        
-                    ########################################################
-                    
-                # with accelerator.accumulate(discriminator_model):
-                #     ############## update D ##############
-        
-                #     optimizer_idx = 1
+                ############### update D ##############
+                optimizer_idx = 1
+                optimizer_disc.zero_grad()
 
-                #     disc_cond = data['cond'] if opt.disc_conditional else None
-                #     out['loss_d'] = discriminator_model.module.calculate_d_loss(out['gt_images'], out['images_pred'], cond=disc_cond)
+                for j in range(opt.gradient_accumulation_steps):
+                    print(f"D: accumulate {j}")
+                    
+                    data = next(train_dataloader_iterable)
+                    with torch.no_grad():
+                        out = model(data, optimizer_idx=0)
+
+                    disc_cond = data['cond'] if opt.disc_conditional else None
+                    out['loss_d'] = discriminator_model.module.calculate_d_loss(out['gt_images'], out['images_pred'], cond=disc_cond)
                 
-                #     loss_keys = optimizer_loss_keys[optimizer_idx]
-                #     lossback = sum(out[_lk] for _lk in loss_keys) 
-                #     print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
+                    loss_keys = optimizer_loss_keys[optimizer_idx]
+                    lossback = sum(out[_lk] for _lk in loss_keys) 
+                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
                     
-                #     #######################################################
-                #     initial_weights = store_initial_weights(discriminator_model)
-    
-                #     optimizer_disc.zero_grad()
-                #     # # debug
-                #     # if global_step > 0:
-                #     #     print(f"check other model parameters")
-                #     #     for name, param in model.named_parameters():
-                #     #         if param.requires_grad and param.grad is not None and "unet" not in name:
-                #     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                #     #     print("zero grad disct")
-                #     #     # st()
-                    
-                    
-                #     accelerator.backward(lossback)
-                    
-                #     # # debug
-                #     # if global_step > 0:
-                #     #     print(f"check other model parameters")
-                #     #     for name, param in discriminator_model.named_parameters():
-                #     #         if param.requires_grad and param.grad is not None and "unet" not in name:
-                #     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                #     #     print("loss back disct")
-                #     #     # st()
-                    
-                #     ## gradient clipping
-                #     if accelerator.sync_gradients:
-                #         accelerator.clip_grad_norm_(discriminator_model.parameters(), opt.gradient_clip)
-                #         optimizer_disc.step()
-                #         optimizer_disc.zero_grad()                    
-                  
-                #     # # debug
-                #     # if global_step > 0:
-                #     #     # Check gradients of the unet parameters
-                #     #     print(f"check unet parameters")
-                #     #     for name, param in model.unet.named_parameters():
-                #     #         if param.requires_grad and param.grad is not None:
-                #     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                #     #     # st()
-                    
-                #     #     print(f"check other model parameters")
-                #     #     for name, param in model.named_parameters():
-                #     #         if param.requires_grad and param.grad is not None and "unet" not in name:
-                #     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                #     #     # st()
-                    
+                    #######################################################
+                    # initial_weights = store_initial_weights(discriminator_model)
+                    # initial_weights = store_initial_weights(model)
+
+                    lossback /= opt.gradient_accumulation_steps
+                    accelerator.backward(lossback)
+
+                    # compare_weights(initial_weights=initial_weights, model=discriminator_model)
+                
+                ## gradient clipping
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(discriminator_model.parameters(), opt.gradient_clip)
+                
+                optimizer_disc.step()
             
-                #     compare_weights(initial_weights=initial_weights, model=discriminator_model)
-                #     # st()
+                print("-----------> D opt step")
+                # compare_weights(initial_weights=initial_weights, model=discriminator_model)
+                # compare_weights(initial_weights=initial_weights, model=model)
+                # # st()
                     
                 # Log metrics after every step, not at the end of the epoch
                 if accelerator.is_main_process:
@@ -453,12 +449,13 @@ def main():
                     writer.add_scalar('train/loss_lpips', out['loss_splatter'].item(), global_step)
                     writer.add_scalar('train/loss_rendering', out['loss_splatter'].item(), global_step)
                     writer.add_scalar('train/alpha', out['loss_alpha'].item(), global_step)
-                    writer.add_scalar('train/G/loss_g', out['loss_g'].item(), global_step)
+                    # writer.add_scalar('train/G/loss_g', out['loss_g'].item(), global_step)
                     # writer.add_scalar('train/D/loss_d', out['loss_d'].item(), global_step)
                 
                       
                 if opt.finetune_decoder:
-                    logs = {"step_loss_rendering": out['loss'].detach().item(), "step_loss_splatter": out['loss_splatter'].detach().item(), "step_loss_G": out['loss_g'].detach().item(), "lr": optimizers[0].param_groups[0]['lr']} 
+                    pass
+                    # logs = {"step_loss_rendering": out['loss'].detach().item(), "step_loss_splatter": out['loss_splatter'].detach().item(), "step_loss_G": out['loss_g'].detach().item(), "lr": optimizers[0].param_groups[0]['lr']} 
                     # logs.update({"step_loss_D": out['loss_d'].detach().item(), "lr": optimizers[1].param_groups[0]['lr']})
                 else:
                     # logs = {"step_loss_latent": loss_latent.detach().item(), "lr": optimizer.param_groups[0]['lr']} 

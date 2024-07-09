@@ -42,7 +42,7 @@ accelerate launch --main_process_port 29516 --config_file acc_configs/gpu2.yaml 
     --finetune_decoder \
     --batch_size 1 --num_workers 1 --gradient_accumulation_steps 4 \
     --use_video_decoderST \
-    --disc_conditional --disc_factor 1.0 --discriminator_warm_up_steps 1000 --lambda_discriminator 1.0 
+    --disc_conditional --disc_factor 1.0 --discriminator_warm_up_steps 10 --lambda_discriminator 1.0 
     # \
     # --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
     # --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july/20240708-050809-svd-decoder-fted_lgm-resume6k-loss_render1.0_splatter2.0_lpips2.0-lr0.0001-Plat5/eval_global_step_30000_ckpt/model.safetensors
