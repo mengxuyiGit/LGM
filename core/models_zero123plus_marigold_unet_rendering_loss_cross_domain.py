@@ -144,19 +144,6 @@ def denormalize_and_activate(attr, mv_image):
     return sp_image_o
     
 
-def hinge_d_loss(logits_real, logits_fake):
-    loss_real = torch.mean(F.relu(1. - logits_real))
-    loss_fake = torch.mean(F.relu(1. + logits_fake))
-    d_loss = 0.5 * (loss_real + loss_fake)
-    return d_loss
-
-
-def vanilla_d_loss(logits_real, logits_fake):
-    d_loss = 0.5 * (
-        torch.mean(torch.nn.functional.softplus(-logits_real)) +
-        torch.mean(torch.nn.functional.softplus(logits_fake)))
-    return d_loss
-
         
 class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     def __init__(
@@ -206,29 +193,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # LPIPS loss
         self.lpips_loss = LPIPS(net='vgg')
         self.lpips_loss.requires_grad_(False)
-        # GAN loss
-        disc_in_channels = 6 if opt.disc_conditional else 3
-        disc_num_layers = 3
-        use_actnorm = False
-        disc_ndf = 64
-        self.discriminator = NLayerDiscriminator(input_nc=disc_in_channels,
-                                                 n_layers=disc_num_layers,
-                                                 use_actnorm=use_actnorm,
-                                                 ndf=disc_ndf
-                                                 ).apply(weights_init)
-        disc_loss = "vanilla"
-        if disc_loss == "hinge":
-                self.disc_loss = hinge_d_loss
-        elif disc_loss == "vanilla":
-            self.disc_loss = vanilla_d_loss
-        else:
-            raise ValueError(f"Unknown GAN loss '{disc_loss}'.")
-        print(f"VQLPIPSWithDiscriminator running with {disc_loss} loss.")
-        self.disc_factor = getattr(opt, "disc_factor", 0.0)
-        
-        # self.discriminator_weight = opt.disc_weight
-        self.disc_conditional = opt.disc_conditional
-
+     
         
         self.skip_decoding = (self.opt.lambda_rendering + self.opt.lambda_rendering + self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0 and self.opt.train_unet
         if self.skip_decoding:
@@ -305,43 +270,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         return DecoderOutput(sample=decoded)
     
-    def calculate_d_loss(self, gt_images, pred_images, cond=None):
-        cond = torch.repeat_interleave(cond, pred_images.shape[1], dim=0).permute(0,3,1,2).to(torch.float32) / 255.0
-        gt_images = einops.rearrange(gt_images, 'b n c h w -> (b n) c h w')
-        pred_images = einops.rearrange(pred_images, 'b n c h w -> (b n) c h w')
-
-        # images_to_save = einops.rearrange(torch.cat([cond, gt_images, pred_images], dim=-2), "(b v) c h w -> (b h) (v w) c", v=20)
-        # kiui.write_image(f'd_loss_cond_1.jpg', images_to_save)
-        # st()
-        
-        if cond is not None:
-            logits_real = self.discriminator(torch.cat((gt_images.contiguous().detach(), cond), dim=1))
-            logits_fake = self.discriminator(torch.cat((pred_images.contiguous().detach(), cond), dim=1))
-        else:
-            logits_real = self.discriminator(gt_images.contiguous().detach())
-            logits_fake = self.discriminator(pred_images.contiguous().detach())
-        
-        d_loss = self.disc_factor * self.disc_loss(logits_real, logits_fake)
-
-        return d_loss
-
-    def calculate_g_loss(self, pred_images, cond=None):
-        cond = torch.repeat_interleave(cond, pred_images.shape[1], dim=0).permute(0,3,1,2).to(torch.float32) / 255.0
-        pred_images = einops.rearrange(pred_images, 'b n c h w -> (b n) c h w')
-        
-        if cond is not None:
-            print("use cond")
-            logits_fake = self.discriminator(torch.cat((pred_images.contiguous(), cond), dim=1))
-        else:
-            logits_fake = self.discriminator(pred_images.contiguous())
-
-        g_loss = -torch.mean(logits_fake)
-        g_loss = self.opt.lambda_discriminator * g_loss
-
-        return g_loss
-    
-    
-    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False, optimizer_idx=0):
+    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False, optimizer_idx=-1):
         # Gaussian shape: (B*6, 14, H, W)
 
         results = {}
@@ -879,15 +808,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
         
-        # GAN loss
-        if self.disc_factor > 0:
-            
-            if optimizer_idx == 0:
-                # results['loss_g'] = self.calculate_g_loss(pred_images=pred_images)
-                results['gt_images'] = gt_images
+        # # GAN loss
+        if optimizer_idx == 0:
+            results['gt_images'] = gt_images
                 
-            if optimizer_idx == 1:
-                results['loss_d'] = self.calculate_d_loss(gt_images=gt_images, pred_images=pred_images)
+        # if self.disc_factor > 0:
+            
+        #     if optimizer_idx == 0:
+        #         # results['loss_g'] = self.calculate_g_loss(pred_images=pred_images)
+        #         results['gt_images'] = gt_images
+                
+        #     if optimizer_idx == 1:
+        #         results['loss_d'] = self.calculate_d_loss(gt_images=gt_images, pred_images=pred_images)
 
                 
         # Calculate metrics

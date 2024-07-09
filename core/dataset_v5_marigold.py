@@ -235,8 +235,8 @@ class ObjaverseDataset(Dataset):
             
         for scene_path in all_scene_paths:
 
-            # if len(self.data_path_vae_splatter) > 100:
-            #     break
+            if len(self.data_path_vae_splatter) > 100:
+                break
 
             if self.opt.overfit_one_scene and len(self.data_path_vae_splatter) > 3:
                 break
