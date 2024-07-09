@@ -272,6 +272,7 @@ class Options:
     disc_factor: float = 1.0
     disc_conditional: bool = False
     discriminator_warm_up_steps: int = 500
+    lambda_discriminator: float = 0.0
     
 
 # all the default settings

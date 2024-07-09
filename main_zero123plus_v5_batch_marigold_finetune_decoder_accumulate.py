@@ -319,42 +319,72 @@ def main():
             for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 if i > 0 and opt.skip_training:
                     break
-
               
                 if opt.verbose_main:
                     print(f"data['input']:{data['input'].shape}")
                     
                 with accelerator.accumulate(model):
 
-                    # Store initial weights before the update
-                    initial_weights = store_initial_weights(model)
+                    # # Store initial weights before the update
+                    # initial_weights = store_initial_weights(model)
 
+                    lossback = 0
 
                     ############## update G ##############
                     optimizer_idx = 0
-                    for param in model.vae.decoder.parameters():
-                        param.requires_grad = True
-                    for param in model.discriminator.parameters():
-                        param.requires_grad = False
+                    # for param in model.vae.decoder.parameters():
+                    #     param.requires_grad = True
+                    # for param in model.discriminator.parameters():
+                    #     param.requires_grad = False
 
                     out = model(data, optimizer_idx=0)
 
                     # g loss
+                    loss_keys = optimizer_loss_keys[optimizer_idx]
                     if global_step > opt.discriminator_warm_up_steps:
                         disc_cond = data['cond'] if opt.disc_conditional else None
                         out['loss_g'] = model.calculate_g_loss(pred_images=out['images_pred'], cond=disc_cond)
+                        
+                        # only update G when discriminator_warm_up_steps is warmed up
+                        lossback += sum(out[_lk] for _lk in loss_keys) 
+                        print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
                     else:
                         out['loss_g'] = torch.zeros_like(out['loss'])
-                        
-                    loss_keys = optimizer_loss_keys[optimizer_idx]
-                    lossback = sum(out[_lk] for _lk in loss_keys) 
-                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
-                    
-                    optimizers[optimizer_idx].zero_grad()
-                    accelerator.backward(lossback)
-                    optimizers[optimizer_idx].step()
-                    ########################################################
 
+                        # Detach unnecessary tensors to free up memory
+                        for key in out:
+                            out[key] = out[key].detach()
+                        
+                    ########################################################
+                    
+                    
+                    # ############## update D ##############
+                    # # if opt.disc_factor > 0:
+                    # optimizer_idx = 1
+                    # for param in model.discriminator.parameters():
+                    #     param.requires_grad = True
+                    # for param in model.vae.decoder.parameters():
+                    #     param.requires_grad = False
+                
+                    
+                    # disc_cond = data['cond'] if opt.disc_conditional else None
+                    # out['loss_d'] = model.calculate_d_loss(out['gt_images'], out['images_pred'], cond=disc_cond)
+                
+                    # loss_keys = optimizer_loss_keys[optimizer_idx]
+                    # lossback += sum(out[_lk] for _lk in loss_keys) 
+                    # print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
+                    
+                    # # accelerator.backward(lossback)
+                    # # optimizers[optimizer_idx].step()
+                    # # optimizers[optimizer_idx].zero_grad()
+                    # #######################################################
+                    
+                    # if global_step > opt.discriminator_warm_up_steps:
+                    #     for param in model.vae.decoder.parameters():
+                    #         param.requires_grad = True
+                    
+                    accelerator.backward(lossback)
+                      
                     # # debug
                     # if global_step > 0:
                     #     # Check gradients of the unet parameters
@@ -368,30 +398,16 @@ def main():
                     #     for name, param in model.named_parameters():
                     #         if param.requires_grad and param.grad is not None and "unet" not in name:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    #     st()
-
+                    #     # st()
                     
-                    ############## update D ##############
-                    optimizer_idx = 1
-                    for param in model.discriminator.parameters():
-                        param.requires_grad = True
-                    for param in model.vae.decoder.parameters():
-                        param.requires_grad = False
-                   
-                    
-                    disc_cond = data['cond'] if opt.disc_conditional else None
-                    out['loss_d'] = model.calculate_d_loss(out['gt_images']*0, out['images_pred'], cond=disc_cond)
-                
-                    loss_keys = optimizer_loss_keys[optimizer_idx]
-                    lossback = sum(out[_lk] for _lk in loss_keys) 
-                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
-                    
-                    optimizers[optimizer_idx].zero_grad()
-                    accelerator.backward(lossback)
-                    optimizers[optimizer_idx].step()
-                    ########################################################
-                    
-                  
+                    update_list = [0,1] if  global_step > opt.discriminator_warm_up_steps else [1]
+                    # for _op_idx in update_list:
+                    #     print(f"steping optimizer {_op_idx}")
+                    #     optimizers[_op_idx].step()
+                    #     optimizers[_op_idx].zero_grad()
+                    optimizer.step()
+                    optimizer.zero_grad()
+                        
                     # gradient clipping
                     if accelerator.sync_gradients:
                         accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
@@ -412,12 +428,12 @@ def main():
                         writer.add_scalar('train/loss_rendering', out['loss_splatter'].item(), global_step)
                         writer.add_scalar('train/alpha', out['loss_alpha'].item(), global_step)
                         writer.add_scalar('train/G/loss_g', out['loss_g'].item(), global_step)
-                        writer.add_scalar('train/D/loss_d', out['loss_d'].item(), global_step)
+                        # writer.add_scalar('train/D/loss_d', out['loss_d'].item(), global_step)
                     
                    
                 if opt.finetune_decoder:
                     logs = {"step_loss_rendering": out['loss'].detach().item(), "step_loss_splatter": out['loss_splatter'].detach().item(), "step_loss_G": out['loss_g'].detach().item(), "lr": optimizers[0].param_groups[0]['lr']} 
-                    logs.update({"step_loss_D": out['loss_d'].detach().item(), "lr": optimizers[1].param_groups[0]['lr']})
+                    # logs.update({"step_loss_D": out['loss_d'].detach().item(), "lr": optimizers[1].param_groups[0]['lr']})
                 else:
                     logs = {"step_loss_latent": loss_latent.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
                 

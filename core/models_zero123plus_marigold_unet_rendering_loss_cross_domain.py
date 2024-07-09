@@ -224,7 +224,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
             raise ValueError(f"Unknown GAN loss '{disc_loss}'.")
         print(f"VQLPIPSWithDiscriminator running with {disc_loss} loss.")
-        self.disc_factor = opt.disc_factor
+        self.disc_factor = getattr(opt, "disc_factor", 0.0)
+        
         # self.discriminator_weight = opt.disc_weight
         self.disc_conditional = opt.disc_conditional
 
@@ -335,6 +336,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             logits_fake = self.discriminator(pred_images.contiguous())
 
         g_loss = -torch.mean(logits_fake)
+        g_loss = self.opt.lambda_discriminator * g_loss
 
         return g_loss
     
@@ -360,14 +362,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_all_attr_list.append(sp_image)
         images_all_attr_batch = torch.stack(images_all_attr_list)
     
-      
-        if save_path is not None:
-            # -----------
-            cond_path = '/mnt/kostas_home/lilym/LGM/LGM/birddrawnbyachild.png'
-            cond_path = torch.tensor(np.array(Image.open(cond_path))).permute(2,0,1)[None][None] # B C H W
-            print("real img" )
-            images_all_attr_batch = (cond_path / 255).to(images_all_attr_batch.dtype).to(device=images_all_attr_batch.device)
-            # -----------
             
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
@@ -379,8 +373,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
 
         # do vae.encode
-        
-    
         sp_image_batch = scale_image(images_all_attr_batch)
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
