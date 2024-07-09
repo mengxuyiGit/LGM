@@ -333,17 +333,25 @@ def main():
                     total_gs_loss_mse_dict[key] = 0
             
             print("total: ", len(train_dataloader)//opt.gradient_accumulation_steps)
-            repeat_load = 2
+            cache_images = True
+            repeat_load = 1 if cache_images else 2
             actual_loader_len = (len(train_dataloader)//opt.gradient_accumulation_steps)//2
             # for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
             
             train_dataloader_iterable = cycle(train_dataloader)
+            loss_d = 100
             
             for i in tqdm(range(actual_loader_len), total=actual_loader_len, disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 print("current steps: ", i)
 
                 ############## update G ##############
-                if global_step > opt.discriminator_warm_up_steps:
+                gen_images_cache = []
+                real_images_cache = []
+                cond_images_cache = []
+                
+                # if global_step > opt.discriminator_warm_up_steps:
+                loss_g = 0
+                if loss_d < 0.1 : # discriminator is trained quite good
                     optimizer_idx = 0
                     optimizer.zero_grad()
                   
@@ -376,7 +384,13 @@ def main():
                     
                         lossback /= opt.gradient_accumulation_steps
                         accelerator.backward(lossback)
-                            
+                        loss_g += lossback
+                        
+                        if cache_images:
+                            gen_images_cache.append(out['images_pred'].detach())
+                            real_images_cache.append(out['gt_images'].detach())
+                            cond_images_cache.append(data['cond'].detach())
+                
                         # # debug
                         # if global_step > 0:
                         #     print(f"check other model parameters")
@@ -388,7 +402,6 @@ def main():
                         
                         # compare_weights(initial_weights=initial_weights, model=model)
                         ########################################################
-
                     
                     ## gradient clipping
                     if accelerator.sync_gradients:
@@ -398,35 +411,58 @@ def main():
                     # print("-----------> G opt step")
                     # compare_weights(initial_weights=initial_weights, model=model)
                     # compare_weights(initial_weights=initial_weights, model=discriminator_model)
-                        
-                    # Detach unnecessary tensors to free up memory
-                    for key in out:
-                        out[key] = out[key].detach()
-                                       
+            
+                else:
+                    for j in range(opt.gradient_accumulation_steps):
+                        print(f"no grad G {j}")
+                    
+                        data = next(train_dataloader_iterable)
+                        with torch.no_grad():
+                            out = model(data, optimizer_idx=0)
+                    
+                            if cache_images:
+                                gen_images_cache.append(out['images_pred'].detach())
+                                real_images_cache.append(out['gt_images'].detach())
+                                cond_images_cache.append(data['cond'].detach())
+                    
                 ############### update D ##############
                 optimizer_idx = 1
                 optimizer_disc.zero_grad()
-
-                for j in range(opt.gradient_accumulation_steps):
-                    print(f"D: accumulate {j}")
-                    
-                    data = next(train_dataloader_iterable)
-                    with torch.no_grad():
-                        out = model(data, optimizer_idx=0)
-
-                    disc_cond = data['cond'] if opt.disc_conditional else None
-                    out['loss_d'] = discriminator_model.module.calculate_d_loss(out['gt_images'], out['images_pred'], cond=disc_cond)
+                loss_d = 0
                 
+                if len(gen_images_cache) > 0 and len(real_images_cache) > 0:
+                    
+                    disc_cond = torch.cat(cond_images_cache) if opt.disc_conditional else None
+                    out['loss_d'] = discriminator_model.module.calculate_d_loss(torch.cat(real_images_cache), torch.cat(gen_images_cache), cond=disc_cond)
+                    
                     loss_keys = optimizer_loss_keys[optimizer_idx]
                     lossback = sum(out[_lk] for _lk in loss_keys) 
                     print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
-                    
-                    #######################################################
-                    # initial_weights = store_initial_weights(discriminator_model)
-                    # initial_weights = store_initial_weights(model)
-
-                    lossback /= opt.gradient_accumulation_steps
                     accelerator.backward(lossback)
+                    loss_d = lossback
+                    
+                else:
+                    for j in range(opt.gradient_accumulation_steps):
+                        print(f"D: accumulate {j}")
+                    
+                        data = next(train_dataloader_iterable)
+                        with torch.no_grad():
+                            out = model(data, optimizer_idx=0)
+
+                        disc_cond = data['cond'] if opt.disc_conditional else None
+                        out['loss_d'] = discriminator_model.module.calculate_d_loss(out['gt_images'], out['images_pred'], cond=disc_cond)
+                    
+                        loss_keys = optimizer_loss_keys[optimizer_idx]
+                        lossback = sum(out[_lk] for _lk in loss_keys) 
+                        print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
+                        
+                        #######################################################
+                        # initial_weights = store_initial_weights(discriminator_model)
+                        # initial_weights = store_initial_weights(model)
+
+                        lossback /= opt.gradient_accumulation_steps
+                        accelerator.backward(lossback)
+                        loss_d += lossback.detach()
 
                     # compare_weights(initial_weights=initial_weights, model=discriminator_model)
                 
@@ -435,8 +471,7 @@ def main():
                     accelerator.clip_grad_norm_(discriminator_model.parameters(), opt.gradient_clip)
                 
                 optimizer_disc.step()
-            
-                print("-----------> D opt step")
+                # print("-----------> D opt step")
                 # compare_weights(initial_weights=initial_weights, model=discriminator_model)
                 # compare_weights(initial_weights=initial_weights, model=model)
                 # # st()
@@ -449,8 +484,8 @@ def main():
                     writer.add_scalar('train/loss_lpips', out['loss_splatter'].item(), global_step)
                     writer.add_scalar('train/loss_rendering', out['loss_splatter'].item(), global_step)
                     writer.add_scalar('train/alpha', out['loss_alpha'].item(), global_step)
-                    # writer.add_scalar('train/G/loss_g', out['loss_g'].item(), global_step)
-                    # writer.add_scalar('train/D/loss_d', out['loss_d'].item(), global_step)
+                    writer.add_scalar('train/G/loss_g', loss_g.item(), global_step) if isinstance(loss_g, torch.Tensor) else writer.add_scalar('train/G/loss_g', loss_g, global_step)
+                    writer.add_scalar('train/D/loss_d', loss_d.item(), global_step)
                 
                       
                 if opt.finetune_decoder:
