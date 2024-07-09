@@ -336,7 +336,8 @@ def main():
                     for param in model.discriminator.parameters():
                         param.requires_grad = False
                     for param in model.vae.decoder.parameters():
-                        param.requires_grad = True
+                        if not param.requires_grad:
+                            param.requires_grad = True
                     
                     optimizer_idx = 0
                     out = model(data)
@@ -365,10 +366,11 @@ def main():
                     # if opt.disc_factor > 0:
                     optimizer_idx = 1
                     for param in model.discriminator.parameters():
-                        param.requires_grad = True
+                        if not param.requires_grad:
+                            param.requires_grad = True
                     for param in model.vae.decoder.parameters():
                         param.requires_grad = False
-                
+
                     disc_cond = data['cond'] if opt.disc_conditional else None
                     out['loss_d'] = model.calculate_d_loss(out['gt_images'], out['images_pred'], cond=disc_cond)
                 
@@ -378,11 +380,12 @@ def main():
                     
                     #######################################################
                     
-                    
                     ## loss backward
                     if global_step > opt.discriminator_warm_up_steps:
                         for param in model.vae.decoder.parameters():
-                            param.requires_grad = True
+                            if not param.requires_grad:
+                                param.requires_grad = True
+                            
                     accelerator.backward(lossback)
                   
                     # # debug
