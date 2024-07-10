@@ -340,7 +340,8 @@ def main():
             
             train_dataloader_iterable = cycle(train_dataloader)
             loss_d = 100
-            
+            disc_cnt = -5
+
             for i in tqdm(range(actual_loader_len), total=actual_loader_len, disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 print("current steps: ", i)
 
@@ -349,14 +350,17 @@ def main():
                 real_images_cache = []
                 cond_images_cache = []
                 
-                # if global_step > opt.discriminator_warm_up_steps:
                 loss_g = 0
-                if loss_d < 0.1 : # discriminator is trained quite good
+
+                # if global_step > opt.discriminator_warm_up_steps:
+                if loss_d < 0.25 :
+                    disc_cnt += 1
+                if disc_cnt > 0:# discriminator is trained quite good
                     optimizer_idx = 0
                     optimizer.zero_grad()
                   
                     for j in range(opt.gradient_accumulation_steps):
-                        print(f"G: accumulate {j}")
+                        # print(f"G: accumulate {j}")
                     
                         data = next(train_dataloader_iterable)
 
@@ -371,7 +375,7 @@ def main():
 
                         loss_keys = optimizer_loss_keys[optimizer_idx]
                         lossback = sum(out[_lk] for _lk in loss_keys) 
-                        print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
+                        # print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
                     
                         # # debug
                         # if global_step > 0:
@@ -386,10 +390,10 @@ def main():
                         accelerator.backward(lossback)
                         loss_g += lossback
                         
-                        if cache_images:
-                            gen_images_cache.append(out['images_pred'].detach())
-                            real_images_cache.append(out['gt_images'].detach())
-                            cond_images_cache.append(data['cond'].detach())
+                        # if cache_images:
+                        #     gen_images_cache.append(out['images_pred'].detach())
+                        #     real_images_cache.append(out['gt_images'].detach())
+                        #     cond_images_cache.append(data['cond'].detach())
                 
                         # # debug
                         # if global_step > 0:
@@ -408,23 +412,25 @@ def main():
                         accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
 
                     optimizer.step()
+                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
+                    # print("G loss")
                     # print("-----------> G opt step")
                     # compare_weights(initial_weights=initial_weights, model=model)
                     # compare_weights(initial_weights=initial_weights, model=discriminator_model)
             
-                else:
-                    for j in range(opt.gradient_accumulation_steps):
-                        print(f"no grad G {j}")
-                    
-                        data = next(train_dataloader_iterable)
-                        with torch.no_grad():
-                            out = model(data, optimizer_idx=0)
-                    
-                            if cache_images:
-                                gen_images_cache.append(out['images_pred'].detach())
-                                real_images_cache.append(out['gt_images'].detach())
-                                cond_images_cache.append(data['cond'].detach())
-                    
+                # else:
+                for j in range(opt.gradient_accumulation_steps):
+                    # print(f"no grad G {j}")
+                
+                    data = next(train_dataloader_iterable)
+                    with torch.no_grad():
+                        out = model(data, optimizer_idx=0)
+                
+                        if cache_images:
+                            gen_images_cache.append(out['images_pred'].detach())
+                            real_images_cache.append(out['gt_images'].detach())
+                            cond_images_cache.append(data['cond'].detach())
+                
                 ############### update D ##############
                 optimizer_idx = 1
                 optimizer_disc.zero_grad()
@@ -433,13 +439,23 @@ def main():
                 if len(gen_images_cache) > 0 and len(real_images_cache) > 0:
                     
                     disc_cond = torch.cat(cond_images_cache) if opt.disc_conditional else None
-                    out['loss_d'] = discriminator_model.module.calculate_d_loss(torch.cat(real_images_cache), torch.cat(gen_images_cache), cond=disc_cond)
+                    real_all = torch.cat(real_images_cache)
+                    gen_all = torch.cat(gen_images_cache)
+
+                    small_batch_size = 16
+                    assert len(gen_images_cache) % small_batch_size == 0
+                    small_batches = len(gen_images_cache) // small_batch_size
                     
-                    loss_keys = optimizer_loss_keys[optimizer_idx]
-                    lossback = sum(out[_lk] for _lk in loss_keys) 
-                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
-                    accelerator.backward(lossback)
-                    loss_d = lossback
+                    for bs in range(small_batches):
+                        real_batch = real_all[bs*small_batch_size:(bs+1)*small_batch_size]
+                        gen_batch = gen_all[bs*small_batch_size:(bs+1)*small_batch_size]
+                        disc_cond_batch = disc_cond[bs*small_batch_size:(bs+1)*small_batch_size]
+                        lossback = discriminator_model.module.calculate_d_loss(real_batch, gen_batch, cond=disc_cond_batch)
+                    
+                        # print(f"lossback of d: {lossback}")
+                        lossback /= small_batches
+                        accelerator.backward(lossback)
+                        loss_d += lossback.detach()
                     
                 else:
                     for j in range(opt.gradient_accumulation_steps):
@@ -471,6 +487,7 @@ def main():
                     accelerator.clip_grad_norm_(discriminator_model.parameters(), opt.gradient_clip)
                 
                 optimizer_disc.step()
+                print(f"lossback of d: {lossback}")
                 # print("-----------> D opt step")
                 # compare_weights(initial_weights=initial_weights, model=discriminator_model)
                 # compare_weights(initial_weights=initial_weights, model=model)
