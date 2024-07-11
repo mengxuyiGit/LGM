@@ -99,7 +99,7 @@
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_overfit_june
 LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july
 
-TB_PORT=6146
+TB_PORT=6147
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
 
 TB_FOLDER=$1

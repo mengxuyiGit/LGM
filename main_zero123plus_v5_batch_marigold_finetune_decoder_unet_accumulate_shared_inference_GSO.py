@@ -43,6 +43,7 @@ from PIL import Image
 from kiui.op import recenter
 from kiui.cam import orbit_camera
 from core.utils import get_rays
+from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
 
 def store_initial_weights(model):
     """Stores the initial weights of the model for later comparison."""
@@ -235,6 +236,9 @@ def main():
 
     # optimizer
     assert not (opt.finetune_decoder or opt.train_unet)
+
+    # scheduler
+    assert isinstance(model.pipe.scheduler, EulerAncestralDiscreteScheduler)
     
     model, test_dataloader = accelerator.prepare(
         model, test_dataloader 
@@ -289,7 +293,6 @@ def main():
             lgm_model = lgm_model.half().to(device)
             lgm_model.eval()
             
-            from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
             pipe = DiffusionPipeline.from_pretrained(
                 "sudo-ai/zero123plus-v1.1", custom_pipeline="sudo-ai/zero123plus-pipeline",
                 torch_dtype=torch.float16
@@ -388,7 +391,7 @@ def main():
                 print(f"cak: {cak['cond_lat'].shape}") # always 64x64, not affected by cond size
                 model.pipe.scheduler.set_timesteps(30, device='cuda:0')
                 
-                timesteps = model.pipe.scheduler.timesteps
+                timesteps = model.pipe.scheduler.timesteps.to(torch.int)
                 latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
                 
                 domain_embeddings = torch.eye(5).to(latents.device)

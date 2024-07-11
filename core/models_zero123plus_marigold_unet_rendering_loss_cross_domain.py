@@ -5,7 +5,7 @@ import numpy as np
 
 import kiui
 from kiui.lpips import LPIPS
-from diffusers import DiffusionPipeline, DDPMScheduler
+from diffusers import DiffusionPipeline, DDPMScheduler, EulerAncestralDiscreteScheduler
 import PIL
 from PIL import Image
 import einops
@@ -221,8 +221,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 self.register_buffer("decoder_domain_embedding", repeat_e)
                 # self.decoder_domain_embedding = repeat_e
     
-       
-        self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
+        # scheduler
+        if self.opt.train_unet:
+            self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
+        else:
+            self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(self.pipe.scheduler.config, timestep_spacing='trailing') # num_train_timesteps=1000, v_prediciton
+            
         
         print(f"drop cond with prob {self.opt.drop_cond_prob}")
     
@@ -232,6 +236,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # LPIPS loss
         self.lpips_loss = LPIPS(net='vgg')
         self.lpips_loss.requires_grad_(False)
+        self.lpips_loss.eval()
         
         self.skip_decoding = (self.opt.lambda_rendering + self.opt.lambda_rendering + self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0 and self.opt.train_unet
         if self.skip_decoding:
@@ -380,10 +385,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                
                 text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=1.0)
                 cross_attention_kwargs_stu = cross_attention_kwargs        
+
+                del cond
         
-            # same t for all domain
-            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (B,), device=latents_all_attr_encoded.device)
+            # same t for all domain, same t for whole batch
+            t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (1,), device=latents_all_attr_encoded.device).repeat(B)
             t = t.unsqueeze(1).repeat(1,A)
+            # print(t)
             
             if self.opt.xyz_zero_t:
                 t[:,0] = torch.min(10 * torch.ones_like(t[:,0]), t[:,0])
@@ -469,8 +477,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             # Calculate rendering losses weights
             if self.opt.rendering_loss_use_weight_t:
-                _alpha_t = einops.rearrange(alpha_t.flatten(), "(B A)-> B A", B=B, A=A)[:,0]
-                _rendering_w_t = _alpha_t ** 2 # shape [B]
+                # _alpha_t = einops.rearrange(alpha_t.flatten(), "(B A)-> B A", B=B, A=A)[:,0]
+                # # _rendering_w_t = _alpha_t ** 2 # shape [B]
+                # print(f"_rendering_w_t of {t}: ", _rendering_w_t)
+
+                # same t for whole batch 
+                _rendering_w_t = alpha_t.flatten()[0] ** 2 
                 # print(f"_rendering_w_t of {t}: ", _rendering_w_t)
             else:
                 _rendering_w_t = 1
@@ -810,19 +822,35 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         if self.opt.lambda_rendering > 0:
         # if True:
+            # # calculate using batch 
+            # loss_mse_rendering = (pred_images - gt_images) ** 2 + (pred_alphas - gt_masks) ** 2
+            # loss_mse_rendering = _rendering_w_t * torch.mean(loss_mse_rendering, dim=np.arange(1,loss_mse_rendering.dim()).tolist())
+            # loss_mse_rendering = loss_mse_rendering.mean()
+
             # loss_mse_rendering = F.mse_loss(pred_images, gt_images) + F.mse_loss(pred_alphas, gt_masks)
-            # calculate using batch 
-            loss_mse_rendering = (pred_images - gt_images) ** 2 + (pred_alphas - gt_masks) ** 2
-            loss_mse_rendering = _rendering_w_t * torch.mean(loss_mse_rendering, dim=np.arange(1,loss_mse_rendering.dim()).tolist())
-            loss_mse_rendering = loss_mse_rendering.mean()
+            
+            loss_mse_rendering = F.mse_loss(
+                    F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size), (128, 128), mode='bilinear', align_corners=False),
+                    F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size), (128, 128), mode='bilinear', align_corners=False), 
+                ) + F.mse_loss(
+                    F.interpolate(pred_alphas.view(-1, 1, self.opt.output_size, self.opt.output_size), (128, 128), mode='bilinear', align_corners=False),
+                    F.interpolate(gt_masks.view(-1, 1, self.opt.output_size, self.opt.output_size), (128, 128), mode='bilinear', align_corners=False), 
+                )
+            print("loss_mse_rendering: ", loss_mse_rendering)
+            print(f"_rendering_w_t: {_rendering_w_t}")
+            loss_mse_rendering *= _rendering_w_t
             results['loss_rendering'] = loss_mse_rendering
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
             if self.opt.verbose_main:
                 print(f"loss rendering (with alpha):{loss_mse_rendering}")
+                
         if self.opt.lambda_alpha > 0:
-            loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
-            loss_mse_alpha *= _rendering_w_t
+            # loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
+            loss_mse_alpha = (pred_alphas - gt_masks) ** 2
+            loss_mse_alpha = _rendering_w_t * torch.mean(loss_mse_alpha, dim=np.arange(1,loss_mse_alpha.dim()).tolist())
+            loss_mse_alpha = loss_mse_alpha.mean()
             results['loss_alpha'] = loss_mse_alpha
+
             # results['loss_alpha_rendering_w_t'] = loss_mse_alpha
             loss += self.opt.lambda_alpha * loss_mse_alpha
             if self.opt.verbose_main:

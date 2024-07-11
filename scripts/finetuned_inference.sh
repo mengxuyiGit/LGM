@@ -663,7 +663,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'GSO512-sd_decoder-unet_rendering10k' --data_path_rendering /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512 \
+    --desc 'GSO512_savecond-fov60-fted_lgm0003-9k-Eulerscheduler-fted60_svd_decoder_20240708-050809' --data_path_rendering /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512 \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
     --set_random_seed --batch_size 1 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -672,14 +672,21 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --decoder_upblocks_interpolate_mode "last_layer" --codes_from_encoder \
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
-    --bg 1.0 --fovy 50 --rendering_loss_use_weight_t \
+    --bg 1.0 --fovy 60 --rendering_loss_use_weight_t \
     --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
     --class_emb_cat \
-    --guidance_scale 2.0 --render_video  --metric_GSO \
+    --guidance_scale 2.0 --render_video  --metric_GSO --save_cond \
     --only_train_attention \
-    --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
-    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors
+    --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july/20240708-050809-svd-decoder-fted_lgm-resume6k-loss_render1.0_splatter2.0_lpips2.0-lr0.0001-Plat5/eval_global_step_30000_ckpt/model.safetensors \
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_9000_ckpt/model.safetensors
 
+    # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00002-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_6000_ckpt/model.safetensors
+    # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_8500_ckpt/model.safetensors
+    # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_4000_ckpt/model.safetensors
+    
+    #  --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00002-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_4000_ckpt/model.safetensors
+
+    # --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
 
 # # [Jun 30] view single vioew splatter, inference diffusion trained with rendering loss 
 # accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference.py big \
