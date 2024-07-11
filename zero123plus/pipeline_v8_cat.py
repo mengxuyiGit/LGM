@@ -998,7 +998,8 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
     def prepare(self, random_init_unet=False, class_emb_cat=False, num_attributes=5):
         print("[pipe-v8]")
         train_sched = DDPMScheduler.from_config(self.scheduler.config)
-        self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
+        # self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
+        self.scheduler = train_sched
         
         # Random init unet weights
         if random_init_unet: 

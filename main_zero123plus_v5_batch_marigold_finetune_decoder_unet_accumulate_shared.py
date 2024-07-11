@@ -170,6 +170,7 @@ def main():
                     accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
             else:
                 accelerator.print(f'[WARN] unexpected param {k}: {v.shape}')
+        
     
     # we allow resume from both decoder and unet
     if opt.resume_decoder is not None:
@@ -231,6 +232,7 @@ def main():
                     
         print("Finish loading trained unet.")
     
+    del ckpt
     torch.cuda.empty_cache()
     
     train_dataset = Dataset(opt, training=True)
@@ -269,9 +271,11 @@ def main():
         for name, para in model.vae.decoder.named_parameters():
             parameters_list.append(para)
             para.requires_grad = True
-       
+    else:
+        for name, para in model.vae.decoder.named_parameters():
+            para.requires_grad = False
         
-    elif opt.train_unet:
+    if opt.train_unet:
         # print_grad_status(model.unet, file_path=f"{opt.workspace}/model_grad_status_before.txt")
         # print("before ")
         if accelerator.is_main_process:
@@ -461,6 +465,10 @@ def main():
                     writer.add_scalar('train/loss_latent', loss_latent.item(), global_step)
                     writer.add_scalar('train/loss_splatter', loss_splatter.item(), global_step)
                     writer.add_scalar('train/loss_splatter_lpips', loss_splatter_lpips.item(), global_step)
+                    if 'loss_rendering' in out.keys():
+                        writer.add_scalar('train/loss_rendering', out['loss_rendering'].item(), global_step) 
+                    if 'loss_lpips' in out.keys():
+                        writer.add_scalar('train/loss_lpips', out['loss_lpips'].item(), global_step) 
                     if opt.log_each_attribute_loss:
                         for _attr in ordered_attr_list:
                             writer.add_scalar(f'train/loss_{_attr}',  out[f"loss_{_attr}"].detach().item(), global_step)
