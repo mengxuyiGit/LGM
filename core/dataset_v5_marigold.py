@@ -266,9 +266,9 @@ class ObjaverseDataset(Dataset):
 
          # naive split
         if self.training:
-            self.items = self.items[:-self.opt.batch_size*4]
+            self.items = self.items[:-self.opt.batch_size*10]
         else:
-            self.items = self.items[-self.opt.batch_size*4:]
+            self.items = self.items[-self.opt.batch_size*10:]
 
         if self.opt.overfit_one_scene:
             self.items = self.items[0:1]

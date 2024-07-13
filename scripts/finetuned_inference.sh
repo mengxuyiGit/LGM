@@ -654,16 +654,17 @@ DATA_RENDERING_ROOT_GSO=/home/xuyimeng/Data/gso/liuyuan/view1
 #     # --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_june/00000-sd_decoder-bsz32-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-skip_predict_x0-loss_render0.1_splatter1.0_lpips0.1-lr2e-06-Plat5/eval_global_step_27000_ckpt/model.safetensors \
 #     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june/00024-train_unet-RENDERING_LOSS-resume00019_timeproj20k_sd_decoder-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render10.0_lpips10.0-lr4e-06-Plat50/eval_global_step_32000_ckpt/model.safetensors
 
+# /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
 
-
-# [Jul 3] apply the above combination on GSO
+# [Jul 12] apply the above combination on GSO
+export CUDA_VISIBLE_DEVICES=6
 accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_unet_accumulate_shared_inference_GSO.py big \
     --workspace runs/finetune_unet/workspace_inference_GSO \
     --lr 1e-4 --num_epochs 10001 --eval_iter 20 --save_iter 20 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'GSO512_savecond-fov60-fted_lgm0003-9k-Eulerscheduler-fted60_svd_decoder_20240708-050809' --data_path_rendering /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512 \
+    --desc 'lyview1_savecond-fov60-fted_lgm0003-4k-Eulerscheduler-fted60_svd_decoder_20240708-050809' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
     --set_random_seed --batch_size 1 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -678,8 +679,18 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --guidance_scale 2.0 --render_video  --metric_GSO --save_cond \
     --only_train_attention \
     --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july/20240708-050809-svd-decoder-fted_lgm-resume6k-loss_render1.0_splatter2.0_lpips2.0-lr0.0001-Plat5/eval_global_step_30000_ckpt/model.safetensors \
-    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_9000_ckpt/model.safetensors
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_4000_ckpt/model.safetensors
 
+    # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00005-train_unet-fted_LGM_fov60-resume_july0002_4.5k-train_unet-numV10-loss-lr1e-05-Plat50/eval_global_step_5500_ckpt/model.safetensors
+    
+    
+    # [svd with GAN loss]
+    # --use_video_decoderST --resume_decoder /home/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train_july/20240714-resume_disc-GradPenalty_1e-3-acc64-hinge_discriminator_ddp_GAN_d_loss_thres0.6-cnt5-loss_render5.0_splatter1.0_lpips5.0-lr0.0001-Plat5/eval_global_step_2350_ckpt/model.safetensors \
+    # --use_video_decoderST --resume_decoder /home/xuyimeng/Repo/LGM/runs/finetune_decoder/workspace_train_july/20240714-resume_disc-GradPenalty_1e-3-acc64-hinge_discriminator_ddp_GAN_d_loss_thres0.6-cnt5-loss_render5.0_splatter1.0_lpips5.0-lr0.0001-Plat5/eval_global_step_2350_ckpt \
+
+    # [svd with only l2/lpips]
+    # --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july/20240708-050809-svd-decoder-fted_lgm-resume6k-loss_render1.0_splatter2.0_lpips2.0-lr0.0001-Plat5/eval_global_step_30000_ckpt/model.safetensors \
+    
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00002-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_6000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_8500_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_4000_ckpt/model.safetensors
