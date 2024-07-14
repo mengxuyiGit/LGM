@@ -836,8 +836,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     F.interpolate(pred_alphas.view(-1, 1, self.opt.output_size, self.opt.output_size), (128, 128), mode='bilinear', align_corners=False),
                     F.interpolate(gt_masks.view(-1, 1, self.opt.output_size, self.opt.output_size), (128, 128), mode='bilinear', align_corners=False), 
                 )
-            print("loss_mse_rendering: ", loss_mse_rendering)
-            print(f"_rendering_w_t: {_rendering_w_t}")
+            # print("loss_mse_rendering: ", loss_mse_rendering)
+            # print(f"_rendering_w_t: {_rendering_w_t}\n")
             loss_mse_rendering *= _rendering_w_t
             results['loss_rendering'] = loss_mse_rendering
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
