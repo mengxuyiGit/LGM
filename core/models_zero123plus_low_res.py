@@ -349,6 +349,10 @@ class Zero123PlusLowRes(nn.Module):
             t = torch.randint(0, self.pipe.scheduler.timesteps.max(), (1,), device=latents_all_attr_encoded.device).repeat(B)
             t = t.unsqueeze(1).repeat(1,A)
             # print(t)
+            if save_path is not None:
+                t = torch.ones_like(t) * 500
+                print("Fixed t at eval steps: ", t)
+        
             
             if self.opt.xyz_zero_t:
                 t[:,0] = torch.min(10 * torch.ones_like(t[:,0]), t[:,0])
