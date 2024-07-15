@@ -97,9 +97,10 @@
 # LOG_DIR=/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train/20240554-rendering_loss-only_train_attention-v7-sp_guide_1-codes_from_encoder-v0_unfreeze_all-pred128_last_layer-train_unet-loss_render1.0_lpips1.0-lr1e-05-Plat50
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_overfit_june
-LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july
+# LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july
+LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july
 
-TB_PORT=6147
+TB_PORT=6145
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
 
 TB_FOLDER=$1
