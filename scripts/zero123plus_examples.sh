@@ -4,14 +4,14 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/kostas-graid/datasets/xuyimeng/lvis/d
 # DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lvis/data_processing_finetuned_lgm_fov60_8epochs/testing
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
-# export CUDA_VISIBLE_DEVICES=6
-accelerate launch --main_process_port 29518 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_0123++_low_res.py big \
-    --workspace runs/finetune_0123++/workspace_debug \
+# # export CUDA_VISIBLE_DEVICES=6
+accelerate launch --main_process_port 29518 --config_file acc_configs/gpu6.yaml main_zero123plus_v5_batch_marigold_finetune_0123++_low_res.py big \
+    --workspace runs/finetune_0123++/workspace_train_july \
     --lr 1e-5 --max_train_steps 100000 --eval_iter 500 --save_iter 1000 --lr_scheduler Plat \
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
-    --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 6 \
+    --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 4 --num_views 4 \
     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
-    --desc 'res320-b4_g6_acc2_encode_decode' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc '4views-res320-b4_g6_acc2_encode_decode' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
     --set_random_seed \
     --model_type Zero123PlusLowRes \
@@ -33,9 +33,9 @@ accelerate launch --main_process_port 29518 --config_file acc_configs/gpu1.yaml 
 #     --workspace runs/finetune_0123++/workspace_inference \
 #     --lr 4e-6 --max_train_steps 100000 --eval_iter 500 --save_iter 1000 --lr_scheduler Plat \
 #     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
-#     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 6 \
+#     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 4 --num_views 4 \
 #     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
-#     --desc 'inference-8k-encode_decode_rgb320' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} --metric_GSO \
+#     --desc '4views-inference-8k-encode_decode_rgb320' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} --metric_GSO \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
 #     --set_random_seed \
 #     --model_type Zero123PlusLowRes \

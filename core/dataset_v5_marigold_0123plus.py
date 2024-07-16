@@ -317,7 +317,14 @@ class ObjaverseDataset(Dataset):
         # else:
         #     vids = np.arange(1, 7)[:self.opt.num_input_views].tolist() + np.arange(7, 56).tolist()
 
-        vids = np.arange(1, 7) # only load the 6 views
+      
+        if self.opt.num_input_views == 4:
+            vids = [np.arange(1, 7)[_index] for _index in [0, 2, 4, 5]]
+        elif self.opt.num_input_views == 6:
+            vids = np.arange(1, 7) # only load the 6 views
+        else:
+            raise NotImplementedError
+        # print(vids)
 
         cond_path = os.path.join(uid, f'000.png')
         # cond = to_rgb_image(Image.open("/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/data_test/anya_rgba.png"))
@@ -402,7 +409,7 @@ class ObjaverseDataset(Dataset):
         if self.opt.model_type == 'LGM':
             images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
-        results['input'] = einops.rearrange(images_input, "(m n) c h w -> c (m h) (n w)", m=3, n=2) * 2 - 1 # maps to [-1,1]
+        results['input'] = einops.rearrange(images_input, "(m n) c h w -> c (m h) (n w)", n=2) * 2 - 1 # maps to [-1,1]
         # results['masks_input'] = masks_input
         # results['input_white'] = images_input_white
 

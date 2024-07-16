@@ -301,7 +301,8 @@ class Zero123PlusLowRes(nn.Module):
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
-            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+            m = self.opt.num_input_views // 2
+            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=m, n=2)
 
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
@@ -607,7 +608,8 @@ class Zero123PlusLowRes(nn.Module):
         image_all_attr_to_decode = (image_all_attr_to_decode + 1) * 0.5 
         
         # return results
-        pred_images = einops.rearrange(image_all_attr_to_decode, "b c (m h) (n w) -> b (m n) c h w", m=3, n=2)
+        m = self.opt.num_input_views // 2
+        pred_images = einops.rearrange(image_all_attr_to_decode, "b c (m h) (n w) -> b (m n) c h w", m=m, n=2)
         results['images_pred'] = pred_images
         
         # l2 loss and lpips loss with "image_out"
