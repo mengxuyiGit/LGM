@@ -175,7 +175,10 @@ class Zero123PlusLowRes(nn.Module):
         
         num_attributes = 1
         print("num_attributes is: ",num_attributes)
-        self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat,
+        if opt.custom_pipeline =="./zero123plus/pipeline_v2.py":
+            self.pipe.prepare()
+        else:
+            self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat,
                           num_attributes=num_attributes) 
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()

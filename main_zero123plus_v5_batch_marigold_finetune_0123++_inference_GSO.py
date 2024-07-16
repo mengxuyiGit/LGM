@@ -138,7 +138,7 @@ def main():
             dest_file = os.path.join(src_snapshot_folder, file)
             shutil.copy2(file, dest_file)
         
-    assert (opt.resume_decoder is not None) or (opt.resume_unet is not None)
+    assert (opt.resume_decoder is not None) or (opt.resume_unet is not None) or opt.custom_pipeline=="./zero123plus/pipeline_v2.py"
     if opt.resume is not None:
         print(f"Resume from ckpt: {opt.resume}")
         if opt.resume.endswith('safetensors'):
@@ -393,7 +393,9 @@ def main():
                 model.pipe.scheduler.set_timesteps(30, device='cuda:0')
                 
                 timesteps = model.pipe.scheduler.timesteps.to(torch.int)
-                latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
+                latent_size = opt.input_size // 8
+                # latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
+                latents = torch.randn(num_A, 4, latent_size*3, latent_size*2, device='cuda:0', dtype=torch.float32)
                 
                 domain_embeddings = torch.eye(5).to(latents.device)
                 if opt.train_unet_single_attr is not None:

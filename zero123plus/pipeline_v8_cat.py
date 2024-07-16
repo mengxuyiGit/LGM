@@ -1045,8 +1045,8 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
     @torch.no_grad()
     def prepare_conditions(self, image: Image.Image, depth_image: Image.Image = None, guidance_scale=4.0, prompt="", num_images_per_prompt=1):
         # image = to_rgb_image(image)
-        image_1 = self.feature_extractor_vae(images=image, return_tensors="pt").pixel_values
-        image_2 = self.feature_extractor_clip(images=image, return_tensors="pt").pixel_values
+        image_1 = self.feature_extractor_vae(images=image, return_tensors="pt").pixel_values # 512
+        image_2 = self.feature_extractor_clip(images=image, return_tensors="pt").pixel_values # 224
         if depth_image is not None and hasattr(self.unet, "controlnet"):
             depth_image = to_rgb_image(depth_image)
             depth_image = self.depth_transforms_multi(depth_image).to(
@@ -1055,13 +1055,15 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         image = image_1.to(device=self.vae.device, dtype=self.vae.dtype)
         image_2 = image_2.to(device=self.vae.device, dtype=self.vae.dtype)
 
-        cond_lat = self.encode_condition_image(image)
+        cond_lat = self.encode_condition_image(image) # 512 image -> cond_lat: [1, 4, 64, 64]
+        
         if guidance_scale > 1:
             negative_lat = self.encode_condition_image(torch.zeros_like(image))
             cond_lat = torch.cat([negative_lat, cond_lat])
-        encoded = self.vision_encoder(image_2, output_hidden_states=False)
-        global_embeds = encoded.image_embeds
-        global_embeds = global_embeds.unsqueeze(-2)
+        encoded = self.vision_encoder(image_2, output_hidden_states=False) # 320 image -> encoded: 
+        global_embeds = encoded.image_embeds # [1,1024]
+        global_embeds = global_embeds.unsqueeze(-2) # 512 image -> global_embeds: 1024
+
         
         if hasattr(self, "encode_prompt"):
             encoder_hidden_states = self.encode_prompt(
