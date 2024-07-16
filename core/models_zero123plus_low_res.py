@@ -609,7 +609,9 @@ class Zero123PlusLowRes(nn.Module):
         
         # return results
         m = self.opt.num_input_views // 2
-        pred_images = einops.rearrange(image_all_attr_to_decode, "b c (m h) (n w) -> b (m n) c h w", m=m, n=2)
+        # st()
+        # pred_images = einops.rearrange(image_all_attr_to_decode, "b c (m h) (n w) -> b (m n) c h w", m=m, n=2)
+        pred_images = einops.rearrange(image_all_attr_to_decode, "(b a) c (m h) (n w) -> b (a m n) c h w", a=A, m=m, n=2)
         results['images_pred'] = pred_images
         
         # l2 loss and lpips loss with "image_out"
