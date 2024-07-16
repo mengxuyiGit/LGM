@@ -395,7 +395,8 @@ def main():
                 timesteps = model.pipe.scheduler.timesteps.to(torch.int)
                 latent_size = opt.input_size // 8
                 # latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
-                latents = torch.randn(num_A, 4, latent_size*3, latent_size*2, device='cuda:0', dtype=torch.float32)
+                m = opt.num_input_views // 2
+                latents = torch.randn(num_A, 4, latent_size*m, latent_size*2, device='cuda:0', dtype=torch.float32)
                 
                 domain_embeddings = torch.eye(5).to(latents.device)
                 if opt.train_unet_single_attr is not None:
@@ -496,7 +497,8 @@ def main():
                     decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=1, A=num_A)
                     images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
                     images_to_save = (images_to_save + 1) * 0.5
-                    images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+                    m = opt.num_input_views // 2
+                    images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=m, n=2)
                     kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
                 
            
