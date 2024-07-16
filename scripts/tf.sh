@@ -98,7 +98,8 @@
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_june
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_overfit_june
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july
-LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july
+# LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july
+LOG_DIR=
 
 TB_PORT=6145
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
