@@ -400,7 +400,7 @@ class ObjaverseDataset(Dataset):
 
        
         images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
-        # masks_input = F.interpolate(masks[:self.opt.num_input_views].clone().unsqueeze(1), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
+        masks_input = F.interpolate(masks[:self.opt.num_input_views].clone().unsqueeze(1), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         # if self.prepare_white_bg:
         #     images_input_white = F.interpolate(images_white[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         # cam_poses_input = cam_poses[:self.opt.num_input_views].clone()
@@ -410,13 +410,17 @@ class ObjaverseDataset(Dataset):
             images_input = TF.normalize(images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
         results['input'] = einops.rearrange(images_input, "(m n) c h w -> c (m h) (n w)", n=2) * 2 - 1 # maps to [-1,1]
-        # results['masks_input'] = masks_input
+        results['masks_input'] = einops.rearrange(masks_input.repeat(1,3,1,1), "(m n) c h w -> c (m h) (n w)", n=2) * 2 - 1 # maps to [-1,1]
         # results['input_white'] = images_input_white
 
         # resize render ground-truth images, range still in [0, 1]
         render_input_views = self.opt.render_input_views
         
-        results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        if self.opt.train_unet_single_attr[0] == 'masks_input':
+            results['images_output'] = masks_input.repeat(1,3,1,1)
+            # print("mask input as images out")
+        else:
+            results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         # results['masks_output'] = F.interpolate(masks.unsqueeze(1), size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
 
         # lgm_images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(256, 256), mode='bilinear', align_corners=False) # [V, C, H, W]

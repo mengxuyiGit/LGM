@@ -614,6 +614,9 @@ class Zero123PlusLowRes(nn.Module):
         
         # l2 loss and lpips loss with "image_out"
         gt_images = data['images_output']
+        # Image.fromarray(einops.rearrange(gt_images[0]*255, "v c h w -> h (v w) c").detach().cpu().numpy().astype(np.uint8)).save("images_output.png")
+        # st()
+        
         
         if self.opt.lambda_rendering > 0:
             loss_mse_rendering = F.mse_loss(pred_images, gt_images)
