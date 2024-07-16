@@ -416,13 +416,16 @@ class ObjaverseDataset(Dataset):
         # resize render ground-truth images, range still in [0, 1]
         render_input_views = self.opt.render_input_views
         
-        if self.opt.train_unet_single_attr[0] == 'masks_input':
-            results['images_output'] = masks_input.repeat(1,3,1,1)
-            # print("mask input as images out")
-        else:
-            results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+     
+        results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         # results['masks_output'] = F.interpolate(masks.unsqueeze(1), size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-
+        if 'masks_input' in self.opt.train_unet_single_attr and len(self.opt.train_unet_single_attr)==1:
+            results['masks_output'] = masks_input.repeat(1,3,1,1)
+        elif 'masks_input' in self.opt.train_unet_single_attr and len(self.opt.train_unet_single_attr)==2:
+            results['images_output'] = torch.cat([results['images_output'], masks_input.repeat(1,3,1,1)])
+            # print("mask input as images out")
+       
+       
         # lgm_images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(256, 256), mode='bilinear', align_corners=False) # [V, C, H, W]
         # lgm_images_input = TF.normalize(lgm_images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
