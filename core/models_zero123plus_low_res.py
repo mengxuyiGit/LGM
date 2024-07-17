@@ -173,8 +173,9 @@ class Zero123PlusLowRes(nn.Module):
         ).to('cuda')
 
         
-        num_attributes = 1
+        num_attributes = len(opt.train_unet_single_attr) if opt.train_unet_single_attr is not None else 5
         print("num_attributes is: ",num_attributes)
+        self.num_attributes = num_attributes
         if opt.custom_pipeline =="./zero123plus/pipeline_v2.py":
             self.pipe.prepare()
         else:
@@ -296,6 +297,7 @@ class Zero123PlusLowRes(nn.Module):
         images_all_attr_batch = torch.stack(images_all_attr_list)
     
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
+        assert A == self.num_attributes
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
         
         if save_path is not None:    
@@ -324,6 +326,7 @@ class Zero123PlusLowRes(nn.Module):
         # prepare cond and t
         BA,C,H,W = gt_latents.shape # should be (B A) c h w
         assert (BA == B * A) or (self.opt.cd_spatial_concat)
+        
 
         if self.opt.finetune_decoder:
             latents_all_attr_to_decode = gt_latents

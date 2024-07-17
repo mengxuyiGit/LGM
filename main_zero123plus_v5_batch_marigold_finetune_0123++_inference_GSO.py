@@ -384,7 +384,7 @@ def main():
             with torch.no_grad():
                 guidance_scale = opt.guidance_scale
                 
-                num_A = 1 
+                num_A = len(opt.train_unet_single_attr) if opt.train_unet_single_attr is not None else 5
                 prompt_embeds, cak = model.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
                 prompt_embeds = torch.cat([prompt_embeds[0:1]]*num_A + [prompt_embeds[1:]]*num_A, dim=0) # torch.Size([10, 77, 1024])
                 cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*num_A + [cak['cond_lat'][1:]]*num_A, dim=0)

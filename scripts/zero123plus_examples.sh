@@ -11,7 +11,7 @@ accelerate launch --main_process_port 29518 --config_file acc_configs/gpu4.yaml 
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 4 --num_views 4 \
     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
-    --desc 'mask&image_320-4views-res320-b3_g4_acc2' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'mask&image_NumAttr2_320-4views-res320-b3_g4_acc2' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
     --set_random_seed \
     --model_type Zero123PlusLowRes \
@@ -35,7 +35,7 @@ accelerate launch --main_process_port 29518 --config_file acc_configs/gpu4.yaml 
 #     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
 #     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 4 --num_views 4 \
 #     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
-#     --desc 'mask-4views-inference-2k-encode_decode_rgb320' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} --metric_GSO \
+#     --desc 'mask&image320_NumAttr2-4views-inference-2k-encode_decode_rgb320' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} --metric_GSO \
 #     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
 #     --set_random_seed \
 #     --model_type Zero123PlusLowRes \
@@ -44,8 +44,9 @@ accelerate launch --main_process_port 29518 --config_file acc_configs/gpu4.yaml 
 #     --inference_finetuned_unet --class_emb_cat  --drop_cond_prob 0.1 --only_train_attention \
 #     --batch_size 1 --num_workers 1 --gradient_accumulation_steps 1 \
 #     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
-#     --train_unet_single_attr input \
-#     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july/00003-mask-4views-res320-b6_g6_acc1-train_unet-numV4-loss-lr1e-05-Plat50/eval_global_step_11000_ckpt/model.safetensors
+#     --train_unet_single_attr input masks_input \
+#     --resume_unet '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july/00004-mask&image_320-4views-res320-b3_g4_acc2-train_unet-numV4-loss-lr1e-05-Plat50/eval_global_step_30000_ckpt/model.safetensors'
+#     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july/00003-mask-4views-res320-b6_g6_acc1-train_unet-numV4-loss-lr1e-05-Plat50/eval_global_step_11000_ckpt/model.safetensors
 #     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july/00002-4views-res320-b4_g6_acc2_encode_decode-train_unet-numV4-loss-lr1e-05-Plat50/eval_global_step_2000_ckpt/model.safetensors
 #     # --resume_unet runs/finetune_0123++/workspace_train_july/00001-res320-b4_g6_acc2_encode_decode-train_unet-numV6-loss-lr1e-05-Plat50/eval_global_step_8000_ckpt/model.safetensors
 
