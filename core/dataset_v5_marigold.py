@@ -183,6 +183,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             # sp_min, sp_max = -3, 3
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
+            sp_image = torch.zeros_like(sp_image)
         elif attr_to_encode == "rgbs":
             pass
         
@@ -229,6 +230,9 @@ class ObjaverseDataset(Dataset):
         
         for scene_path in all_scene_paths:
 
+            if len(self.data_path_vae_splatter) > 40:
+                break
+                
             if self.opt.overfit_one_scene and len(self.data_path_vae_splatter) > 13:
                 break
    

@@ -415,10 +415,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
         
+
+        # upsample splatter to 320
+        images_all_attr_batch = einops.rearrange(images_all_attr_batch, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
+        images_all_attr_batch = F.interpolate(images_all_attr_batch, (320, 320), mode="nearest")
+        images_all_attr_batch = einops.rearrange(images_all_attr_batch, "(b m n) c h w -> b c (m h) (n w)", m=3, n=2)
+        
+        
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+
 
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
@@ -572,20 +580,17 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     ## all in no_grad context
                     
                     # same t for all domain
-                    fake_noise_max = 10
+                    fake_noise_max = 50
                     t = torch.randint(0, fake_noise_max, (B,), device=latents_all_attr_encoded.device)
                     t = t.unsqueeze(1).repeat(1,A)
                     
                     t = torch.ones_like(t) * fake_noise_max
-                    _noise_level = 0
-                    # only add noise to xyz, not other latents
-                    t[:,-1] += _noise_level
+                    # _noise_level = 0
+                    # # only add noise to xyz, not other latents
+                    # t[:,-1] += _noise_level
                     
                     t = t.view(-1)
-                   
                     print(t)
-                    if save_path is not None:
-                        print(f"noise level = {_noise_level}")
                     
                     noise = torch.randn_like(gt_latents, device=gt_latents.device)
                     noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)

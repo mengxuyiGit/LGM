@@ -328,7 +328,7 @@ accelerate launch --main_process_port 29516 --config_file acc_configs/gpu1.yaml 
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 0 --lambda_rendering 10 --lambda_alpha 0 --lambda_lpips 10 --lambda_splatter_lpips 0 \
-    --desc 'train_refine_net_f50a50-lr4e-5-lgm_decoded_fov60-Not_resume_decoder' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'train_refine_net_upsample_splatter320-f50a50-lr4e-5-lgm_decoded_fov60-Not_resume_decoder' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
     --set_random_seed \
     --splatter_guidance_interval 1 --save_train_pred -1 --decode_splatter_to_128 \
@@ -337,7 +337,7 @@ accelerate launch --main_process_port 29516 --config_file acc_configs/gpu1.yaml 
     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 60 --rendering_loss_use_weight_t \
     --train_refine_net --class_emb_cat \
-    --batch_size 6 --num_workers 1 --gradient_accumulation_steps 1 \
+    --batch_size 1 --num_workers 1 --gradient_accumulation_steps 1 \
     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
     --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00009-train_unet-sd_encoder-fted_LGM_fov60-resume00008_total13k-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_12000_ckpt/model.safetensors \
     --drop_cond_prob 0.1 --refinement_network ptv3
