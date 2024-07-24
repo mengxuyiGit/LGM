@@ -1,7 +1,10 @@
-# [MAY 23] Parallel with finetune decoder, same training code, controled with flag
+# # [MAY 23] Parallel with finetune decoder, same training code, controled with flag
+# DATA_RENDERING_ROOT_LVIS_46K=/mnt/lingjie_cache/lvis_dataset/testing
+# DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
+# [July] finetune LGM to FOV60
 DATA_RENDERING_ROOT_LVIS_46K=/mnt/lingjie_cache/lvis_dataset/testing
-DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/lingjie_cache/lvis_splatters/testing
-    
+DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/kostas-graid/datasets/xuyimeng/lvis/data_processing_finetuned_lgm_fov60_8epochs/testing
+
 
 # # [MAY 30] Not use zero123++ weights, but load SD weights for finetuning
 # export CUDA_VISIBLE_DEVICES=0,1
