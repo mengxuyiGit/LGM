@@ -176,8 +176,11 @@ def main():
         for k in trained_unet_parameters:
             v = ckpt[k]
             if k in state_dict and state_dict[k].shape == v.shape:
-                print(f"Copying {k}")
-                state_dict[k].copy_(v)
+                if "class_embedding" in k:
+                    print(f"Passing {k}")
+                else:
+                    # print(f"Copying {k}")
+                    state_dict[k].copy_(v)
             else:
                 if k not in state_dict:
                     accelerator.print(f"[WARN] Parameter {k} not found in model. ")

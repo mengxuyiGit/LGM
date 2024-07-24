@@ -105,7 +105,7 @@ def main():
 
 
     def is_selected_trainable(name):
-        for _key in [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]:
+        for _key in [ "time_emb_proj", "conv_norm_out", "conv_out"]:
         # for _key in [ "time_emb_proj",  "class_embedding"]:
             if _key in name:
                 print(f"{name} also trainable")
@@ -222,7 +222,8 @@ def main():
             if k in state_dict: 
                 if state_dict[k].shape == v.shape:
                     # print("... copying ", k)
-                    print(f"Copying {k}")
+                    if "class_embedding" in k:
+                        print(f"Copying {k}")
                     state_dict[k].copy_(v)
                 else:
                     accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')

@@ -139,6 +139,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         self.pos_embed = None
         
         self.A = num_attributes
+
+        self.train_temporal_attn = False
         
     
     def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int):
@@ -186,25 +188,30 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
             st()
             hidden_states = hidden_states.squeeze(1)
         
-        # joint attention twice
-        ## concat all domain as a big sequence
-        # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
-        hidden_states = einops.rearrange(hidden_states, "(B A) S C -> B (A S) C", A=self.A )
-        # torch.Size([1, 20480, 320])
-        norm_hidden_states = (
-            self.norm_joint_mid(hidden_states) # timestamp if self.use_ada_layer_norm else self.norm_joint_mid(hidden_states)
-        )
-
-        if self.pos_embed is not None: # and self.norm_type != "ada_norm_single":
-            st()
-            # print("norm_hidden_states: ", norm_hidden_states.shape)
-            norm_hidden_states = self.pos_embed(norm_hidden_states)
+       
+        if self.train_temporal_attn:
+            print("training temporal attn")
+            # joint attention twice
+            ## concat all domain as a big sequence
+            # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
+            hidden_states = einops.rearrange(hidden_states, "(B A) S C -> B (A S) C", A=self.A )
             
-        hidden_states = self.attn_joint_mid(norm_hidden_states) + hidden_states
-        # st() # torch.Size([8, 2560, 320])
-        # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=1, V=8)
-        hidden_states = einops.rearrange(hidden_states, "B (A S) C -> (B A) S C", A=self.A )
-        # st() # torch.Size([5, 4096, 320])
+            # torch.Size([1, 20480, 320])
+            norm_hidden_states = (
+                self.norm_joint_mid(hidden_states) # timestamp if self.use_ada_layer_norm else self.norm_joint_mid(hidden_states)
+            )
+
+            if self.pos_embed is not None: # and self.norm_type != "ada_norm_single":
+                st()
+                # print("norm_hidden_states: ", norm_hidden_states.shape)
+                norm_hidden_states = self.pos_embed(norm_hidden_states)
+                
+            hidden_states = self.attn_joint_mid(norm_hidden_states) + hidden_states
+            # st() # torch.Size([8, 2560, 320])
+            
+            # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=1, V=8)
+            hidden_states = einops.rearrange(hidden_states, "B (A S) C -> (B A) S C", A=self.A )
+            # st() # torch.Size([5, 4096, 320])
         
         # hidden_states.shape: torch.Size([5, 4096, 320])
         # 3. Cross-Attention
@@ -461,6 +468,9 @@ def forward_unet(
         class_emb = unet.get_class_embed(sample=sample, class_labels=class_labels)
         # print("[UNet2DConditionModel -> forward()] class_emb: ", class_emb)
         if class_emb is not None:
+            # st()
+            class_emb *= 10
+            # print("scale class_emb by 10")
             if unet.config.class_embeddings_concat:
                 emb = torch.cat([emb, class_emb], dim=-1)
             else:
@@ -468,7 +478,7 @@ def forward_unet(
 
         aug_emb = unet.get_aug_embed(
             emb=emb, encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs
-        )
+        ) # None
         if unet.config.addition_embed_type == "image_hint":
             aug_emb, hint = aug_emb
             sample = torch.cat([sample, hint], dim=1)
@@ -476,6 +486,7 @@ def forward_unet(
         emb = emb + aug_emb if aug_emb is not None else emb
 
         if unet.time_embed_act is not None:
+            # None
             emb = unet.time_embed_act(emb)
 
         encoder_hidden_states = unet.process_encoder_hidden_states(
