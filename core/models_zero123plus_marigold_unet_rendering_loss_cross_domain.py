@@ -243,14 +243,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 self.register_buffer("decoder_domain_embedding", repeat_e)
                 # self.decoder_domain_embedding = repeat_e
     
-        if self.opt.train_unet:
-            self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
-        else:
+        if self.opt.inference_finetuned_unet:
             print("EulerAncestralDiscreteScheduler")
             self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
                     self.pipe.scheduler.config, timestep_spacing='trailing'
                 )
-        
+        else:
+            self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
         print(f"drop cond with prob {self.opt.drop_cond_prob}")
     
         # Gaussian Renderer
@@ -382,7 +381,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         loss = 0
         
         if self.opt.train_refine_net:
-            refinement_input = "unet_inference"
+            refinement_input = "unet_train"
             
             # if save_path is not None:
             #     refinement_input = "unet_inference"
@@ -391,7 +390,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             #     elements = ["lgm", "lgm_decoded", "unet_inference"]
             #     probabilities = [0.2, 0.2, 0.6]
             #     refinement_input = weighted_random_choice(elements, probabilities)
-            print(f"Selected refinement element: {refinement_input}")
+            
+            if save_path is not None:
+                print(f"Selected refinement element: {refinement_input}")
         else:
             refinement_input = None
         
@@ -479,12 +480,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 # print(cond_t, cond_t.shape)
                 t[:,0] = cond_t # xyz
                 t[:,1] = cond_t # opacity
-                
-            # if self.opt.different_t_schedule is not None:
-            #     schedule_offset = torch.tensor(self.opt.different_t_schedule, device=t.device).unsqueeze(0)
-            #     new_t = t + schedule_offset
-            #     t = torch.clamp(new_t, min=0, max=self.pipe.scheduler.timesteps.max())
-            
+       
             t = t.view(-1)
             # print("batch t=", t)
             
@@ -509,7 +505,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
             # v-prediction with unet: (B A) 4 48 32
             v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
-
+ 
             # get v_target
             alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
                 device=noisy_latents.device, dtype=noisy_latents.dtype
@@ -560,6 +556,68 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 latents_all_attr_to_decode = gt_latents
                 _rendering_w_t = 1   
             
+            elif refinement_input in ["unet_train"]:
+
+                cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
+            
+                # unet 
+                with torch.no_grad():
+                    # classifier-free guidance
+                    if np.random.rand() < self.opt.drop_cond_prob:
+                        cond = torch.zeros_like(cond)
+                
+                    text_embeddings, cross_attention_kwargs = self.pipe.prepare_conditions(cond, guidance_scale=1.0)
+                    cross_attention_kwargs_stu = cross_attention_kwargs        
+                    
+                    ## all in no_grad context
+                    
+                    # same t for all domain
+                    fake_noise_max = 10
+                    t = torch.randint(0, fake_noise_max, (B,), device=latents_all_attr_encoded.device)
+                    t = t.unsqueeze(1).repeat(1,A)
+                    
+                    t = torch.ones_like(t) * fake_noise_max
+                    _noise_level = 0
+                    # only add noise to xyz, not other latents
+                    t[:,-1] += _noise_level
+                    
+                    t = t.view(-1)
+                   
+                    print(t)
+                    if save_path is not None:
+                        print(f"noise level = {_noise_level}")
+                    
+                    noise = torch.randn_like(gt_latents, device=gt_latents.device)
+                    noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
+                    
+                    domain_embeddings = torch.eye(5).to(noisy_latents.device)
+                    domain_embeddings = torch.cat([
+                        torch.sin(domain_embeddings),
+                        torch.cos(domain_embeddings)
+                    ], dim=-1)
+                    domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:]) # repeat for batch
+
+                    # v-prediction with unet: (B A) 4 48 32
+                    v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
+                    
+                    alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
+                        device=noisy_latents.device, dtype=noisy_latents.dtype
+                    )
+                    alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
+                    sigma_t = ((1 - alphas_cumprod[t]) ** 0.5).view(-1, 1, 1, 1)
+                    v_target = alpha_t * noise - sigma_t * gt_latents # (B A) 4 48 32
+
+                    # calculate x0 from v_pred
+                    noise_pred = noisy_latents * sigma_t.view(-1, 1, 1, 1) + v_pred * alpha_t.view(-1, 1, 1, 1)
+                    # latents_all_attr_to_decode = (noisy_latents - noise_pred * sigma_t) / alpha_t
+                    latents_all_attr_to_decode = noisy_latents
+                    
+                    assert latents_all_attr_to_decode.shape == latents_all_attr_encoded.shape
+                    
+                    _alpha_t = einops.rearrange(alpha_t.flatten(), "(B A)-> B A", B=B, A=A)[:,0]
+                    _rendering_w_t = _alpha_t ** 2 # shape [B]
+                
+                
             elif refinement_input in ["unet_inference"]:
                 guidance_scale = self.opt.guidance_scale
                 if True:
@@ -916,6 +974,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
             gaussians_offset_all_attr = self.ptv3_feat2offset(gaussians_offset.feat)
             gaussians_offset_all_attr = einops.rearrange(gaussians_offset_all_attr, "(b n) c -> b n c", b=B, n=gaussians.shape[1])
+            
             gaussians = gaussians + gaussians_offset_all_attr
 
                         

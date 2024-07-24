@@ -272,6 +272,7 @@ class Options:
     resume_refinenet: Optional[str] = None
     inference_refinenet: bool = False
     refinement_input: Optional[Tuple[str,...]] = None
+    refinement_target: Optional[Tuple[str,...]] = None
     
 
 # all the default settings
