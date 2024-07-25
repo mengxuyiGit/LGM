@@ -223,7 +223,8 @@ def main():
             if k in state_dict: 
                 if state_dict[k].shape == v.shape:
                     # print("... copying ", k)
-                    print(f"Copying {k}")
+                    if "class_" in k:
+                        print(f"Copying {k}")
                     state_dict[k].copy_(v)
                 else:
                     accelerator.print(f'[WARN] mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
@@ -300,7 +301,7 @@ def main():
                 parameters_list.append(para)
                 para.requires_grad = True
         
-        st()
+        # st()
     
     else:
         raise NotImplementedError("Only train VAE or UNet")

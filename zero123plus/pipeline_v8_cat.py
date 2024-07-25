@@ -140,7 +140,9 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         
         self.A = num_attributes
 
-        self.train_temporal_attn = False
+        self.train_temporal_attn = True
+        if not self.train_temporal_attn:
+            print("[ATTENTION:] NOT training temporal attn")
         
     
     def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int):
@@ -193,7 +195,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
             # print("training temporal attn")
             # joint attention twice
             ## concat all domain as a big sequence
-            print("self.A:", self.A)
+            # print("self.A:", self.A)
             # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
             hidden_states = einops.rearrange(hidden_states, "(B A) S C -> B (A S) C", A=self.A )
             
@@ -325,7 +327,7 @@ def modify_unet(unet, set_unet_class_embeddings_concat=False, num_attributes=5):
             # elif isinstance(child, ResnetBlock2D):
                 # Create a new ResnetBlock2D with doubled temb_channels
                 # Extract dropout probability
-                print("set ResnetBlock2D")
+                # print("set ResnetBlock2D")
                 dropout_prob = child.dropout.p if isinstance(child.dropout, nn.Dropout) else child.dropout
                 new_resnet = ResnetBlock2D(
                     in_channels=child.in_channels,

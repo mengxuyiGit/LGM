@@ -679,7 +679,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --guidance_scale 2.0 --render_video  --metric_GSO --save_cond \
     --only_train_attention --num_attributes 4 \
     --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july/20240708-050809-svd-decoder-fted_lgm-resume6k-loss_render1.0_splatter2.0_lpips2.0-lr0.0001-Plat5/eval_global_step_30000_ckpt/model.safetensors \
-    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00010-train_unet-fted_LGM_fov60-upsample320-from0123plus_prior-sd_encoder-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_11000_ckpt/model.safetensors
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00010-train_unet-fted_LGM_fov60-upsample320-from0123plus_prior-sd_encoder-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_12000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00009-train_unet-sd_encoder-fted_LGM_fov60-resume00008_total13k-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_12000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_4000_ckpt/model.safetensors
 
