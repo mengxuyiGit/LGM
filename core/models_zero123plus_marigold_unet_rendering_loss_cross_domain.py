@@ -185,7 +185,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
             print("not load pipe_svd")
         
-        num_attributes = 5 if not opt.save_xyz_opacity_for_cascade else 2
+        # num_attributes = 4 if not opt.save_xyz_opacity_for_cascade else 2
+        num_attributes = opt.num_attributes if not opt.save_xyz_opacity_for_cascade else 2
+        self.num_attributes = num_attributes
         print("num_attributes is: ",num_attributes)
         self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat,
                           num_attributes=num_attributes) 
@@ -337,6 +339,11 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
+
+        # upsample splatter to 320
+        images_all_attr_batch = einops.rearrange(images_all_attr_batch, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
+        images_all_attr_batch = F.interpolate(images_all_attr_batch, (320, 320), mode="nearest")
+        images_all_attr_batch = einops.rearrange(images_all_attr_batch, "(b m n) c h w -> b c (m h) (n w)", m=3, n=2)
         
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
@@ -414,16 +421,20 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             #     t = torch.clamp(new_t, min=0, max=self.pipe.scheduler.timesteps.max())
             
             t = t.view(-1)
-            # print("batch t=", t)
             
             if self.opt.fixed_noise_level is not None:
                 t = torch.ones_like(t).to(t.device) * self.opt.fixed_noise_level
                 print(f"fixed noise level = {self.opt.fixed_noise_level}")
             
+            if save_path is not None:
+                t = torch.ones_like(t).to(t.device) * 100
+                print(f"use fixed t at eval iter: {t} ")
+            
+            # print("batch t=", t)
             noise = torch.randn_like(gt_latents, device=gt_latents.device)
             noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
         
-            domain_embeddings = torch.eye(5).to(noisy_latents.device)
+            domain_embeddings = torch.eye(5).to(noisy_latents.device)[:self.num_attributes]
             if self.opt.train_unet_single_attr is not None:
                 domain_embeddings = domain_embeddings[:len(self.opt.train_unet_single_attr)]
             if self.opt.cd_spatial_concat:
@@ -529,7 +540,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     noise_xyz = torch.randn_like(gt_latents_xyz, device='cuda:0', dtype=torch.float32)
                     latents_xyz = self.pipe.scheduler.add_noise(gt_latents_xyz, noise_xyz, xyz_t)
                 
-                domain_embeddings = torch.eye(5).to(latents.device)
+                domain_embeddings = torch.eye(5).to(latents.device)[:self.num_attributes]
                 if self.opt.train_unet_single_attr is not None:
                     # TODO: get index of that attribute
                     domain_embeddings = domain_embeddings[:len(self.opt.train_unet_single_attr)]
@@ -721,26 +732,29 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             decoded_attr_list.append(decoded_attr)
             # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
 
+            # insert rotation into it
+            if i == 2:
+                fake_rotation = torch.zeros_like(batch_attr_image)
+                decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
+                decoded_attr_list.append(decoded_attr)
+                # print(f"[vae.decode after] rotation: {decoded_attr.min(), decoded_attr.max()}")
+                
         if save_path is not None:
-            images_to_save_encode = images_to_save
-            decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
-            images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
-            images_to_save = (images_to_save + 1) * 0.5
-            images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-            # kiui.write_image(f'{save_path}/{prefix}images_all_attr_batch_decoded.jpg', images_to_save)
-            # if A ==1:
-            #     images_to_save = torch.cat([images_to_save_encode, images_to_save], dim=0)
-            #     kiui.write_image(f'{save_path}/{prefix}single_attr_batch_decoded.jpg', images_to_save)
-            # else:
-            images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
-            kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
-            if self.opt.save_cond:
-                # also save the cond image: cond 0-255, uint8
-                if isinstance(cond, PIL.Image.Image):
-                    cond.save(f'{save_path}/{prefix}cond.jpg')
-                else:
-                    cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
-                    Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
+            with torch.no_grad():
+                images_to_save_encode = images_to_save
+                decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
+                images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
+                images_to_save = (images_to_save + 1) * 0.5
+                images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
+                images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
+                kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
+                if self.opt.save_cond:
+                    # also save the cond image: cond 0-255, uint8
+                    if isinstance(cond, PIL.Image.Image):
+                        cond.save(f'{save_path}/{prefix}cond.jpg')
+                    else:
+                        cond_save = einops.rearrange(cond, "b h w c -> (b h) w c")
+                        Image.fromarray(cond_save.cpu().numpy()).save(f'{save_path}/{prefix}cond.jpg')
             
 
         if self.opt.train_unet_single_attr is not None:
@@ -795,6 +809,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
                     decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
                     decoded_attr_list.append(decoded_attr)
+
+                    if i == 2:
+                        fake_rotation = torch.zeros_like(batch_attr_image)
+                        decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
+                        decoded_attr_list.append(decoded_attr)
+                        print(f"inserting rotation: {decoded_attr.min(), decoded_attr.max()}")
+            
+        
                     # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
                 splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
                 splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]

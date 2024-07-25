@@ -190,9 +190,10 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         
        
         if self.train_temporal_attn:
-            print("training temporal attn")
+            # print("training temporal attn")
             # joint attention twice
             ## concat all domain as a big sequence
+            print("self.A:", self.A)
             # hidden_states = einops.rearrange(hidden_states, "(B A) (V S) C -> (B V) (A S) C", A=5, V=8)
             hidden_states = einops.rearrange(hidden_states, "(B A) S C -> B (A S) C", A=self.A )
             
@@ -212,6 +213,8 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
             # hidden_states = einops.rearrange(hidden_states, "(B V) (A S) C -> (B A) (V S) C", A=1, V=8)
             hidden_states = einops.rearrange(hidden_states, "B (A S) C -> (B A) S C", A=self.A )
             # st() # torch.Size([5, 4096, 320])
+        else:
+            print("not training temporal attn")
         
         # hidden_states.shape: torch.Size([5, 4096, 320])
         # 3. Cross-Attention

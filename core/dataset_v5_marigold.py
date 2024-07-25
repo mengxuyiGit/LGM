@@ -135,7 +135,7 @@ attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, e
 ordered_attr_list = ["pos", # 0-3
                 'opacity', # 3-4
                 'scale', # 4-7
-                "rotation", # 7-11
+                # "rotation", # 7-11
                 "rgbs", # 11-14
             ] # must be an ordered list according to the channels
 
@@ -183,6 +183,7 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             # sp_min, sp_max = -3, 3
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
+            sp_image = torch.ones_like(sp_image) * 0.5
         elif attr_to_encode == "rgbs":
             pass
         

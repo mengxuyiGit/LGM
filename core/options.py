@@ -267,6 +267,7 @@ class Options:
     xyz_opacity_for_cascade_dir: str = None
 
     dynamic_threshold: bool = False
+    num_attributes: int = 4
     
 
 # all the default settings

@@ -383,7 +383,8 @@ def main():
             with torch.no_grad():
                 guidance_scale = opt.guidance_scale
                 
-                num_A = 5 if not opt.save_xyz_opacity_for_cascade else 2
+                # num_A = 5 if not opt.save_xyz_opacity_for_cascade else 2
+                num_A = 4 if not opt.save_xyz_opacity_for_cascade else 2
                 prompt_embeds, cak = model.pipe.prepare_conditions(cond, guidance_scale=guidance_scale)
                 prompt_embeds = torch.cat([prompt_embeds[0:1]]*num_A + [prompt_embeds[1:]]*num_A, dim=0) # torch.Size([10, 77, 1024])
                 cak['cond_lat'] = torch.cat([cak['cond_lat'][0:1]]*num_A + [cak['cond_lat'][1:]]*num_A, dim=0)
@@ -392,9 +393,11 @@ def main():
                 model.pipe.scheduler.set_timesteps(30, device='cuda:0')
                 
                 timesteps = model.pipe.scheduler.timesteps.to(torch.int)
-                latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
+                # latents = torch.randn(num_A, 4, 48, 32, device='cuda:0', dtype=torch.float32)
+                latents = torch.randn(num_A, 4, 120, 80, device='cuda:0', dtype=torch.float32)
+                print("latent size: ", latents.shape)
                 
-                domain_embeddings = torch.eye(5).to(latents.device)
+                domain_embeddings = torch.eye(5).to(latents.device)[:num_A]
                 if opt.train_unet_single_attr is not None:
                     # TODO: get index of that attribute
                     domain_embeddings = domain_embeddings[:len(opt.train_unet_single_attr)]
@@ -469,7 +472,7 @@ def main():
                 # vae.decode (batch process)
                 latents_all_attr_to_decode = unscale_latents(latents)
                 if opt.use_video_decoderST:
-                    image_all_attr_to_decode = model.ST_decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
+                    image_all_attr_to_decode = model.ST_decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, num_frames=model.num_attributes, return_dict=False)[0]
                 else:
                     image_all_attr_to_decode = model.pipe.vae.decode(latents_all_attr_to_decode / model.pipe.vae.config.scaling_factor, return_dict=False)[0]
                 image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
@@ -481,6 +484,13 @@ def main():
                     # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
                     decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
                     decoded_attr_list.append(decoded_attr)
+
+                    # insert rotation into it
+                    if (model.num_attributes == 4) and (j == 2):
+                        fake_rotation = torch.zeros_like(batch_attr_image)
+                        decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
+                        decoded_attr_list.append(decoded_attr)
+                        # print(f"[vae.decode after] rotation: {decoded_attr.min(), decoded_attr.max()}")
                 
                 splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
                 splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]

@@ -299,6 +299,8 @@ def main():
             for name, para in model.unet.named_parameters():
                 parameters_list.append(para)
                 para.requires_grad = True
+        
+        st()
     
     else:
         raise NotImplementedError("Only train VAE or UNet")
