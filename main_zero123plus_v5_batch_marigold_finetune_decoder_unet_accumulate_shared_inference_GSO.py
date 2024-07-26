@@ -4,7 +4,7 @@ import random
 
 import torch
 from core.options import AllConfigs
-from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain, fuse_splatters
+from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain, fuse_splatters, rescale_noise_cfg
 from core.dataset_v5_marigold import gt_attr_keys, start_indices, end_indices, ordered_attr_list
 
 from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import unscale_latents, unscale_image, denormalize_and_activate
@@ -442,6 +442,12 @@ def main():
                     if True:
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                        if model.guidance_rescale > 0.0:
+                                # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
+                            noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=model.guidance_rescale)
+                            print("cfg rescale: ", model.guidance_rescale)
+                            # st()
 
                     # compute the previous noisy sample x_t -> x_t-1
                     latents = model.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
