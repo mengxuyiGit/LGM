@@ -373,6 +373,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         sp_image_batch = scale_image(images_all_attr_batch)
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
+        torch.cuda.empty_cache()
     
         if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py", 
                                         "./zero123plus/pipeline_v7_no_seq.py",
@@ -709,7 +710,22 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.use_video_decoderST:
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
         else:
+
             image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+            
+            # loop decoder
+            # latents_all_attr_to_decode_single = einops.rearrange(latents_all_attr_to_decode, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
+            # out = []
+            # st()
+            # for j, _ in enumerate(latents_all_attr_to_decode_single):
+            #     out.append(self.pipe.vae.decode(latents_all_attr_to_decode[j:j+1] / self.pipe.vae.config.scaling_factor, return_dict=False)[0])
+            #     print(j)
+            #     st()
+            # st()
+            # image_all_attr_to_decode = torch.cat([self.pipe.vae.decode(_latents_all_attr_to_decode[None] / self.pipe.vae.config.scaling_factor, return_dict=False)[0] for _latents_all_attr_to_decode in latents_all_attr_to_decode])
+            
+            
+            
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
         # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
         image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
