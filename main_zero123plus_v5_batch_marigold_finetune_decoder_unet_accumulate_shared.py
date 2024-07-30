@@ -106,7 +106,12 @@ def main():
 
 
     def is_selected_trainable(name):
-        for _key in [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]:
+        trainable_keys = [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]
+        
+        if opt.custom_pipeline ==  "./zero123plus/pipeline_v9_expbranch.py":
+            trainable_keys.append("conv_in")
+        
+        for _key in trainable_keys:
         # for _key in [ "time_emb_proj",  "class_embedding"]:
             if _key in name:
                 print(f"{name} also trainable")
@@ -233,7 +238,7 @@ def main():
                     
         print("Finish loading trained unet.")
     
-    del ckpt
+    # del ckpt
     torch.cuda.empty_cache()
     
     train_dataset = Dataset(opt, training=True)
@@ -421,6 +426,9 @@ def main():
                     #     # Check gradients of the unet parameters
                     #     print(f"check unet parameters")
                     #     for name, param in model.unet.named_parameters():
+                    #         if param.requires_grad and param.grad is None:
+                    #             print(f"Parameter {name}, no grad")
+                    #         continue
                     #         if param.requires_grad and param.grad is not None:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     #     st()
@@ -430,8 +438,8 @@ def main():
                     #         if param.requires_grad and param.grad is not None and "unet" not in name:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     #     st()
-                    #     # TODO: CHECK decoder not have grad, especially deocder.others
-                    #     # TODO: and check self.scale_bias
+                    # #     # TODO: CHECK decoder not have grad, especially deocder.others
+                    # #     # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:
