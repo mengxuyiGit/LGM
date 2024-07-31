@@ -268,7 +268,7 @@ class Options:
 
     dynamic_threshold: bool = False
     num_attributes: int = 4
-    
+    latents_normalization_stats: Optional[str] = None
 
 # all the default settings
 config_defaults: Dict[str, Options] = {}

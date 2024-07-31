@@ -583,7 +583,7 @@ def forward_unet(
         down_block_res_samples = (sample,)
        
         for di, downsample_block in enumerate(unet.down_blocks):
-            print(di, len(down_block_res_samples))
+            # print(di, len(down_block_res_samples))
             
             if expert_branches and di < expert_num_layers: # expert branches
             # if False:
@@ -673,11 +673,11 @@ def forward_unet(
 
             down_block_res_samples += res_samples
            
-            for v in res_samples:
-                print(v.shape)
+            # for v in res_samples:
+            #     print(v.shape)
            
             
-        print(di, len(down_block_res_samples))
+        # print(di, len(down_block_res_samples))
         
 
         if is_controlnet:
@@ -725,11 +725,11 @@ def forward_unet(
             res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
             down_block_res_samples = down_block_res_samples[: -len(upsample_block.resnets)]
 
-            print("up", i, len(res_samples), len(down_block_res_samples))
-            print(sample.shape)
+            # print("up", i, len(res_samples), len(down_block_res_samples))
+            # print(sample.shape)
 
-            for v in res_samples:
-                print("[up]",v.shape)
+            # for v in res_samples:
+            #     print("[up]",v.shape)
            
             
             # if we have not reached the final block and need to forward the

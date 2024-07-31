@@ -16,11 +16,13 @@ from core.gs import GaussianRenderer
 from ipdb import set_trace as st
 import matplotlib.pyplot as plt
 import os
+import glob
 
 
 from core.dataset_v5_marigold import ordered_attr_list, attr_map, sp_min_max_dict
 from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
 from diffusers.models.autoencoders.vae import DecoderOutput
+from utils.io_helper import load_stats
 
 def fuse_splatters(splatters):
     # fuse splatters
@@ -262,6 +264,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         self.skip_decoding = (self.opt.lambda_rendering + self.opt.lambda_rendering + self.opt.lambda_splatter + self.opt.lambda_splatter_lpips) <= 0 and self.opt.train_unet
         if self.skip_decoding:
             print("Skip decoding the latents, save memory")
+        
+        if opt.latents_normalization_stats is not None:
+            
+            stats_files = glob.glob(f"{opt.latents_normalization_stats}/*/*.txt")
+            
+            file_dict = {}
+            
+            for fname in stats_files:
+                file_dict[os.path.basename(fname)] =  fname
+            
+            self.latents_normalization_stats = file_dict
+              
 
         # with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
         #     print(self.unet, file=f)
@@ -372,8 +386,31 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
+        
+        # load stats.txt to normalize latetns before scale_latents
+        if self.opt.latents_normalization_stats is not None:
+            loaded_mean_src, loaded_std_src = [], []  
+            for attr in ordered_attr_list_local:
+                fname = self.latents_normalization_stats[f"{attr}_stats.txt"]
+                loaded_mean, loaded_std = load_stats(fname)
+                loaded_mean_src.append(loaded_mean)
+                loaded_std_src.append(loaded_std)
+            loaded_mean_src = torch.stack(loaded_mean_src).to(sp_image_batch.device)
+            loaded_std_src = torch.stack(loaded_std_src).to(sp_image_batch.device)
+            sp_image_batch = (sp_image_batch - loaded_mean_src) / loaded_std_src
+            
+            fname_target = self.latents_normalization_stats[f"input_stats.txt"]
+            loaded_mean_target, loaded_std_target = load_stats(fname_target)
+            loaded_mean_target = loaded_mean_target.unsqueeze(0).repeat(sp_image_batch.shape[0],1,1,1).to(sp_image_batch.device)
+            loaded_std_target = loaded_std_target.unsqueeze(0).repeat(sp_image_batch.shape[0],1,1,1).to(sp_image_batch.device)
+            sp_image_batch = sp_image_batch * loaded_std_target + loaded_mean_target
+        
+        
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
         torch.cuda.empty_cache()
+        
+        
+        
     
         if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py", 
                                         "./zero123plus/pipeline_v7_no_seq.py",
@@ -708,6 +745,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
+        
+       
+        # normalize back to their repsective disributions (after unscale_latents)
+        if self.opt.latents_normalization_stats is not None:
+            latents_all_attr_to_decode = (latents_all_attr_to_decode - loaded_mean_target) / loaded_std_target
+            latents_all_attr_to_decode = latents_all_attr_to_decode * loaded_std_src + loaded_mean_src
+            
         if self.opt.use_video_decoderST:
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
         else:
@@ -724,9 +768,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             #     st()
             # st()
             # image_all_attr_to_decode = torch.cat([self.pipe.vae.decode(_latents_all_attr_to_decode[None] / self.pipe.vae.config.scaling_factor, return_dict=False)[0] for _latents_all_attr_to_decode in latents_all_attr_to_decode])
-            
-            
-            
+
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
         # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
         image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
