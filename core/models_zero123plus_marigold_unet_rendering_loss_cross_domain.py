@@ -405,8 +405,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loaded_std_target = loaded_std_target.unsqueeze(0).repeat(sp_image_batch.shape[0],1,1,1).to(sp_image_batch.device)
             sp_image_batch = sp_image_batch * loaded_std_target + loaded_mean_target
         
-        
-        latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
+    
+        latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([BA, C, mH, Nw])
         torch.cuda.empty_cache()
         
         
@@ -743,14 +743,20 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         else:
            raise NotImplementedError
 
+        
+        # debug = True
+        # if debug:
+        #     latents_all_attr_to_decode = latents_all_attr_encoded
+        #     print("take encoded latents as to decode")
+        
         # vae.decode (batch process)
         latents_all_attr_to_decode = unscale_latents(latents_all_attr_to_decode)
-        
-       
+  
         # normalize back to their repsective disributions (after unscale_latents)
         if self.opt.latents_normalization_stats is not None:
             latents_all_attr_to_decode = (latents_all_attr_to_decode - loaded_mean_target) / loaded_std_target
             latents_all_attr_to_decode = latents_all_attr_to_decode * loaded_std_src + loaded_mean_src
+            # print("NOT normalize back to their repsective disributions")
             
         if self.opt.use_video_decoderST:
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
@@ -824,7 +830,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 decoded_attr_list.append(decoded_attr)
                 # print(f"[vae.decode after] rotation: {decoded_attr.min(), decoded_attr.max()}")
                 
-        if save_path is not None:
+        if save_path is not None: # save splatter visualization
             with torch.no_grad():
                 images_to_save_encode = images_to_save
                 decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
@@ -884,9 +890,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
         
 
+        # render GT LGM output as reference
         if (save_path is not None) or self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
             with torch.no_grad():
-                # render LGM GT output 
                 image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
                 decoded_attr_list = [] # decode latents into attrbutes again
                 for i, _attr in enumerate(ordered_attr_list_local):
@@ -895,14 +901,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
                     decoded_attr_list.append(decoded_attr)
 
-                    if i == 2:
+                    if i == 2: # fake rotation
                         fake_rotation = torch.zeros_like(batch_attr_image)
                         decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
                         decoded_attr_list.append(decoded_attr)
                         print(f"inserting rotation: {decoded_attr.min(), decoded_attr.max()}")
             
-        
-                    # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
                 splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
                 splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
                 gaussians = fuse_splatters(splatters_to_render) # B, N, 14
