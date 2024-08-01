@@ -450,6 +450,7 @@ def forward_unet(
         down_intrablock_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
+        is_forward_cond: bool = False,
     ):
         # By default samples have to be AT least a multiple of the overall upsampling factor.
         # The overall upsampling factor is equal to 2 ** (# num of upsampling layers).
@@ -529,8 +530,12 @@ def forward_unet(
         expert_branches = True
         expert_num_layers = 1
         
+        
         # 2. pre-process
-        if expert_branches:
+        if is_forward_cond:
+            sample = unet.conv_in(sample)
+        
+        elif expert_branches:
             # have separate conv_in layer for each domain in the sample
             sample = einops.rearrange(sample, "(b a) c h w -> a b c h w", a=unet.num_attributes)
             sample_branches = []
@@ -835,7 +840,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         self.duplicate_cond_lat = False
         self.train_sched = train_sched
         self.val_sched = val_sched
-        self.is_generator = False
+        # self.is_generator = False
 
         unet_lora_attn_procs = dict()
         # for name, _ in unet.attn_processors.items():
@@ -893,7 +898,8 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             encoder_hidden_states=encoder_hidden_states,
             class_labels=class_labels,
             cross_attention_kwargs=dict(mode="w", ref_dict=ref_dict),
-            **kwargs
+            **kwargs,
+            is_forward_cond=True,
         )
         
 
@@ -910,22 +916,21 @@ class RefOnlyNoisedUNet(torch.nn.Module):
     
         is_cfg_guidance = cross_attention_kwargs.get('is_cfg_guidance', False)
         noise = torch.randn_like(cond_lat)
-        if self.is_generator:
-            # cond_timestep = torch.randint(500, 501, size=timestep.shape, device=timestep.device)
-            cond_timestep = torch.zeros_like(timestep, dtype=timestep.dtype, device=timestep.device)
-            # if self.training:
-            #     cond_timestep = torch.randint(200, size=timestep.shape, device=timestep.device)
-            # else:
-            #     cond_timestep = torch.zeros_like(timestep, dtype=timestep.dtype, device=timestep.device)
-        else:
-            cond_timestep = timestep
+     
+        cond_timestep = timestep
         # cond_timestep = timestep
-        if self.training:
+       
+         # if self.training:
+        if True:
             noisy_cond_lat = self.train_sched.add_noise(cond_lat, noise, cond_timestep)
             noisy_cond_lat = self.train_sched.scale_model_input(noisy_cond_lat, cond_timestep)
+            # print("train_sched add noise")
+            # st()
         else:
             noisy_cond_lat = self.val_sched.add_noise(cond_lat, noise, cond_timestep.reshape(-1))
             noisy_cond_lat = self.val_sched.scale_model_input(noisy_cond_lat, cond_timestep.reshape(-1))
+            print("val_sched add noise")
+            st()
         ref_dict = {}
         # encoder_hidden_states is text_embedding
         self.forward_cond(
@@ -1186,10 +1191,15 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
     def prepare(self, random_init_unet=False, class_emb_cat=False, num_attributes=5):
-        print("[pipe-v8]")
-        train_sched = DDPMScheduler.from_config(self.scheduler.config)
-        # self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
-        self.scheduler = train_sched
+        print("[pipe-v9]")
+        
+        # train scheduler
+        # train_sched = DDPMScheduler.from_config(self.scheduler.config)
+        train_sched = DDPMScheduler.from_config(self.scheduler.config, rescale_betas_zero_snr=True)
+        
+        # val scheduler
+        self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config, timestep_spacing='trailing') 
+        
         
         # Random init unet weights
         if random_init_unet: 
@@ -1314,6 +1324,7 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         return_dict=True,
         **kwargs
     ):
+        st()
         self.prepare()
         if image is None:
             raise ValueError("Inputting embeddings not supported for this pipeline. Please pass an image.")
@@ -1378,4 +1389,4 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         if not return_dict:
             return (image,)
 
-        return ImagePipelineOutput(images=image)
+        return ImagePipelineOutput(images=image)                 
