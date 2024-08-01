@@ -270,6 +270,9 @@ class Options:
     num_attributes: int = 4
     latents_normalization_stats: Optional[str] = None
 
+    diffusion_concat_camera_ray_embeddings: bool = False
+    
+
 # all the default settings
 config_defaults: Dict[str, Options] = {}
 config_doc: Dict[str, str] = {}

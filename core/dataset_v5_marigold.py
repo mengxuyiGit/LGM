@@ -458,16 +458,20 @@ class ObjaverseDataset(Dataset):
             lgm_images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(256, 256), mode='bilinear', align_corners=False) # [V, C, H, W]
             lgm_images_input = TF.normalize(lgm_images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
-            ## for adding additonal input for lgm
+        
+        if self.opt.diffusion_concat_camera_ray_embeddings:
+            ## for adding additonal input for diffusion condition 
             rays_embeddings = []
             for i in range(self.opt.num_input_views):
-                rays_o, rays_d = get_rays(cam_poses_input[i], 256, 256, self.opt.fovy) # [h, w, 3]
+                rays_o, rays_d = get_rays(cam_poses_input[i], self.opt.input_size, self.opt.input_size, self.opt.fovy) # [h, w, 3]
                 rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
                 rays_embeddings.append(rays_plucker)
 
             rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
-            final_input = torch.cat([lgm_images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
-            results['input_lgm'] = final_input
+            # final_input = torch.cat([lgm_images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
+            # results['input_lgm'] = final_input
+            rays_embeddings = einops.rearrange(rays_embeddings, "(m n) c h w -> c (m h) (n w)", m=3, n=2)
+            results['rays_embeddings'] = torch.stack([rays_embeddings[:3], rays_embeddings[3:]], dim=0) # [2, 3, 4*H, 2*W]
 
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction

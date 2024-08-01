@@ -205,11 +205,18 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         num_attributes = opt.num_attributes if not opt.save_xyz_opacity_for_cascade else 2
         self.num_attributes = num_attributes
         print("num_attributes is: ",num_attributes)
+        
+        # train_sceduler and val_scheduler are init within prepare()
         self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat,
                           num_attributes=num_attributes) 
+        
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
 
+        if self.opt.diffusion_concat_camera_ray_embeddings:
+            # mpdify the input layer tp accept 12 channel input instaed of 4
+           self._replace_unet_conv_in(num_duplications=3)
+        
         
         if self.opt.decoder_with_domain_embedding:
             # # change the conv_in dim to 5
@@ -239,17 +246,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 self.register_buffer("decoder_domain_embedding", repeat_e)
                 # self.decoder_domain_embedding = repeat_e
     
-        # scheduler
-        if self.opt.train_unet:
-            # self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config) # num_train_timesteps=1000, v_prediciton
-            self.pipe.scheduler = DDPMScheduler.from_config(self.pipe.scheduler.config,  timestep_spacing="trailing", rescale_betas_zero_snr=True) # zero terminal SNR    
-            print("use zeroSNR train sched")
-            # st()
-        else:
-            self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(self.pipe.scheduler.config, timestep_spacing='trailing') # num_train_timesteps=1000, v_prediciton
-        
+       
         self.guidance_rescale = 0.7 # as in Common diffusion schedulers are Flawed
-            
         
         print(f"drop cond with prob {self.opt.drop_cond_prob}")
     
@@ -279,7 +277,54 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # with open(f"{self.opt.workspace}/model_new.txt", "w") as f:
         #     print(self.unet, file=f)
-      
+    
+    def _replace_unet_conv_in(self, num_duplications=3):
+        if self.opt.custom_pipeline == "./zero123plus/pipeline_v9_expbranch.py":
+            # replace thhe expert conv in layers
+           
+            # duplicate conv_in and conv_out layers
+            # conv_in_experts = nn.ModuleList([deepcopy(unet.conv_in) for _ in range(num_attributes)])
+            # setattr(unet, "conv_in_experts", conv_in_experts)
+            
+            for i, _conv_in in enumerate(self.unet.conv_in_experts):
+                # replace the conv_in layer to accept 12 in_channels
+                
+                _weight = _conv_in.weight.clone()  # [320, 4, 3, 3]
+                _bias = _conv_in.bias.clone()  # [320]
+                _weight = _weight.repeat((1, num_duplications, 1, 1))  # Keep selected channel(s)
+                # half the activation magnitude
+                _weight = _weight / num_duplications # accept rays_o and rays_d, total 12 channels
+                # new conv_in channel
+                _n_convin_out_channel = _conv_in.out_channels
+                _new_conv_in = nn.Conv2d(
+                    4*num_duplications, _n_convin_out_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
+                )
+                _new_conv_in.weight = nn.Parameter(_weight)
+                _new_conv_in.bias = nn.Parameter(_bias)
+                # _conv_in = _new_conv_in
+                self.unet.conv_in_experts[i] = _new_conv_in
+                print(f"Unet conv_in [expert {i}] layer is replaced")
+            
+        else:
+            # replace the first layer to accept 8 in_channels
+            _weight = self.unet.conv_in.weight.clone()  # [320, 4, 3, 3]
+            _bias = self.unet.conv_in.bias.clone()  # [320]
+            _weight = _weight.repeat((1, num_duplications, 1, 1))  # Keep selected channel(s)
+            # half the activation magnitude
+            _weight = _weight / num_duplications # accept rays_o and rays_d, total 12 channels
+            # new conv_in channel
+            _n_convin_out_channel = self.unet.conv_in.out_channels
+            _new_conv_in = nn.Conv2d(
+                4*num_duplications, _n_convin_out_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
+            )
+            _new_conv_in.weight = nn.Parameter(_weight)
+            _new_conv_in.bias = nn.Parameter(_bias)
+            self.unet.conv_in = _new_conv_in
+            print("Unet conv_in layer is replaced")
+            # replace config
+            self.unet.config["in_channels"] = 4*num_duplications
+            print("Unet config is updated")
+        return
 
     def get_alpha(self, scheduler, t, device):
         alphas_cumprod = scheduler.alphas_cumprod.to(
@@ -383,6 +428,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_to_save = (images_to_save + 1) * 0.5
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
 
+      
+        
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch)
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
@@ -408,9 +455,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
     
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([BA, C, mH, Nw])
         torch.cuda.empty_cache()
-        
-        
-        
+            
     
         if self.opt.custom_pipeline in ["./zero123plus/pipeline_v6_set.py", "./zero123plus/pipeline_v7_seq.py", 
                                         "./zero123plus/pipeline_v7_no_seq.py",
@@ -454,7 +499,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 del cond
         
             # same t for all domain, same t for whole batch
-            t = torch.randint(0, self.pipe.scheduler.timesteps.max()+1, (1,), device=latents_all_attr_encoded.device).repeat(B)
+            t = torch.randint(0, self.pipe.unet.train_sched.timesteps.max()+1, (1,), device=latents_all_attr_encoded.device).repeat(B)
             t = t.unsqueeze(1).repeat(1,A)
 
             
@@ -472,11 +517,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 # print(cond_t, cond_t.shape)
                 t[:,0] = cond_t # xyz
                 t[:,1] = cond_t # opacity
-                
-            # if self.opt.different_t_schedule is not None:
-            #     schedule_offset = torch.tensor(self.opt.different_t_schedule, device=t.device).unsqueeze(0)
-            #     new_t = t + schedule_offset
-            #     t = torch.clamp(new_t, min=0, max=self.pipe.scheduler.timesteps.max())
+          
             
             t = t.view(-1)
             
@@ -490,7 +531,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
             # print("batch t=", t)
             noise = torch.randn_like(gt_latents, device=gt_latents.device)
-            noisy_latents = self.pipe.scheduler.add_noise(gt_latents, noise, t)
+            noisy_latents = self.pipe.unet.train_sched.add_noise(gt_latents, noise, t)
         
             domain_embeddings = torch.eye(5).to(noisy_latents.device)[:self.num_attributes]
             if self.opt.train_unet_single_attr is not None:
@@ -504,11 +545,27 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 ], dim=-1)
             domain_embeddings = domain_embeddings.unsqueeze(0).repeat(B,1,1).view(-1, *domain_embeddings.shape[1:]) # repeat for batch
 
+            
+            # add ray embeddings after the latent is added noise, the ray embeddings are not added noise
+            if self.opt.diffusion_concat_camera_ray_embeddings:
+                # use vae encoder to encode rays_embeddings
+                rays_embeddings = scale_image(data['rays_embeddings'][0])
+                rays_embeddings_latent = self.pipe.vae.encode(rays_embeddings).latent_dist.sample() * self.pipe.vae.config.scaling_factor # [2, 4, 120, 80]
+                rays_embeddings_latent = torch.cat([rays_embeddings_latent[0:1], rays_embeddings_latent[1:]], dim=1) # [1, 8, 120, 80]
+                rays_embeddings_latent = scale_latents(rays_embeddings_latent) # also do normalization on camera ray embeddings? or add rope embeddings?
+                rays_embeddings_latent = einops.repeat(rays_embeddings_latent, "B C H W -> (B A) C H W", A=A)
+                
+                noisy_latents_input = torch.cat([noisy_latents, rays_embeddings_latent], dim=1)
+            
+            else:
+                noisy_latents_input = noisy_latents
+            
+
             # v-prediction with unet: (B A) 4 48 32
-            v_pred = self.unet(noisy_latents, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
+            v_pred = self.unet(noisy_latents_input, t, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, class_labels=domain_embeddings).sample
 
             # get v_target
-            alphas_cumprod = self.pipe.scheduler.alphas_cumprod.to(
+            alphas_cumprod = self.pipe.unet.train_sched.alphas_cumprod.to(
                 device=noisy_latents.device, dtype=noisy_latents.dtype
             )
             alpha_t = (alphas_cumprod[t] ** 0.5).view(-1, 1, 1, 1)
