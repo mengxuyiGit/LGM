@@ -5,13 +5,13 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT=/mnt/kostas-graid/datasets/xuyimeng/lvis/d
 
 export CUDA_VISIBLE_DEVICES=1,2,3,4
 # export CUDA_VISIBLE_DEVICES=6
-accelerate launch --main_process_port 29518 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_0123++_low_res.py big \
-    --workspace runs/finetune_0123++/workspace_train_july \
+accelerate launch --main_process_port 29518 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_0123++_low_res.py big \
+    --workspace runs/finetune_0123++/workspace_debug \
     --lr 1e-5 --max_train_steps 100000 --eval_iter 500 --save_iter 1000 --lr_scheduler Plat \
     --lr_scheduler_patience 50 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 4 --num_views 4 \
     --lambda_splatter 0 --lambda_rendering 0 --lambda_alpha 0 --lambda_lpips 0 --lambda_splatter_lpips 0 \
-    --desc 'scaled_class_emb10-no_temporal_attn-mask&image_NumAttr2_320-4views-res320-b3_g4_acc2' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'check_latent_space-t500-res320' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT} \
     --set_random_seed \
     --model_type Zero123PlusLowRes \
@@ -20,7 +20,7 @@ accelerate launch --main_process_port 29518 --config_file acc_configs/gpu4.yaml 
     --train_unet --class_emb_cat  --drop_cond_prob 0.1 --only_train_attention \
     --batch_size 3 --num_workers 1 --gradient_accumulation_steps 2 \
     --invalid_list /mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json \
-    --train_unet_single_attr input masks_input
+    --train_unet_single_attr input masks_input --fixed_noise_level 500
     # --overfit_one_scene
 
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00007-train_unet-sd_encoder-fted_LGM_fov60-NO_resume-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_2000_ckpt/model.safetensors \

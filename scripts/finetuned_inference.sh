@@ -664,7 +664,7 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 0 --lambda_lpips 1 \
-    --desc 'GSO512-zeroSNR-cfg_rescale-savecond-fov60-fted_lgm00012_upsample320_withTempAttn_10k-total_25k-Eulerscheduler-fted60_svd_decoder_20240708-050809' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
+    --desc 'GSO512-zeroSNR-cfg5.0_rescale-savecond-fov60-fted_lgm00012_upsample320_withTempAttn_22k-total_25k-Eulerscheduler-fted60_svd_decoder_20240708-050809' --data_path_rendering ${DATA_RENDERING_ROOT_GSO} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_CLUSTER} \
     --set_random_seed --batch_size 1 --num_workers 2 \
     --skip_predict_x0 --scale_act 'biased_softplus' --scale_act_bias -3 --scale_bias_learnable \
@@ -676,10 +676,10 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     --bg 1.0 --fovy 60 --rendering_loss_use_weight_t \
     --inference_finetuned_unet --gradient_accumulation_steps 5 --output_size 320 \
     --class_emb_cat \
-    --guidance_scale 2.0 --render_video  --metric_GSO --save_cond \
+    --guidance_scale 5.0 --render_video  --metric_GSO --save_cond \
     --only_train_attention --num_attributes 4 \
     --use_video_decoderST --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july/20240708-050809-svd-decoder-fted_lgm-resume6k-loss_render1.0_splatter2.0_lpips2.0-lr0.0001-Plat5/eval_global_step_30000_ckpt/model.safetensors \
-    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00012-zeroSNR-TEMPORAL_ATTN-train_unet-from0123plus-upsample320-fov60-sd_encoder-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_10000_ckpt/model.safetensors
+    --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00012-zeroSNR-TEMPORAL_ATTN-train_unet-from0123plus-upsample320-fov60-sd_encoder-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_22000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00011-TEMPORAL_ATTN-train_unet-upsample320-resume00010_12k-fted_LGM_fov60-sd_encoder-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_7000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00010-train_unet-fted_LGM_fov60-upsample320-from0123plus_prior-sd_encoder-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_12000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00009-train_unet-sd_encoder-fted_LGM_fov60-resume00008_total13k-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_12000_ckpt/model.safetensors
