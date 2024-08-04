@@ -76,9 +76,8 @@ class ReferenceOnlyAttnProc(torch.nn.Module):
                 if "_experts" in self.name:
 
                     name_parts = self.name.split(".")
-                    attr_idx = int(name_parts[1]) // 4
                     if "down" in name_parts[0]:
-                            name_parts[1] = str(int(name_parts[1]) // 4)
+                        name_parts[1] = str(int(name_parts[1]) // 4)
                     elif "up" in name_parts[0]:
                         name_parts[1] = str(3 - int(name_parts[1]) // 4)
                         
@@ -86,7 +85,7 @@ class ReferenceOnlyAttnProc(torch.nn.Module):
                     ref_cond_name = ".".join(name_parts)
                     # print("[self.name] \t", self.name)
                     # print("[ref_cond_name] \t", ref_cond_name)
-                    encoder_hidden_states = torch.cat([encoder_hidden_states, ref_dict[ref_cond_name][attr_idx:attr_idx+1]], dim=1)
+                    encoder_hidden_states = torch.cat([encoder_hidden_states, ref_dict[ref_cond_name]], dim=1)
                    
                 else:
                     # print("[self.name] \t", self.name)
@@ -452,7 +451,9 @@ def forward_unet(
         aug_emb = None
          
         if is_forward_cond:
-            class_labels = class_labels.mean(dim=0, keepdim=True)
+            # class_labels = class_labels.mean(dim=0, keepdim=True)
+            class_labels = einops.rearrange(class_labels, "(b a) c -> a b c", a=unet.num_attributes)
+            class_labels = class_labels.mean(dim=0, keepdim=False)
 
         class_emb = unet.get_class_embed(sample=sample, class_labels=class_labels)
         # print("[UNet2DConditionModel -> forward()] class_emb: ", class_emb)
@@ -706,15 +707,18 @@ def forward_unet(
                 
                 sample_in = einops.rearrange(sample, "(b a) c h w -> a b c h w", a=unet.num_attributes)
                 sample_out_branches = []
+                emb_in = einops.rearrange(emb, "(b a) c -> a b c", a=unet.num_attributes)
                 
                 # separate the res sample of each expert branch of each batch dim in the res_samples tuple
                 for ei, upsample_block in enumerate(unet.up_block_experts):
-                    res_samples_expert = tuple([res_samples[ri][ei:ei+1] for ri in range(len(res_samples))])
+                    
+                    res_samples_expert = tuple([einops.rearrange(res_samples[ri], "(b a) c h w -> a b c h w ", a=unet.num_attributes)[ei] for ri in range(len(res_samples))])
                   
                     if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
                         sample = upsample_block(
                         hidden_states=sample_in[ei],
-                        temb=emb[ei:ei+1],
+                        # temb=emb[ei:ei+1],
+                        temb=emb_in[ei],
                         res_hidden_states_tuple=res_samples_expert,
                         encoder_hidden_states=encoder_hidden_states,
                         cross_attention_kwargs=cross_attention_kwargs,
@@ -738,9 +742,6 @@ def forward_unet(
                 sample = einops.rearrange(sample, "a b c h w -> (b a) c h w")
                     
             else: # fused branches
-                # if is_forward_cond and expert_branches and i == (len(unet.up_blocks) -expert_num_layers):
-                #     st()
-                    # sample = sample.repeat(unet.num_attributes, 1, 1, 1)
                     
                 if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
                     sample = upsample_block(
