@@ -106,10 +106,10 @@ def main():
 
 
     def is_selected_trainable(name):
-        trainable_keys = [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]
+        trainable_keys = [ "time_emb_proj",  "class_embedding"]
         
         if opt.custom_pipeline ==  "./zero123plus/pipeline_v9_expbranch.py":
-            trainable_keys.append("conv_in")
+            trainable_keys.append("_experts") # the original conv_in and conv_out remains frozen, for processing condition images
         
         for _key in trainable_keys:
         # for _key in [ "time_emb_proj",  "class_embedding"]:
@@ -425,13 +425,25 @@ def main():
                     # if global_step > 0:
                     #     # Check gradients of the unet parameters
                     #     print(f"check unet parameters")
-                    #     for name, param in model.unet.named_parameters():
-                    #         if param.requires_grad and param.grad is None:
-                    #             print(f"Parameter {name}, no grad")
-                    #         continue
-                    #         if param.requires_grad and param.grad is not None:
-                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                        
+                    #     # for name, param in model.unet.named_parameters():
+                    #     #     if param.requires_grad and param.grad is None:
+                    #     #         print(f"Parameter {name}, no grad")
+                    #     #     # continue
+                    #     #     if param.requires_grad and param.grad is not None:
+                    #     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                    #     # st()
+                        
+                    #     with open("grad_status.txt", "w") as f:
+                    #         for name, param in model.named_parameters():
+                    #             f.write(f"---------Parameter {name}\n")
+                    #             if param.requires_grad and param.grad is None:
+                    #                 f.write(f"Parameter {name}, no grad\n")
+                    #             if param.requires_grad and param.grad is not None:
+                    #                 f.write(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}\n")
                     #     st()
+                                    
+                            
                     
                     #     print(f"check other model parameters")
                     #     for name, param in model.named_parameters():

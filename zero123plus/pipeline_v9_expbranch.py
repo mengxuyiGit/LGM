@@ -73,11 +73,31 @@ class ReferenceOnlyAttnProc(torch.nn.Module):
             if mode == 'w':
                 ref_dict[self.name] = encoder_hidden_states
             elif mode == 'r':
-                encoder_hidden_states = torch.cat([encoder_hidden_states, ref_dict.pop(self.name)], dim=1)
+                if "_experts" in self.name:
+
+                    name_parts = self.name.split(".")
+                    attr_idx = int(name_parts[1]) // 4
+                    if "down" in name_parts[0]:
+                            name_parts[1] = str(int(name_parts[1]) // 4)
+                    elif "up" in name_parts[0]:
+                        name_parts[1] = str(3 - int(name_parts[1]) // 4)
+                        
+                    name_parts[0] = name_parts[0].replace("_experts", "s")
+                    ref_cond_name = ".".join(name_parts)
+                    # print("[self.name] \t", self.name)
+                    # print("[ref_cond_name] \t", ref_cond_name)
+                    encoder_hidden_states = torch.cat([encoder_hidden_states, ref_dict[ref_cond_name][attr_idx:attr_idx+1]], dim=1)
+                   
+                else:
+                    # print("[self.name] \t", self.name)
+                    encoder_hidden_states = torch.cat([encoder_hidden_states, ref_dict.pop(self.name)], dim=1)
+                        
+                    
             elif mode == 'm':
                 encoder_hidden_states = torch.cat([encoder_hidden_states, ref_dict[self.name]], dim=1)
             else:
                 assert False, mode
+        
         res = self.chained_proc(attn, hidden_states, encoder_hidden_states, attention_mask)
         # print("attention_mask", attention_mask), None
         if self.enabled and is_cfg_guidance:
@@ -140,7 +160,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         
         self.A = num_attributes
 
-        self.train_temporal_attn = True
+        self.train_temporal_attn = False
         if not self.train_temporal_attn:
             print("[ATTENTION:] NOT training temporal attn")
         
@@ -216,14 +236,15 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
             hidden_states = einops.rearrange(hidden_states, "B (A S) C -> (B A) S C", A=self.A )
             # st() # torch.Size([5, 4096, 320])
         else:
-            print("not training temporal attn")
+            # print("not training temporal attn")
+            pass
         
         # hidden_states.shape: torch.Size([5, 4096, 320])
         # 3. Cross-Attention
         norm_hidden_states = self.norm2(hidden_states)
         
         if self.pos_embed is not None: # and self.norm_type != "ada_norm_single":
-            # print("norm_hidden_states: ", norm_hidden_states.shape)
+            # print("norm_hidden_states: ", norm_hidden_states.shape        )
             norm_hidden_states = self.pos_embed(norm_hidden_states)
         
         attn_output = self.attn2(
@@ -260,80 +281,11 @@ def modify_unet(unet, set_unet_class_embeddings_concat=False, num_attributes=5):
     setattr(unet, "conv_out_experts", conv_out_experts)
     
     # duplicate the first downblock and the last upblock of unet
-    downblock_experts = nn.ModuleList([deepcopy(unet.down_blocks[0]) for _ in range(num_attributes)])
-    upblock_experts = nn.ModuleList([deepcopy(unet.up_blocks[-1]) for _ in range(num_attributes)])
-    setattr(unet, "downblock_experts", downblock_experts)
-    setattr(unet, "upblock_experts", upblock_experts)
+    down_block_experts = nn.ModuleList([deepcopy(unet.down_blocks[0]) for _ in range(num_attributes)])
+    up_block_experts = nn.ModuleList([deepcopy(unet.up_blocks[-1]) for _ in range(num_attributes)])
+    setattr(unet, "down_block_experts", down_block_experts)
+    setattr(unet, "up_block_experts", up_block_experts)
     
-    
-    # # Recursive function to modify transformer blocks
-    # def replace_transformer_blocks(module, set_unet_class_embeddings_concat, expert_branches=False):
-    #     # how to tell whether a module belongs to expert branches?
-        
-    #     print("expert_branches", expert_branches)
-
-    #     for name, child in module.named_children():
-    #         if "experts" in name:
-    #             print(name) 
-    #             expert_branches=True
-                
-    #         if isinstance(child, BasicTransformerBlock):
-    #             # # Replace the existing BasicTransformerBlock with a custom one
-    #             # print(name)
-    #             # if "experts" in name
-    #             #     # print(name)
-    #             #     pass
-    #             # else:
-    #             setattr(module, name, BasicTransformerBlockCrossDomainPosEmbed(child, num_attributes))  # configure appropriately
-    #         elif set_unet_class_embeddings_concat and isinstance(child, ResnetBlock2D):
-    #         # elif isinstance(child, ResnetBlock2D):
-    #             # Create a new ResnetBlock2D with doubled temb_channels
-    #             # Extract dropout probability
-    #             # print("set ResnetBlock2D")
-    #             dropout_prob = child.dropout.p if isinstance(child.dropout, nn.Dropout) else child.dropout
-    #             new_resnet = ResnetBlock2D(
-    #                 in_channels=child.in_channels,
-    #                 out_channels=child.out_channels,
-    #                 conv_shortcut=child.use_conv_shortcut,
-    #                 dropout=dropout_prob,
-    #                 temb_channels=child.time_emb_proj.in_features * 2 if child.time_emb_proj else None,  # Double the temb_channels
-    #                 groups=child.norm1.num_groups,
-    #                 groups_out=child.norm2.num_groups,
-    #                 pre_norm=child.pre_norm,
-    #                 eps=child.norm1.eps,
-    #                 non_linearity=type(child.nonlinearity).__name__.lower(),
-    #                 skip_time_act=child.skip_time_act,
-    #                 time_embedding_norm=child.time_embedding_norm,
-    #                 kernel=None,  # Set as None since we don't have direct access to kernel
-    #                 output_scale_factor=child.output_scale_factor,
-    #                 use_in_shortcut=child.use_in_shortcut,
-    #                 up=child.up,
-    #                 down=child.down,
-    #                 conv_shortcut_bias=child.conv_shortcut.bias is not None if child.conv_shortcut else True,
-    #                 conv_2d_out_channels=child.conv2.out_channels
-    #             )
-    #             # Copy weights
-    #             state_dict = child.state_dict()
-    #             new_state_dict = new_resnet.state_dict()
-    #             for key in new_state_dict:
-    #                 if key in state_dict and state_dict[key].shape == new_state_dict[key].shape:
-    #                     new_state_dict[key] = state_dict[key]
-    #                 elif 'time_emb_proj' in key:
-    #                     # Handle the specific case for time_emb_proj.weight
-    #                     old_weight = state_dict[key]
-    #                     new_weight = new_state_dict[key]
-    #                     new_weight[:old_weight.shape[0], :old_weight.shape[1]] = old_weight
-    #                     new_state_dict[key] = new_weight
-                        
-    #             new_resnet.load_state_dict(new_state_dict)
-    #             setattr(module, name, new_resnet)
-    #         else:
-    #             replace_transformer_blocks(child, set_unet_class_embeddings_concat, expert_branches)
-
-    
-    # # Apply modifications
-    # replace_transformer_blocks(unet, set_unet_class_embeddings_concat, expert_branches=False)
-
     
     def replace_transformer_blocks(module, set_unet_class_embeddings_concat, expert_branches=False, depth=0):
         indent = "  " * depth  # for better visualization of the hierarchy
@@ -458,6 +410,7 @@ def forward_unet(
         # on the fly if necessary.
         default_overall_up_factor = 2**unet.num_upsamplers
 
+
         # upsample size should be forwarded when sample is not a multiple of `default_overall_up_factor`
         forward_upsample_size = False
         upsample_size = None
@@ -497,13 +450,14 @@ def forward_unet(
         t_emb = unet.get_time_embed(sample=sample, timestep=timestep)
         emb = unet.time_embedding(t_emb, timestep_cond)
         aug_emb = None
+         
+        if is_forward_cond:
+            class_labels = class_labels.mean(dim=0, keepdim=True)
 
         class_emb = unet.get_class_embed(sample=sample, class_labels=class_labels)
         # print("[UNet2DConditionModel -> forward()] class_emb: ", class_emb)
         if class_emb is not None:
-            # st()
             class_emb *= 10
-            # print("scale class_emb by 10")
             if unet.config.class_embeddings_concat:
                 emb = torch.cat([emb, class_emb], dim=-1)
             else:
@@ -530,12 +484,12 @@ def forward_unet(
         expert_branches = True
         expert_num_layers = 1
         
+        enter_expert_branches = expert_branches and (not is_forward_cond) # important!! only forward expert branches when not forward_cond
+        # print("udpated enter_expert_branches: ", enter_expert_branches)
+        
         
         # 2. pre-process
-        if is_forward_cond:
-            sample = unet.conv_in(sample)
-        
-        elif expert_branches:
+        if enter_expert_branches:
             # have separate conv_in layer for each domain in the sample
             sample = einops.rearrange(sample, "(b a) c h w -> a b c h w", a=unet.num_attributes)
             sample_branches = []
@@ -586,16 +540,18 @@ def forward_unet(
             is_adapter = True
 
         down_block_res_samples = (sample,)
+
        
         for di, downsample_block in enumerate(unet.down_blocks):
             # print(di, len(down_block_res_samples))
             
-            if expert_branches and di < expert_num_layers: # expert branches
+            if enter_expert_branches and di < expert_num_layers: # expert branches
             # if False:
                 sample = einops.rearrange(sample, "(b a) c h w -> a b c h w", a=unet.num_attributes)
                 sample_branches, res_sample_branches = [], {}
 
-                for _i, downsample_block in enumerate(unet.downblock_experts):
+                for _i, downsample_block in enumerate(unet.down_block_experts):
+                    # print(f"downsample_block expert: {_i}")
             
                     if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
                     # For t2i-adapter CrossAttnDownBlock2D
@@ -607,7 +563,7 @@ def forward_unet(
                         _sample, _res_samples = downsample_block(
                             hidden_states=sample[_i],
                             temb=emb[_i:_i+1],
-                            encoder_hidden_states=encoder_hidden_states[_i:_i+1],
+                            encoder_hidden_states=encoder_hidden_states, #[_i:_i+1],
                             attention_mask=attention_mask, # None
                             cross_attention_kwargs=cross_attention_kwargs, #  cross_attention_kwargs['ref_dict'].keys(), dict_keys(['down_blocks.0.attentions.0.transformer_blocks.0.attn1.processor', 'down_blocks.0.attentions.1.transformer_blocks.0.attn1.processor'])
                             encoder_attention_mask=encoder_attention_mask, # None
@@ -625,7 +581,7 @@ def forward_unet(
         
                 sample = torch.stack(sample_branches, dim=0)
                 
-                if expert_branches and di == expert_num_layers-1:
+                if enter_expert_branches and di == expert_num_layers-1:
                     sample = sample.mean(dim=0)
                 else:
                     sample = einops.rearrange(sample, "a b c h w -> (b a) c h w")
@@ -634,21 +590,21 @@ def forward_unet(
                 for ri in range(len(_res_samples)):
                     res_sample_fuse = torch.stack([res_sample_branches[f"expert_{ei}"][ri] for ei in range(unet.num_attributes)])
 
-                    if expert_branches and di == expert_num_layers-1 and ri == len(_res_samples)-1:
+                    if enter_expert_branches and di == expert_num_layers-1 and ri == len(_res_samples)-1:
                         res_sample_fuse = res_sample_fuse.mean(dim=0)
                     else:
                         res_sample_fuse = einops.rearrange(res_sample_fuse, "a b c h w -> (b a) c h w")
-
                     res_samples += (res_sample_fuse,)
                 
-                if expert_branches and di == expert_num_layers-1:
-                    
+                if enter_expert_branches and di == expert_num_layers-1:
                     emb_fused = emb.mean(dim=0, keepdim=True)
-                    encoder_hidden_states_fused = encoder_hidden_states.mean(dim=0, keepdim=True)
+                    encoder_hidden_states_fused = encoder_hidden_states
 
-                
                     
             else: # fuse branches
+                
+                # if is_forward_cond and expert_branches and di == expert_num_layers:
+                #     sample = sample.mean(dim=0 ,keepdim=True)
                 
                 if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
                     # For t2i-adapter CrossAttnDownBlock2D
@@ -658,8 +614,8 @@ def forward_unet(
 
                     sample, res_samples = downsample_block(
                         hidden_states=sample,
-                        temb=emb_fused if expert_branches else emb,
-                        encoder_hidden_states=encoder_hidden_states_fused if expert_branches else encoder_hidden_states,
+                        temb=emb_fused if enter_expert_branches else emb,
+                        encoder_hidden_states=encoder_hidden_states_fused if enter_expert_branches else encoder_hidden_states,
                         # temb=emb,
                         # encoder_hidden_states=encoder_hidden_states,
                         attention_mask=attention_mask,
@@ -670,7 +626,7 @@ def forward_unet(
                 else:
                     # print(" [FALSE]if hasattr(downsample_block, downsample_block.has_cross_attention")
                     sample, res_samples = downsample_block(hidden_states=sample, 
-                                                           temb=emb_fused if expert_branches else emb,
+                                                           temb=emb_fused if enter_expert_branches else emb,
                                                            )
                     if is_adapter and len(down_intrablock_additional_residuals) > 0:
                         sample += down_intrablock_additional_residuals.pop(0)
@@ -678,11 +634,10 @@ def forward_unet(
 
             down_block_res_samples += res_samples
            
+            # print("[donw]", di, sample.shape)
             # for v in res_samples:
             #     print(v.shape)
-           
             
-        # print(di, len(down_block_res_samples))
         
 
         if is_controlnet:
@@ -701,15 +656,15 @@ def forward_unet(
             if hasattr(unet.mid_block, "has_cross_attention") and unet.mid_block.has_cross_attention:
                 sample = unet.mid_block(
                     sample,
-                    emb_fused if expert_branches else emb,
-                    encoder_hidden_states=encoder_hidden_states_fused if expert_branches else encoder_hidden_states,
+                    emb_fused if enter_expert_branches else emb,
+                    encoder_hidden_states=encoder_hidden_states_fused if enter_expert_branches else encoder_hidden_states,
                     attention_mask=attention_mask,
                     cross_attention_kwargs=cross_attention_kwargs,
                     encoder_attention_mask=encoder_attention_mask,
                 )
             else:
                 sample = unet.mid_block(sample,
-                                        emb_fused if expert_branches else emb,
+                                        emb_fused if enter_expert_branches else emb,
                                         )
 
             # To support T2I-Adapter-XL
@@ -743,7 +698,7 @@ def forward_unet(
                 upsample_size = down_block_res_samples[-1].shape[2:]
 
 
-            if expert_branches and i > (len(unet.up_blocks) -1 -expert_num_layers): # replace the last upsample block with expert branches
+            if enter_expert_branches and i > (len(unet.up_blocks) -1 -expert_num_layers): # replace the last upsample block with expert branches
                 
                 if i == (len(unet.up_blocks) -expert_num_layers): # the first expert upblock
                     sample = einops.repeat(sample, "b c h w -> (b a) c h w", a=unet.num_attributes)
@@ -753,7 +708,7 @@ def forward_unet(
                 sample_out_branches = []
                 
                 # separate the res sample of each expert branch of each batch dim in the res_samples tuple
-                for ei, upsample_block in enumerate(unet.upblock_experts):
+                for ei, upsample_block in enumerate(unet.up_block_experts):
                     res_samples_expert = tuple([res_samples[ri][ei:ei+1] for ri in range(len(res_samples))])
                   
                     if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
@@ -761,7 +716,7 @@ def forward_unet(
                         hidden_states=sample_in[ei],
                         temb=emb[ei:ei+1],
                         res_hidden_states_tuple=res_samples_expert,
-                        encoder_hidden_states=encoder_hidden_states[ei:ei+1],
+                        encoder_hidden_states=encoder_hidden_states,
                         cross_attention_kwargs=cross_attention_kwargs,
                         upsample_size=upsample_size,
                         attention_mask=attention_mask,
@@ -783,12 +738,16 @@ def forward_unet(
                 sample = einops.rearrange(sample, "a b c h w -> (b a) c h w")
                     
             else: # fused branches
+                # if is_forward_cond and expert_branches and i == (len(unet.up_blocks) -expert_num_layers):
+                #     st()
+                    # sample = sample.repeat(unet.num_attributes, 1, 1, 1)
+                    
                 if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
                     sample = upsample_block(
                         hidden_states=sample,
-                        temb=emb_fused if expert_branches else emb,
+                        temb=emb_fused if enter_expert_branches else emb,
                         res_hidden_states_tuple=res_samples,
-                        encoder_hidden_states=encoder_hidden_states_fused if expert_branches else encoder_hidden_states,
+                        encoder_hidden_states=encoder_hidden_states_fused if enter_expert_branches else encoder_hidden_states,
                         cross_attention_kwargs=cross_attention_kwargs,
                         upsample_size=upsample_size,
                         attention_mask=attention_mask,
@@ -797,19 +756,21 @@ def forward_unet(
                 else:
                     sample = upsample_block(
                         hidden_states=sample,
-                        temb=emb_fused if expert_branches else emb,
+                        temb=emb_fused if enter_expert_branches else emb,
                         res_hidden_states_tuple=res_samples,
                         upsample_size=upsample_size,
                     )
+            
                     
         
         # 6. post-process
         if unet.conv_norm_out:
             sample = unet.conv_norm_out(sample)
             sample = unet.conv_act(sample)
+        
             
         # replace the conv_out layer with expert branches
-        if expert_branches:
+        if enter_expert_branches:
             sample = einops.rearrange(sample, "(b a) c h w -> a b c h w", a=unet.num_attributes)
             sample_branches = []
             for i, conv_out in enumerate(unet.conv_out_experts):
@@ -911,16 +872,16 @@ class RefOnlyNoisedUNet(torch.nn.Module):
     ):
         cond_lat = cross_attention_kwargs['cond_lat']
       
-        if self.duplicate_cond_lat:
-            cond_lat = cond_lat.repeat(1,5,1,1)
+        # if self.duplicate_cond_lat:
+        #     cond_lat = cond_lat.repeat(1,5,1,1)
     
         is_cfg_guidance = cross_attention_kwargs.get('is_cfg_guidance', False)
         noise = torch.randn_like(cond_lat)
      
-        cond_timestep = timestep
+        cond_timestep = timestep.reshape(-1,4)[:,0]
         # cond_timestep = timestep
        
-         # if self.training:
+        # if self.training:
         if True:
             noisy_cond_lat = self.train_sched.add_noise(cond_lat, noise, cond_timestep)
             noisy_cond_lat = self.train_sched.scale_model_input(noisy_cond_lat, cond_timestep)
@@ -928,10 +889,12 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             # st()
         else:
             noisy_cond_lat = self.val_sched.add_noise(cond_lat, noise, cond_timestep.reshape(-1))
+            cond_timestep = cond_timestep[-1]
             noisy_cond_lat = self.val_sched.scale_model_input(noisy_cond_lat, cond_timestep.reshape(-1))
             print("val_sched add noise")
             st()
         ref_dict = {}
+
         # encoder_hidden_states is text_embedding
         self.forward_cond(
             noisy_cond_lat, cond_timestep,
@@ -1389,4 +1352,4 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         if not return_dict:
             return (image,)
 
-        return ImagePipelineOutput(images=image)                 
+        return ImagePipelineOutput(images=image)

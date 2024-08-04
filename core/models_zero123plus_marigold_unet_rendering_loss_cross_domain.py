@@ -442,8 +442,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 loaded_mean, loaded_std = load_stats(fname)
                 loaded_mean_src.append(loaded_mean)
                 loaded_std_src.append(loaded_std)
-            loaded_mean_src = torch.stack(loaded_mean_src).to(sp_image_batch.device)
-            loaded_std_src = torch.stack(loaded_std_src).to(sp_image_batch.device)
+            loaded_mean_src = torch.stack(loaded_mean_src).to(sp_image_batch.device).repeat(B,1,1,1)
+            loaded_std_src = torch.stack(loaded_std_src).to(sp_image_batch.device).repeat(B,1,1,1)
             sp_image_batch = (sp_image_batch - loaded_mean_src) / loaded_std_src
             
             fname_target = self.latents_normalization_stats[f"input_stats.txt"]
@@ -485,7 +485,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 
 
         elif self.opt.train_unet:
-            cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
+            # cond = data['cond'].unsqueeze(1).repeat(1,A,1,1,1).view(-1, *data['cond'].shape[1:]) 
+            cond = data['cond'].unsqueeze(1).view(-1, *data['cond'].shape[1:]) 
             
             # unet 
             with torch.no_grad():
@@ -549,9 +550,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # add ray embeddings after the latent is added noise, the ray embeddings are not added noise
             if self.opt.diffusion_concat_camera_ray_embeddings:
                 # use vae encoder to encode rays_embeddings
-                rays_embeddings = scale_image(data['rays_embeddings'][0])
+                rays_embeddings = scale_image(data['rays_embeddings']) # [B, 2(ray_o, ray_d), 3, 960, 640])
+                rays_embeddings = einops.rearrange(rays_embeddings, "B R C H W -> (B R) C H W", R=2) # [B*R, 3, 960, 640]
+                
                 rays_embeddings_latent = self.pipe.vae.encode(rays_embeddings).latent_dist.sample() * self.pipe.vae.config.scaling_factor # [2, 4, 120, 80]
-                rays_embeddings_latent = torch.cat([rays_embeddings_latent[0:1], rays_embeddings_latent[1:]], dim=1) # [1, 8, 120, 80]
+                rays_embeddings_latent = einops.rearrange(rays_embeddings_latent, "(B R) C H W -> B R C H W", R=2)
+                
+                rays_embeddings_latent = torch.cat([rays_embeddings_latent[:,0], rays_embeddings_latent[:,1]], dim=1) # [B, 8, 120, 80]
                 rays_embeddings_latent = scale_latents(rays_embeddings_latent) # also do normalization on camera ray embeddings? or add rope embeddings?
                 rays_embeddings_latent = einops.repeat(rays_embeddings_latent, "B C H W -> (B A) C H W", A=A)
                 
@@ -737,7 +742,16 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     else:
                         latent_model_input = latents
                         t = t.repeat(A)
+                    
+                    st()
+                    # TODO: add ray embeddings
+                    if self.opt.diffusion_concat_camera_ray_embeddings:
+                        print("todo: add ray embeddings")
+                        st()
+                    
+                    
                     latent_model_input = self.pipe.scheduler.scale_model_input(latent_model_input, t)
+                    st()
 
                     # predict the noise residual
                     noise_pred = self.unet(
