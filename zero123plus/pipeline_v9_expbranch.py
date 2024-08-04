@@ -134,11 +134,7 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         self.norm1 = block.norm1 
         self.attn1 = block.attn1
         
-        self.norm_joint_mid = deepcopy(block.norm1)
-        self.attn_joint_mid = deepcopy(block.attn1)
-        # st() # check whether the block,.attn1.to_out[0] has been changed
-        nn.init.zeros_(self.attn_joint_mid.to_out[0].weight.data)
-       
+     
     
         self.norm2 = block.norm2
         self.attn2 = block.attn2
@@ -160,7 +156,11 @@ class BasicTransformerBlockCrossDomainPosEmbed(nn.Module):
         self.A = num_attributes
 
         self.train_temporal_attn = False
-        if not self.train_temporal_attn:
+        if self.train_temporal_attn:
+            self.norm_joint_mid = deepcopy(block.norm1)
+            self.attn_joint_mid = deepcopy(block.attn1)
+            nn.init.zeros_(self.attn_joint_mid.to_out[0].weight.data)
+        else:
             print("[ATTENTION:] NOT training temporal attn")
         
     
