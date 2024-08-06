@@ -264,6 +264,9 @@ class ObjaverseDataset(Dataset):
 
         
         self.items = [k for k in self.data_path_vae_splatter.keys()]
+        
+        if self.opt.overfit_one_scene:
+            self.items = self.items[0:1] * 10000
 
          # naive split
         if self.training:
@@ -271,8 +274,7 @@ class ObjaverseDataset(Dataset):
         else:
             self.items = self.items[-self.opt.batch_size*10:]
 
-        if self.opt.overfit_one_scene:
-            self.items = self.items[0:1]
+        
 
         print(f"There are total {len(self.items)} in dataloader")
         
