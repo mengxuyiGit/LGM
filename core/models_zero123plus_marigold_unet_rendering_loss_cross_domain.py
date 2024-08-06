@@ -446,7 +446,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loaded_std_src = torch.stack(loaded_std_src).to(sp_image_batch.device).repeat(B,1,1,1)
             sp_image_batch = (sp_image_batch - loaded_mean_src) / loaded_std_src
             
-            fname_target = self.latents_normalization_stats[f"input_stats.txt"]
+            print("using rgb norm stat txt")
+            fname_target = self.latents_normalization_stats[f"rgbs_stats.txt"]
             loaded_mean_target, loaded_std_target = load_stats(fname_target)
             loaded_mean_target = loaded_mean_target.unsqueeze(0).repeat(sp_image_batch.shape[0],1,1,1).to(sp_image_batch.device)
             loaded_std_target = loaded_std_target.unsqueeze(0).repeat(sp_image_batch.shape[0],1,1,1).to(sp_image_batch.device)
@@ -583,6 +584,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 v_target_AB = einops.rearrange(v_target, "(B A) C H W -> A B C H W", B=B, A=A)
                 l2_all = (v_target_AB - v_pred_AB) ** 2
                 l2_each_attr = torch.mean(l2_all, dim=np.arange(1,l2_all.dim()).tolist())
+                # st()
                 for l2_, attr_ in zip(l2_each_attr, ordered_attr_list_local):
                     results[f"loss_latent_{attr_}"] = l2_
                 if self.opt.lambda_each_attribute_loss is not None:
@@ -829,13 +831,14 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             latents_all_attr_to_decode = latents_all_attr_to_decode * loaded_std_src + loaded_mean_src
             # print("NOT normalize back to their repsective disributions")
             
+
         if self.opt.use_video_decoderST:
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
         else:
 
             image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
             
-            # loop decoder
+            # # loop decoder
             # latents_all_attr_to_decode_single = einops.rearrange(latents_all_attr_to_decode, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
             # out = []
             # st()
@@ -846,6 +849,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # st()
             # image_all_attr_to_decode = torch.cat([self.pipe.vae.decode(_latents_all_attr_to_decode[None] / self.pipe.vae.config.scaling_factor, return_dict=False)[0] for _latents_all_attr_to_decode in latents_all_attr_to_decode])
 
+        # st()
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
         # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
         image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
@@ -1023,8 +1027,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loss_mse_rendering *= _rendering_w_t
             results['loss_rendering'] = loss_mse_rendering
             loss +=  self.opt.lambda_rendering * loss_mse_rendering
-            if self.opt.verbose_main:
-                print(f"loss rendering (with alpha):{loss_mse_rendering}")
+            # if self.opt.verbose_main:
+            print(f"loss rendering (with alpha):{loss_mse_rendering}")
                 
         if self.opt.lambda_alpha > 0:
             # loss_mse_alpha = F.mse_loss(pred_alphas, gt_masks)
@@ -1052,8 +1056,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 
             results['loss_lpips'] = loss_lpips
             loss += self.opt.lambda_lpips * loss_lpips
-            if self.opt.verbose_main:
-                print(f"loss lpips:{loss_lpips}")
+            # if self.opt.verbose_main:
+            print(f"loss lpips:{loss_lpips}")
             
                 
         # Calculate metrics
