@@ -109,7 +109,9 @@ def main():
         trainable_keys = [ "time_emb_proj",  "class_embedding"]
         
         if opt.custom_pipeline ==  "./zero123plus/pipeline_v9_expbranch.py":
-            trainable_keys.append("_experts") # the original conv_in and conv_out remains frozen, for processing condition images
+            # trainable_keys.append("_experts") # the original conv_in and conv_out remains frozen, for processing condition images
+            trainable_keys.append("conv_in_experts")
+            trainable_keys.append("conv_out_experts")
         
         for _key in trainable_keys:
         # for _key in [ "time_emb_proj",  "class_embedding"]:
@@ -213,7 +215,8 @@ def main():
         
         # Prepare unet parameter list
         if opt.only_train_attention:
-            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+            # trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "attentions" in name)
             # as well as timeproj and class emb
             trained_unet_parameters = trained_unet_parameters.union(
                 set(f"unet.{name}" for name, para in model.unet.named_parameters() if is_selected_trainable(name=name))
@@ -291,7 +294,8 @@ def main():
         parameters_list = []
         if opt.only_train_attention:
             for name, para in model.unet.named_parameters():
-                if 'transformer_blocks' in name:
+                if 'attentions' in name:
+                    # if 'transformer_blocks' in name:
                     parameters_list.append(para)
                     para.requires_grad = True
                 elif is_selected_trainable(name):
@@ -434,7 +438,7 @@ def main():
                     #     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     #     # st()
                         
-                    #     with open("grad_status.txt", "w") as f:
+                    #     with open("grad_status_attentions.txt", "w") as f:
                     #         for name, param in model.named_parameters():
                     #             f.write(f"---------Parameter {name}\n")
                     #             if param.requires_grad and param.grad is None:
@@ -449,9 +453,9 @@ def main():
                     #     for name, param in model.named_parameters():
                     #         if param.requires_grad and param.grad is not None and "unet" not in name:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    #     st()
-                    # #     # TODO: CHECK decoder not have grad, especially deocder.others
-                    # #     # TODO: and check self.scale_bias
+                    # # st()
+                    # # TODO: CHECK decoder not have grad, especially deocder.others
+                    # # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:
