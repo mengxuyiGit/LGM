@@ -109,9 +109,10 @@ def main():
         trainable_keys = [ "time_emb_proj",  "class_embedding"]
         
         if opt.custom_pipeline ==  "./zero123plus/pipeline_v9_expbranch.py":
-            # trainable_keys.append("_experts") # the original conv_in and conv_out remains frozen, for processing condition images
+            trainable_keys.append("_experts") # the original conv_in and conv_out remains frozen, for processing condition images
             trainable_keys.append("conv_in_experts")
             trainable_keys.append("conv_out_experts")
+
         
         for _key in trainable_keys:
         # for _key in [ "time_emb_proj",  "class_embedding"]:
@@ -438,7 +439,7 @@ def main():
                     #     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     #     # st()
                         
-                    #     with open("grad_status_attentions.txt", "w") as f:
+                    #     with open("grad_status_experts.txt", "w") as f:
                     #         for name, param in model.named_parameters():
                     #             f.write(f"---------Parameter {name}\n")
                     #             if param.requires_grad and param.grad is None:
