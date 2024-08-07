@@ -603,13 +603,13 @@ def main():
                             total_loss_lpips /= num_samples_eval
                             
                             accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), epoch)
-                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), epoch)
-                            writer.add_scalar('eval/total_psnr', total_psnr.item(), epoch)
-                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, epoch)
-                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, epoch)
-                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, epoch)
-                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, epoch)
+                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), global_step)
+                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), global_step)
+                            writer.add_scalar('eval/total_psnr', total_psnr.item(), global_step)
+                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, global_step)
+                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, global_step)
+                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, global_step)
+                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, global_step)
                             # if opt.log_each_attribute_loss:
                             #     for _attr in ordered_attr_list:
                             #         writer.add_scalar(f'eval/loss_{_attr}',  out[f"loss_{_attr}"].detach().item(), epoch)
@@ -617,7 +617,7 @@ def main():
 
                             if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
                                 scheduler.step(total_loss)
-                                writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
+                                writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], global_step)
                     
                     # back to train mode to have grad
                     accelerator.wait_for_everyone()
