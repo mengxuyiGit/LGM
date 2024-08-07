@@ -684,7 +684,6 @@ accelerate launch --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00010-train_unet-fted_LGM_fov60-upsample320-from0123plus_prior-sd_encoder-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_12000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00009-train_unet-sd_encoder-fted_LGM_fov60-resume00008_total13k-train_unet-numV10-loss-lr4e-06-Plat50/eval_global_step_12000_ckpt/model.safetensors
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00003-train_unet-fted_LGM_fov60-resume103k-train_unet-loss-lr4e-06-Plat50/eval_global_step_4000_ckpt/model.safetensors
-
     # --resume_unet /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july/00005-train_unet-fted_LGM_fov60-resume_july0002_4.5k-train_unet-numV10-loss-lr1e-05-Plat50/eval_global_step_5500_ckpt/model.safetensors
     
     
