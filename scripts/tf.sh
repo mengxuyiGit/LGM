@@ -99,9 +99,10 @@
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_overfit_june
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_july
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_0123++/workspace_train_july
-LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july
+# LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_unet/workspace_train_july
+LOG_DIR=/home/xuyimeng/Repo/LGM/runs/finetune_unet/workspace_train_july
 
-TB_PORT=6145
+TB_PORT=6144
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
 
 TB_FOLDER=$1
@@ -114,3 +115,5 @@ tensorboard --logdir="${LOG_DIR}" --host=localhost --port=${TB_PORT} &
 ## on the local computer: # ssh -N -f -L localhost:<local_port, not in this file>:localhost:<TB_PORT> xuyimeng@chiron
 # ssh -N -f -L localhost:16023:localhost:6130 xuyimeng@chiron
 ## and open "localhost:16023"
+
+ssh -N -f -L 16014:localhost:6144 xuyimeng@neowise

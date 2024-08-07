@@ -106,10 +106,13 @@ def main():
 
 
     def is_selected_trainable(name):
-        trainable_keys = [ "time_emb_proj",  "class_embedding", "conv_norm_out", "conv_out"]
+        trainable_keys = [ "time_emb_proj",  "class_embedding"]
         
         if opt.custom_pipeline ==  "./zero123plus/pipeline_v9_expbranch.py":
-            trainable_keys.append("conv_in")
+            trainable_keys.append("_experts") # the original conv_in and conv_out remains frozen, for processing condition images
+            trainable_keys.append("conv_in_experts")
+            trainable_keys.append("conv_out_experts")
+
         
         for _key in trainable_keys:
         # for _key in [ "time_emb_proj",  "class_embedding"]:
@@ -213,7 +216,8 @@ def main():
         
         # Prepare unet parameter list
         if opt.only_train_attention:
-            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+            # trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "transformer_blocks" in name)
+            trained_unet_parameters = set(f"unet.{name}" for name, para in model.unet.named_parameters() if "attentions" in name)
             # as well as timeproj and class emb
             trained_unet_parameters = trained_unet_parameters.union(
                 set(f"unet.{name}" for name, para in model.unet.named_parameters() if is_selected_trainable(name=name))
@@ -291,7 +295,8 @@ def main():
         parameters_list = []
         if opt.only_train_attention:
             for name, para in model.unet.named_parameters():
-                if 'transformer_blocks' in name:
+                if 'attentions' in name:
+                    # if 'transformer_blocks' in name:
                     parameters_list.append(para)
                     para.requires_grad = True
                 elif is_selected_trainable(name):
@@ -425,21 +430,33 @@ def main():
                     # if global_step > 0:
                     #     # Check gradients of the unet parameters
                     #     print(f"check unet parameters")
-                    #     for name, param in model.unet.named_parameters():
-                    #         if param.requires_grad and param.grad is None:
-                    #             print(f"Parameter {name}, no grad")
-                    #         continue
-                    #         if param.requires_grad and param.grad is not None:
-                    #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                        
+                    #     # for name, param in model.unet.named_parameters():
+                    #     #     if param.requires_grad and param.grad is None:
+                    #     #         print(f"Parameter {name}, no grad")
+                    #     #     # continue
+                    #     #     if param.requires_grad and param.grad is not None:
+                    #     #         print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
+                    #     # st()
+                        
+                    #     with open("grad_status_experts.txt", "w") as f:
+                    #         for name, param in model.named_parameters():
+                    #             f.write(f"---------Parameter {name}\n")
+                    #             if param.requires_grad and param.grad is None:
+                    #                 f.write(f"Parameter {name}, no grad\n")
+                    #             if param.requires_grad and param.grad is not None:
+                    #                 f.write(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}\n")
                     #     st()
+                                    
+                            
                     
                     #     print(f"check other model parameters")
                     #     for name, param in model.named_parameters():
                     #         if param.requires_grad and param.grad is not None and "unet" not in name:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
-                    #     st()
-                    # #     # TODO: CHECK decoder not have grad, especially deocder.others
-                    # #     # TODO: and check self.scale_bias
+                    # # st()
+                    # # TODO: CHECK decoder not have grad, especially deocder.others
+                    # # TODO: and check self.scale_bias
 
                     # gradient clipping
                     if accelerator.sync_gradients:
@@ -586,13 +603,13 @@ def main():
                             total_loss_lpips /= num_samples_eval
                             
                             accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
-                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), epoch)
-                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), epoch)
-                            writer.add_scalar('eval/total_psnr', total_psnr.item(), epoch)
-                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, epoch)
-                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, epoch)
-                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, epoch)
-                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, epoch)
+                            writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), global_step)
+                            writer.add_scalar('eval/total_loss_other_than_latent', total_loss.item(), global_step)
+                            writer.add_scalar('eval/total_psnr', total_psnr.item(), global_step)
+                            writer.add_scalar('eval/total_loss_splatter', total_loss_splatter, global_step)
+                            writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, global_step)
+                            writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, global_step)
+                            writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, global_step)
                             # if opt.log_each_attribute_loss:
                             #     for _attr in ordered_attr_list:
                             #         writer.add_scalar(f'eval/loss_{_attr}',  out[f"loss_{_attr}"].detach().item(), epoch)
@@ -600,7 +617,7 @@ def main():
 
                             if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
                                 scheduler.step(total_loss)
-                                writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], epoch)
+                                writer.add_scalar('eval/lr', optimizer.param_groups[0]['lr'], global_step)
                     
                     # back to train mode to have grad
                     accelerator.wait_for_everyone()
