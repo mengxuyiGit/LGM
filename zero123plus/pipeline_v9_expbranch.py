@@ -497,7 +497,7 @@ def forward_unet(
             for i, conv_in in enumerate(unet.conv_in_experts):
                 sample_branches.append(conv_in(sample[i]))
             sample = torch.stack(sample_branches, dim=1)
-            sample = einops.rearrange(sample, "a b c h w -> (b a) c h w")
+            sample = einops.rearrange(sample, "b a c h w -> (b a) c h w", a=unet.num_attributes)
             
         else:
             sample = unet.conv_in(sample)
@@ -550,6 +550,7 @@ def forward_unet(
             # if False:
                 sample = einops.rearrange(sample, "(b a) c h w -> a b c h w", a=unet.num_attributes)
                 sample_branches, res_sample_branches = [], {}
+                emb_in = einops.rearrange(emb, "(b a) c -> a b c", a=unet.num_attributes)
 
                 for _i, downsample_block in enumerate(unet.down_block_experts):
                     # print(f"downsample_block expert: {_i}")
@@ -563,7 +564,8 @@ def forward_unet(
                         
                         _sample, _res_samples = downsample_block(
                             hidden_states=sample[_i],
-                            temb=emb[_i:_i+1],
+                            # temb=emb[_i:_i+1],
+                            temb=emb_in[_i],
                             encoder_hidden_states=encoder_hidden_states, #[_i:_i+1],
                             attention_mask=attention_mask, # None
                             cross_attention_kwargs=cross_attention_kwargs, #  cross_attention_kwargs['ref_dict'].keys(), dict_keys(['down_blocks.0.attentions.0.transformer_blocks.0.attn1.processor', 'down_blocks.0.attentions.1.transformer_blocks.0.attn1.processor'])
@@ -585,20 +587,22 @@ def forward_unet(
                 if enter_expert_branches and di == expert_num_layers-1:
                     sample = sample.mean(dim=0)
                 else:
-                    sample = einops.rearrange(sample, "a b c h w -> (b a) c h w")
+                    sample = einops.rearrange(sample, "a b c h w -> (b a) c h w", a=unet.num_attributes)
                 
                 res_samples = ()
                 for ri in range(len(_res_samples)):
                     res_sample_fuse = torch.stack([res_sample_branches[f"expert_{ei}"][ri] for ei in range(unet.num_attributes)])
+                    # res_sample_fuse = torch.stack([torch.ones_like(res_sample_branches[f"expert_{ei}"][ri])*ei for ei in range(unet.num_attributes)])
 
                     if enter_expert_branches and di == expert_num_layers-1 and ri == len(_res_samples)-1:
                         res_sample_fuse = res_sample_fuse.mean(dim=0)
                     else:
-                        res_sample_fuse = einops.rearrange(res_sample_fuse, "a b c h w -> (b a) c h w")
+                        res_sample_fuse = einops.rearrange(res_sample_fuse, "a b c h w -> (b a) c h w", a=unet.num_attributes)
                     res_samples += (res_sample_fuse,)
                 
+                
                 if enter_expert_branches and di == expert_num_layers-1:
-                    emb_fused = emb.mean(dim=0, keepdim=True)
+                    emb_fused = einops.rearrange(emb, "(b a) c -> a b c", a=unet.num_attributes).mean(dim=0, keepdim=False)
                     encoder_hidden_states_fused = encoder_hidden_states
 
                     
@@ -739,7 +743,7 @@ def forward_unet(
                 
                 
                 sample = torch.stack(sample_out_branches, dim=0)
-                sample = einops.rearrange(sample, "a b c h w -> (b a) c h w")
+                sample = einops.rearrange(sample, "a b c h w -> (b a) c h w", a=unet.num_attributes)
                     
             else: # fused branches
                     
@@ -776,8 +780,8 @@ def forward_unet(
             sample_branches = []
             for i, conv_out in enumerate(unet.conv_out_experts):
                 sample_branches.append(conv_out(sample[i]))
-            sample = torch.stack(sample_branches, dim=1)
-            sample = einops.rearrange(sample, "a b c h w -> (b a) c h w")
+            sample = torch.stack(sample_branches, dim=0)
+            sample = einops.rearrange(sample, "a b c h w -> (b a) c h w", a=unet.num_attributes)
         else:
             sample = unet.conv_out(sample)
 
