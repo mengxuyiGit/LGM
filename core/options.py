@@ -73,6 +73,11 @@ class Options:
 
     ### customize: finetune lgm
     data_path_rendering: str = None
+
+    overfit_one_scene: bool = False
+    desc: Optional[str] = None
+    lambda_normal: float = 0.05
+    lambda_dist: float = 0.0
     
 
 # all the default settings

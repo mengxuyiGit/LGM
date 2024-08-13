@@ -1,15 +1,27 @@
-# DATA_RENDERING_ROOT_LVIS_46K=/mnt/lingjie_cache/lvis_dataset/testing
-DATA_RENDERING_ROOT_LVIS_46K_CLUSTER=/home/chenwang/data/lvis_dataset/testing
+DATA_RENDERING_ROOT_LVIS_46K=/mnt/lingjie_cache/lvis_dataset/testing
+# DATA_RENDERING_ROOT_LVIS_46K_CLUSTER=/home/chenwang/data/lvis_dataset/testing
 
 # debug training
     # 
-export CUDA_VISIBLE_DEVICES=6
-accelerate launch --config_file acc_configs/gpu1.yaml main1_lvis.py big --workspace runs/finetune_lgm/workspace_debug \
-    --resume pretrained/fov60_lvis_model_8epochs.safetensors \
-    --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K_CLUSTER} \
+export CUDA_VISIBLE_DEVICES=3
+accelerate launch --config_file acc_configs/gpu1.yaml main1_lvis.py big_320 --workspace runs/finetune_lgm/workspace_ovft \
+    --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --resume runs/finetune_lgm/workspace_debug/20240813-021423_ovft_1_resume_epoch10-add_normal0.2_dist0_loss/model.safetensors \
     --prob_cam_jitter 0 \
-    --num_input_views 6 --fovy 60 --output_size 320 \
-    --batch_size 1 --gradient_accumulation_steps 1
+    --num_input_views 6 --fovy 60 \
+    --lambda_normal 0.2 \
+    --batch_size 1 --gradient_accumulation_steps 1 --overfit_one_scene --desc "big_320_out512-ovft_1_resume_epoch19_w_normal_reg-add_normal0.2_dist0_loss_after7k"
+
+    # --resume runs/finetune_lgm/workspace_debug/20240813-011052_ovft_1/model.safetensors \
+#  --output_size 320 
+# TODO: ADD normal and depth loss
+# also has ssim loss (2DGS)
+
+
+    # --resume /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_lgm/workspace_debug/20240812-200809/model.safetensors \
+    # --resume pretrained/fov60_lvis_model_8epochs.safetensors \
+    # --resume pretrained/model_fp16_fixrot.safetensors \
+
 
 # export CUDA_VISIBLE_DEVICES=0
 # accelerate launch --config_file acc_configs/gpu1.yaml main1_lvis.py big --workspace runs/finetune_lgm/workspace_debug \

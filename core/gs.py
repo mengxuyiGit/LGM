@@ -4,14 +4,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from diff_gaussian_rasterization import (
-    GaussianRasterizationSettings,
-    GaussianRasterizer,
-)
+# from diff_gaussian_rasterization import (
+#     GaussianRasterizationSettings,
+#     GaussianRasterizer,
+# )
+from diff_surfel_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 
 from core.options import Options
 
 import kiui
+from ipdb import set_trace as st
+from utils.point_utils import depth_to_normal
+from addict import Dict
 
 class GaussianRenderer:
     def __init__(self, opt: Options):
@@ -39,6 +43,13 @@ class GaussianRenderer:
         # loop of loop...
         images = []
         alphas = []
+
+        render_normals = []
+        render_dists = []
+        surf_depths = []
+        surf_normals = []
+        
+        
         for b in range(B):
 
             # pos, opacity, scale, rotation, shs
@@ -71,18 +82,99 @@ class GaussianRenderer:
                 )
 
                 rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+                
+                raster_2dgs = True
 
-                # Rasterize visible Gaussians to image, obtain their radii (on screen).
-                rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
-                    means3D=means3D,
-                    means2D=torch.zeros_like(means3D, dtype=torch.float32, device=device),
-                    shs=None,
-                    colors_precomp=rgbs,
-                    opacities=opacity,
-                    scales=scales,
-                    rotations=rotations,
-                    cov3D_precomp=None,
-                )
+                if not raster_2dgs:
+                    # Rasterize visible Gaussians to image, obtain their radii (on screen).
+                    rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
+                        means3D=means3D,
+                        means2D=torch.zeros_like(means3D, dtype=torch.float32, device=device),
+                        shs=None,
+                        colors_precomp=rgbs,
+                        opacities=opacity,
+                        scales=scales,
+                        rotations=rotations,
+                        cov3D_precomp=None,
+                    )
+                else:
+                    # print("beofre 2DGS rasterizer...")
+                    
+                    # TODO: use smarter ways to convert 3D to 2D scales
+                    # print("scales: ", scales.mean(dim=0))
+                    # rotations = rotations * 0 
+                    # print("rotations: ", rotations.mean(dim=0)
+                    #     #   , rotations.std(dim=0), rotations.min(dim=0), rotations.max(dim=0)
+                    #       )   
+             
+                    rendered_image, radii, allmap = rasterizer(
+                        means3D=means3D,
+                        means2D=torch.zeros_like(means3D, dtype=torch.float32, device=device),
+                        shs=None,
+                        colors_precomp=rgbs,
+                        opacities=opacity,
+                        scales=scales[:,1:],
+                        rotations=rotations,
+                        cov3D_precomp=None,
+                    )   
+                    
+                     # additional regularizations
+                    render_alpha = allmap[1:2]
+
+                    # get normal map
+                    # transform normal from view space to world space
+                    render_normal = allmap[2:5]
+                    # render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
+                    render_normal = (render_normal.permute(1,2,0) @ (view_matrix[:3,:3].T)).permute(2,0,1)
+                    
+                    # get median depth map
+                    render_depth_median = allmap[5:6]
+                    render_depth_median = torch.nan_to_num(render_depth_median, 0, 0)
+
+                    # get expected depth map
+                    render_depth_expected = allmap[0:1]
+                    render_depth_expected = (render_depth_expected / render_alpha)
+                    render_depth_expected = torch.nan_to_num(render_depth_expected, 0, 0)
+                    
+                    # get depth distortion map
+                    render_dist = allmap[6:7]
+
+                    # psedo surface attributes
+                    # surf depth is either median or expected by setting depth_ratio to 1 or 0
+                    # for bounded scene, use median depth, i.e., depth_ratio = 1; 
+                    # for unbounded scene, use expected depth, i.e., depth_ration = 0, to reduce disk anliasing.
+                    depth_ratio = 1
+                    surf_depth = render_depth_expected * (1-depth_ratio) + (depth_ratio) * render_depth_median
+                    
+                    
+                    # get viewpoint camera
+
+                    # Initialize the dictionary
+                    viewpoint_camera = Dict()
+                    
+                    viewpoint_camera.world_view_transform = view_matrix
+                    viewpoint_camera.image_width = self.opt.output_size
+                    viewpoint_camera.image_height = self.opt.output_size
+                    viewpoint_camera.full_proj_transform = view_proj_matrix
+                    
+                    
+                    # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
+                    surf_normal = depth_to_normal(viewpoint_camera, surf_depth)
+                    surf_normal = surf_normal.permute(2,0,1)
+                    # remember to multiply with accum_alpha since render_normal is unnormalized.
+                    surf_normal = surf_normal * (render_alpha).detach()
+
+                    
+                    # print("finish 2dgs rasterization")
+
+                    # special fro 2DGS postprocessing
+                    rendered_alpha = render_alpha
+                    
+                    render_normals.append(render_normal)
+                    render_dists.append(render_dist)
+                    surf_depths.append(surf_depth)
+                    surf_normals.append(surf_normal)
+                    
 
                 rendered_image = rendered_image.clamp(0, 1)
 
@@ -91,12 +183,21 @@ class GaussianRenderer:
 
         images = torch.stack(images, dim=0).view(B, V, 3, self.opt.output_size, self.opt.output_size)
         alphas = torch.stack(alphas, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
-
-        return {
+        
+        res = {
             "image": images, # [B, V, 3, H, W]
             "alpha": alphas, # [B, V, 1, H, W]
         }
-
+        
+        if raster_2dgs:
+            res["rend_normal"] = torch.stack(render_normals, dim=0).view(B, V, 3, self.opt.output_size, self.opt.output_size)
+            res["rend_dist"] = torch.stack(render_dists, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
+            res["surf_depth"] = torch.stack(surf_depths, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
+            res["surf_normal"] = torch.stack(surf_normals, dim=0).view(B, V, 3, self.opt.output_size, self.opt.output_size) # [B, V, 3, H, W]
+            
+            # for k, v in res.items():
+            #     print(k, v.shape)
+        return res
 
     def save_ply(self, gaussians, path, compatible=True):
         # gaussians: [B, N, 14]

@@ -15,6 +15,37 @@ import re
 import os
 import torch.utils.tensorboard as tensorboard
 from ipdb import set_trace as st
+import numpy as np
+
+from utils.general_utils import colormap
+
+def save_dndn(render_pkg, path):
+    depth = render_pkg["surf_depth"]
+    norm = depth.max()
+    depth = depth / norm
+
+    depth = colormap(depth.detach().cpu().numpy()[0,:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
+    depth = depth.detach().cpu().numpy()[None]
+    
+    surf_normal = render_pkg["surf_normal"].detach().cpu().numpy() * 0.5 + 0.5
+    rend_normal = render_pkg["rend_normal"].detach().cpu().numpy() * 0.5 + 0.5
+
+    # tb_writer.add_images(config['name'] + "_view_{}/rend_normal".format(viewpoint.image_name), rend_normal[None], global_step=iteration)
+    # tb_writer.add_images(config['name'] + "_view_{}/surf_normal".format(viewpoint.image_name), surf_normal[None], global_step=iteration)
+    # tb_writer.add_images(config['name'] + "_view_{}/rend_alpha".format(viewpoint.image_name), rend_alpha[None], global_step=iteration)
+
+    rend_dist = render_pkg["rend_dist"].detach().cpu().numpy()
+    rend_dist = colormap(rend_dist[0,:,0])[None]
+    # tb_writer.add_images(config['name'] + "_view_{}/rend_dist".format(viewpoint.image_name), rend_dist[None], global_step=iteration)
+    rend_dist = rend_dist.detach().cpu().numpy()
+    
+
+    # pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+    pred_images = np.concatenate([depth, surf_normal, rend_dist, rend_normal], axis=3)
+    pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[4], 3)
+    kiui.write_image(path, pred_images)
+
+
 
 def main():    
     opt = tyro.cli(AllConfigs)
@@ -45,6 +76,9 @@ def main():
         cur_run_id = max(prev_run_ids, default=-1) + 1
         time_str = f'{cur_run_id:05d}'
         accelerator.wait_for_everyone()
+    
+    if opt.desc is not None:
+        time_str += f'_{opt.desc}'
         
     opt.workspace = os.path.join(opt.workspace, f'{time_str}')
     if accelerator.is_main_process:
@@ -141,7 +175,12 @@ def main():
                 # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                 # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                 # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
+                
+                # save 2DGS depth and normal renderings
+                if 'surf_normal' in out.keys():
+                    save_dndn(out, path=f'{opt.workspace}/eval_pred_SdnRdns_{epoch}_{i}.jpg')
 
+                   
 
         torch.cuda.empty_cache()
 
@@ -156,7 +195,6 @@ def main():
             writer.add_scalar('eval/loss', (total_loss_mse + total_loss_lpips).item(), step)
             writer.add_scalar('eval/psnr', total_psnr.item(), step)
         
-        st()
 
     # loop
     for epoch in range(opt.num_epochs):
@@ -169,6 +207,8 @@ def main():
         log_loss_mse = 0
         log_loss_lpips = 0
         log_psnr = 0
+        log_loss_2dgs_dist = 0
+        log_loss_2dgs_normal = 0
         
         for i, data in enumerate(train_dataloader):
             with accelerator.accumulate(model):
@@ -177,7 +217,7 @@ def main():
 
                 step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
-                out = model(data, step_ratio)
+                out = model(data, step_ratio, iteration=epoch * len(train_dataloader) + i)
                 loss = out['loss']
                 psnr = out['psnr']
                 accelerator.backward(loss)
@@ -196,6 +236,8 @@ def main():
                 log_psnr += psnr.detach()
                 log_loss_mse += out['loss_mse'].detach()
                 log_loss_lpips += out['loss_lpips'].detach()
+                log_loss_2dgs_dist += out['dist_loss'].detach()
+                log_loss_2dgs_normal += out['normal_loss'].detach()
 
             if accelerator.is_main_process:
                 # logging
@@ -206,10 +248,14 @@ def main():
                     writer.add_scalar('train/psnr', log_psnr.item()/log_iter, step)
                     writer.add_scalar('train/loss_mse', log_loss_mse.item()/log_iter, step)
                     writer.add_scalar('train/loss_lpips', log_loss_lpips.item()/log_iter, step)        
+                    writer.add_scalar('train/loss_2dgs_dist', log_loss_2dgs_dist.item()/log_iter, step)        
+                    writer.add_scalar('train/loss_2dgs_normal', log_loss_2dgs_normal.item()/log_iter, step)
                     log_loss = 0
                     log_loss_mse = 0
                     log_loss_lpips = 0
                     log_psnr = 0
+                    log_loss_2dgs_dist = 0
+                    log_loss_2dgs_normal = 0
                     writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)        
                     
                 if i % 100 == 0:
@@ -233,54 +279,64 @@ def main():
                     # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                     # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                     # kiui.write_image(f'{opt.workspace}/train_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
+                    
+                    # save 2DGS depth and normal renderings
+                    if 'surf_normal' in out.keys():
+                        save_dndn(out, path=f'{opt.workspace}/train_pred_SdnRdn_{epoch}_{i}.jpg')
 
-            # checkpoint
-            # if epoch % 10 == 0 or epoch == opt.num_epochs - 1:
-            if i % 1000 == 0:
-                accelerator.wait_for_everyone()
-                accelerator.save_model(model, opt.workspace)
 
-                # eval
-                with torch.no_grad():
-                    model.eval()
-                    total_psnr_eval = 0
-                    total_loss_mse = 0
-                    total_loss_lpips = 0
-                    for j, data in enumerate(test_dataloader):
+        # checkpoint
+        if epoch % 2 == 0 or epoch == opt.num_epochs - 1:
+        # if i % 100 == 0:
+            accelerator.wait_for_everyone()
+            accelerator.save_model(model, opt.workspace)
 
-                        out = model(data)
-            
-                        psnr = out['psnr']
-                        total_psnr_eval += psnr.detach()
-                        total_loss_mse += out['loss_mse'].detach()
-                        total_loss_lpips += out['loss_lpips'].detach()
-                        
-                        # save some images
-                        if accelerator.is_main_process:
-                            gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                            gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                            kiui.write_image(f'{opt.workspace}/eval_gt_images_{epoch}_{j}.jpg', gt_images)
+            # eval
+            with torch.no_grad():
+                model.eval()
+                total_psnr_eval = 0
+                total_loss_mse = 0
+                total_loss_lpips = 0
+                for j, data in enumerate(test_dataloader):
 
-                            pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                            pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                            kiui.write_image(f'{opt.workspace}/eval_pred_images_{epoch}_{j}.jpg', pred_images)
-
-                            # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                            # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                            # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
-
-                    torch.cuda.empty_cache()
-
-                    total_psnr_eval = accelerator.gather_for_metrics(total_psnr_eval).mean()
+                    out = model(data)
+        
+                    psnr = out['psnr']
+                    total_psnr_eval += psnr.detach()
+                    total_loss_mse += out['loss_mse'].detach()
+                    total_loss_lpips += out['loss_lpips'].detach()
+                    
+                    # save some images
                     if accelerator.is_main_process:
-                        total_psnr_eval /= len(test_dataloader)
-                        total_loss_mse /= len(test_dataloader)
-                        total_loss_lpips /= len(test_dataloader)
-                        accelerator.print(f"[eval] epoch: {epoch} psnr: {total_psnr_eval:.4f}")
+                        gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                        kiui.write_image(f'{opt.workspace}/eval_gt_images_{epoch}_{j}.jpg', gt_images)
 
-                        step = (epoch + 1)* len(train_dataloader) 
-                        writer.add_scalar('eval/loss', (total_loss_mse + total_loss_lpips).item(), step)
-                        writer.add_scalar('eval/psnr', total_psnr_eval.item(), step)
+                        pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                        pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                        kiui.write_image(f'{opt.workspace}/eval_pred_images_{epoch}_{j}.jpg', pred_images)
+
+                        # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                        # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                        # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
+                            
+                        # save 2DGS depth and normal renderings
+                        if 'surf_normal' in out.keys():
+                            save_dndn(out, path=f'{opt.workspace}/eval_pred_SdnRdn_{epoch}_{j}.jpg')
+                        
+
+                torch.cuda.empty_cache()
+
+                total_psnr_eval = accelerator.gather_for_metrics(total_psnr_eval).mean()
+                if accelerator.is_main_process:
+                    total_psnr_eval /= len(test_dataloader)
+                    total_loss_mse /= len(test_dataloader)
+                    total_loss_lpips /= len(test_dataloader)
+                    accelerator.print(f"[eval] epoch: {epoch} psnr: {total_psnr_eval:.4f}")
+
+                    step = (epoch + 1)* len(train_dataloader) 
+                    writer.add_scalar('eval/loss', (total_loss_mse + total_loss_lpips).item(), step)
+                    writer.add_scalar('eval/psnr', total_psnr_eval.item(), step)
 
 
 

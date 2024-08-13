@@ -43,7 +43,8 @@ class LGM(nn.Module):
         self.scale_act = lambda x: 0.1 * F.softplus(x)
         self.opacity_act = lambda x: torch.sigmoid(x)
         # self.rot_act = lambda x: torch.zeros_like(x)
-        self.rot_act = F.normalize
+        # self.rot_act = F.normalize
+        self.rot_act = lambda x: F.normalize(x, dim=-1)
         self.rgb_act = lambda x: 0.5 * torch.tanh(x) + 0.5 # NOTE: may use sigmoid if train again
 
         # LPIPS loss
@@ -114,7 +115,7 @@ class LGM(nn.Module):
         opacity = self.opacity_act(x[..., 3:4])
         scale = self.scale_act(x[..., 4:7])
         rotation = self.rot_act(x[..., 7:11])
-        print("rotations: ", rotation)
+        # print("rotations: ", rotation)
         rgbs = self.rgb_act(x[..., 11:])
 
         gaussians = torch.cat([pos, opacity, scale, rotation, rgbs], dim=-1) # [B, N, 14]
@@ -122,7 +123,7 @@ class LGM(nn.Module):
         return gaussians
 
     
-    def forward(self, data, step_ratio=1):
+    def forward(self, data, step_ratio=1, iteration=0):
         # data: output of the dataloader
         # return: loss
 
@@ -134,7 +135,7 @@ class LGM(nn.Module):
         # use the first view to predict gaussians
         gaussians = self.forward_gaussians(images) # [B, N, 14]
 
-        results['gaussians'] = gaussians
+        # results['gaussians'] = gaussians
 
         # random bg for training
         if self.training:
@@ -170,6 +171,28 @@ class LGM(nn.Module):
             results['loss_lpips'] = loss_lpips
             loss = loss + self.opt.lambda_lpips * loss_lpips
             
+        
+        ### 2dgs regularizations
+        lambda_normal = self.opt.lambda_normal if iteration > 7000 else 0.0
+        lambda_dist = self.opt.lambda_dist if iteration > 3000 else 0.0
+        print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
+
+        rend_dist = results["rend_dist"]
+        rend_normal  = results['rend_normal']
+        surf_normal = results['surf_normal']
+
+        normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+        normal_loss = lambda_normal * (normal_error).mean()
+        dist_loss = lambda_dist * (rend_dist).mean()
+
+        # loss
+        loss = loss + dist_loss + normal_loss
+        results['dist_loss'] = dist_loss
+        results['normal_loss'] = normal_loss
+        
+        print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
+    
+        
         results['loss'] = loss
 
         # metric
