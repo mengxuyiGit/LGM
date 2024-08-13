@@ -125,4 +125,21 @@ config_defaults['tiny'] = Options(
     mixed_precision='bf16',
 )
 
+
+config_doc['big_320'] = 'big model with higher resolution Gaussians of 320x320 while loading pretrained models'
+config_defaults['big_320'] = Options(
+    input_size=640,
+    down_channels = (64, 128, 256, 512, 1024, 1024),
+    down_attention = (False, False, False, True, True, True),
+    up_channels=(1024, 1024, 512, 256, 128), # one more decoder
+    up_attention=(True, True, True, False, False),
+    splat_size=320,
+    output_size=512, # render & supervise Gaussians at a higher resolution.
+    batch_size=8,
+    num_views=8,
+    gradient_accumulation_steps=1,
+    mixed_precision='bf16',
+)
+
+
 AllConfigs = tyro.extras.subcommand_type_from_defaults(config_defaults, config_doc)
