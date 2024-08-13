@@ -47,6 +47,10 @@ class ObjaverseDataset(Dataset):
             self.data_path_rendering[scene_name] = scene_path
 
         self.items = [k for k in self.data_path_rendering.keys()]
+        
+        if self.opt.overfit_one_scene:
+            _oi = 1
+            self.items = self.items[_oi:_oi+1]*1001*self.opt.batch_size
 
          # naive split
         if self.training:
