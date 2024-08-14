@@ -1,0 +1,6 @@
+runs/*
+**pycache**
+*png
+*jpg
+*yml
+*txt
