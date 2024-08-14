@@ -40,7 +40,10 @@ class ObjaverseDataset(Dataset):
             all_scene_paths.extend(sorted(glob.glob(pattern)))
             # break # for fast dev
         
-        for scene_path in all_scene_paths:
+        for i, scene_path in enumerate(all_scene_paths):
+            if i > 1:
+                break
+            
             scene_name = scene_path.split('/')[-1]
             if not os.path.isdir(scene_path):
                 continue

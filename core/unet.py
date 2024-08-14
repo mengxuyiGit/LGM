@@ -7,6 +7,7 @@ from typing import Tuple, Literal
 from functools import partial
 
 from core.attention import MemEffAttention
+from ipdb import set_trace as st
 
 class MVAttention(nn.Module):
     def __init__(
@@ -21,7 +22,7 @@ class MVAttention(nn.Module):
         eps: float = 1e-5,
         residual: bool = True,
         skip_scale: float = 1,
-        num_frames: int = 4, # WARN: hardcoded!
+        num_frames: int = 6, # WARN: hardcoded!
     ):
         super().__init__()
 
@@ -275,6 +276,7 @@ class UNet(nn.Module):
             cin = cout
             cout = up_channels[i]
             cskip = down_channels[max(-2 - i, -len(down_channels))] # for assymetric
+            # cskip = down_channels[max(-1 - i, -len(down_channels))] # for assymetric
 
             up_blocks.append(UpBlock(
                 cin, cskip, cout, 
@@ -294,26 +296,34 @@ class UNet(nn.Module):
         # x: [B, Cin, H, W]
 
         # first
+        # print(x.shape)
         x = self.conv_in(x)
+        # print(x.shape)
         
         # down
         xss = [x]
         for block in self.down_blocks:
             x, xs = block(x)
+            # print(f"x:{x.shape}, xs:{[x.shape for x in xs]}")
             xss.extend(xs)
         
         # mid
         x = self.mid_block(x)
+        # print(f"mid x:{x.shape}")
 
         # up
         for block in self.up_blocks:
             xs = xss[-len(block.nets):]
             xss = xss[:-len(block.nets)]
             x = block(x, xs)
+            # print(f"up x:{x.shape}, xs:{[x.shape for x in xs]}, xss:{[x.shape for x in xss]}")
 
         # last
+        # print(f"\nlast x:{x.shape}")
         x = self.norm_out(x)
         x = F.silu(x)
         x = self.conv_out(x) # [B, Cout, H', W']
-
+        
+        # print(f"out x:{x.shape}")
+        
         return x

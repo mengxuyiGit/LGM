@@ -109,6 +109,8 @@ class LGM(nn.Module):
         # kiui.vis.plot_image(tmp_img_rgb, save=True)
         # kiui.vis.plot_image(tmp_img_pos, save=True)
 
+        # print(f"gaussian resolution: {x.shape}")
+
         x = x.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
         
         pos = self.pos_act(x[..., 0:3]) # [B, N, 3]
@@ -173,9 +175,9 @@ class LGM(nn.Module):
             
         
         ### 2dgs regularizations
-        lambda_normal = self.opt.lambda_normal if iteration > 7000 else 0.0
+        lambda_normal = self.opt.lambda_normal if iteration > 20000 else 0.0
         lambda_dist = self.opt.lambda_dist if iteration > 3000 else 0.0
-        print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
+        # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
 
         rend_dist = results["rend_dist"]
         rend_normal  = results['rend_normal']
@@ -190,7 +192,8 @@ class LGM(nn.Module):
         results['dist_loss'] = dist_loss
         results['normal_loss'] = normal_loss
         
-        print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
+        if iteration % 100 == 0:
+            print(f"Iteration: {iteration}, dist_loss: {dist_loss}, normal_loss: {normal_loss}")
     
         
         results['loss'] = loss

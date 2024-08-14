@@ -217,6 +217,13 @@ def main():
 
                 step_ratio = (epoch + i / len(train_dataloader)) / opt.num_epochs
 
+                
+                # if (epoch * len(train_dataloader) + i) == 2000:
+                #     accelerator.wait_for_everyone()
+                #     os.makedirs(os.path.join(opt.workspace, "model_iteration_20000"), exist_ok=True)
+                #     accelerator.save_model(model, os.path.join(opt.workspace, "model_iteration_2000"))
+                #     accelerator.print(f"[INFO] saved model at iteration 2000")
+
                 out = model(data, step_ratio, iteration=epoch * len(train_dataloader) + i)
                 loss = out['loss']
                 psnr = out['psnr']
@@ -289,7 +296,10 @@ def main():
         if epoch % 2 == 0 or epoch == opt.num_epochs - 1:
         # if i % 100 == 0:
             accelerator.wait_for_everyone()
-            accelerator.save_model(model, opt.workspace)
+            # accelerator.save_model(model, opt.workspace)
+            os.makedirs(os.path.join(opt.workspace, "model_epoch_{epoch}"), exist_ok=True)
+            accelerator.save_model(model, os.path.join(opt.workspace, f"model_epoch_{epoch}"))
+            
 
             # eval
             with torch.no_grad():
