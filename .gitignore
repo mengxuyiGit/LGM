@@ -8,3 +8,10 @@ LGM/runs/LGM_optimize_splatter/*
 *.txt
 *.json
 *.pyc
+
+runs/*
+**pycache**
+*png
+*jpg
+*yml
+*txt

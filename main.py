@@ -45,7 +45,7 @@ def main():
     
     # data
     if opt.data_mode == 's3':
-        from core.provider_objaverse import ObjaverseDataset as Dataset
+        from core.provider_lvis import ObjaverseDataset as Dataset
     else:
         raise NotImplementedError
 

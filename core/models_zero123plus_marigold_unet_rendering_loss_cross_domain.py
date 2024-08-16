@@ -120,6 +120,8 @@ def denormalize_and_activate(attr, mv_image):
     
     sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
     sp_image_o = sp_image_o.clip(0,1) 
+    print("no clip in denormalize_and_activate")
+    
     if attr == "pos":
         sp_min, sp_max = sp_min_max_dict[attr]
         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
@@ -359,10 +361,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
 
-        # upsample splatter to 320
-        images_all_attr_batch = einops.rearrange(images_all_attr_batch, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
-        images_all_attr_batch = F.interpolate(images_all_attr_batch, (320, 320), mode="nearest")
-        images_all_attr_batch = einops.rearrange(images_all_attr_batch, "(b m n) c h w -> b c (m h) (n w)", m=3, n=2)
+        # # upsample splatter to 320
+        # images_all_attr_batch = einops.rearrange(images_all_attr_batch, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
+        # images_all_attr_batch = F.interpolate(images_all_attr_batch, (320, 320), mode="nearest")
+        # images_all_attr_batch = einops.rearrange(images_all_attr_batch, "(b m n) c h w -> b c (m h) (n w)", m=3, n=2)
         
         if save_path is not None:    
             images_to_save = images_all_attr_batch.detach().cpu().numpy() # [5, 3, output_size, output_size]
@@ -762,8 +764,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # debug = True
         # if debug:
-        #     print("using GT splatter")
-        #     image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+        #     # print("using GT splatter")
+        #     # image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+            
+        #     print("using GT splatter xyz")
+        #     image_all_attr_to_decode[0] = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)[0]
+            
         
         # decode latents into attrbutes again
         decoded_attr_list = []
@@ -775,7 +781,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
 
             # insert rotation into it
-            if i == 2:
+            # if i == 2:
+            if "rotation" not in ordered_attr_list and  i == 2:
                 fake_rotation = torch.zeros_like(batch_attr_image)
                 decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
                 decoded_attr_list.append(decoded_attr)
@@ -787,8 +794,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 decoded_attr_3channel_image_batch = einops.rearrange(image_all_attr_to_decode, "A B C H W -> (B A) C H W ", B=B, A=A)
                 images_to_save = decoded_attr_3channel_image_batch.to(torch.float32).detach().cpu().numpy() # [5, 3, output_size, output_size]
                 images_to_save = (images_to_save + 1) * 0.5
+                # st()
                 images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-                images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
+                # images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
+                # images_to_save = np.concatenate([images_to_save_encode, abs(images_to_save-images_to_save_encode)], axis=1)
+                images_to_save = np.concatenate([5*abs(images_to_save-images_to_save_encode)], axis=1).clip(0,1)
+                st()
                 kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
                 if self.opt.save_cond:
                     # also save the cond image: cond 0-255, uint8
@@ -803,6 +814,16 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             return results # not enough attr for gs rendering
             
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
+
+        
+        # # st() # load the true splatter mv   
+        # debug = True
+        # if debug:
+        #     path = "/home/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/debug/8000-8999/20240814-213046-load_2dgs_ckpt_save_vis-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference/0_004bef020bb34445b2b31e97552cd421/splatters_mv.pt"
+        #     # path="/home/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/debug/8000-8999/20240814-152456-load_2dgs_ckpt_save_vis-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference/0_004bef020bb34445b2b31e97552cd421/splatters_mv.pt"
+        #     splatter_mv = torch.load(path).to(dtype=splatter_mv.dtype, device=splatter_mv.device).unsqueeze(0)
+        #     print("load splatter_mv from ", path)
+            
         
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
@@ -852,7 +873,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
                     decoded_attr_list.append(decoded_attr)
 
-                    if i == 2:
+                    if "rotation" not in ordered_attr_list and  i == 2:
                         fake_rotation = torch.zeros_like(batch_attr_image)
                         decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
                         decoded_attr_list.append(decoded_attr)

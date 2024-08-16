@@ -1,25 +1,6 @@
 import tyro
-from dataclasses import dataclass, field
-from typing import Tuple, Literal, Dict, Optional, Union
-
-# optimizer_config = {
-#     'type': 'Adam',
-#     'lr': 1e-3,
-#     'weight_decay': 0.05,  # You can adjust this value as needed
-# }
-
-optimizer_config = {
-    'type': 'Adam',
-    'lr': 1e-2,
-    'weight_decay': 0.,  # You can adjust this value as needed
-}
-
-splatter_optimizer_config = {
-    'type': 'AdamW',
-    'lr':  0.003,
-    'weight_decay': 0.05,  # refer to lgm
-    'betas' : (0.9, 0.95),
-}
+from dataclasses import dataclass
+from typing import Tuple, Literal, Dict, Optional
 
 
 @dataclass
@@ -40,7 +21,7 @@ class Options:
 
     ### dataset
     # data mode (only support s3 now)
-    data_mode: Literal['s3', 'srn_cars'] = 's3'
+    data_mode: Literal['s3'] = 's3'
     # fovy of the dataset
     fovy: float = 49.1
     # camera near plane
@@ -167,62 +148,62 @@ class Options:
     init_from_mean: bool = False
     latent_resolution: int = 40
     
-    optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: optimizer_config)
-    splatter_optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: splatter_optimizer_config)
-    code_init_from_0123_encoder: bool = True
-    use_tanh_code_activation: bool = False
-    splatter_guidance_interval: int = 0
-    splatter_guidance_warmup: int = 500 
+    # optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: optimizer_config)
+    # splatter_optimizer: Dict[str, Union[str, float]] = field(default_factory=lambda: splatter_optimizer_config)
+    # code_init_from_0123_encoder: bool = True
+    # use_tanh_code_activation: bool = False
+    # splatter_guidance_interval: int = 0
+    # splatter_guidance_warmup: int = 500 
     
     overfit_one_scene: bool = False
-    codes_from_encoder: bool = False
-    decode_splatter_to_128: bool = False
-    use_activation_at_downsample: bool = False
-    downsample_mode: str = "DownsampleModule" # "AvgPool" "ConvAvgPool"
-    decoder_upblocks_interpolate_mode:str = "last_layer" # "interpolate_upsample" "interpolate_downsample"
-    replace_interpolate_with_avgpool: bool = False
-    codes_from_diffusion: bool = False
+    # codes_from_encoder: bool = False
+    # decode_splatter_to_128: bool = False
+    # use_activation_at_downsample: bool = False
+    # downsample_mode: str = "DownsampleModule" # "AvgPool" "ConvAvgPool"
+    # decoder_upblocks_interpolate_mode:str = "last_layer" # "interpolate_upsample" "interpolate_downsample"
+    # replace_interpolate_with_avgpool: bool = False
+    # codes_from_diffusion: bool = False
     resume_unet: Optional[str] = None
 
     random_init_unet: bool = False
-    codes_from_cache: bool = False # used to get cache latent stats distribution
-    one_step_diffusion: Optional[int] = None
-    code_cache_dir: Optional[str] = None
-    lora_rank: int = 8
+    # codes_from_cache: bool = False # used to get cache latent stats distribution
+    # one_step_diffusion: Optional[int] = None
+    # code_cache_dir: Optional[str] = None
+    # lora_rank: int = 8
     render_input_views: bool = False
-    lipschitz_coefficient: Optional[float] = None
-    lipschitz_mode: Optional[str] = None # gaussian_noise, constant
-    scheduler_type: Optional[str] = None
-    save_ckpt_copies: bool = False
-    mix_diffusion_interval: int = 10
+    # lipschitz_coefficient: Optional[float] = None
+    # lipschitz_mode: Optional[str] = None # gaussian_noise, constant
+    # scheduler_type: Optional[str] = None
+    # save_ckpt_copies: bool = False
+    # mix_diffusion_interval: int = 10
 
-    vae_on_splatter_image: bool = False
+    # vae_on_splatter_image: bool = False
 
-    ## change the splatter rep
-    use_splatter_with_depth_offset: bool = False
-    zero_init_xy_offset: bool = False
-    always_zero_xy_offset: bool = False
+    # ## change the splatter rep
+    # use_splatter_with_depth_offset: bool = False
+    # zero_init_xy_offset: bool = False
+    # always_zero_xy_offset: bool = False
     
-    save_raw_tensor_splatter: bool = False
-    reorganize_splatter_init: bool = False
-    group_scale: bool = False
+    # save_raw_tensor_splatter: bool = False
+    # reorganize_splatter_init: bool = False
+    # group_scale: bool = False
 
 
-    # overfit eg3d data
-    angle_y_step: float = 5.e-3
-    further_optimize_splatter: bool = False
-    workspace_to_save: Optional[str] = None
-    splatter_to_encode: Optional[str] = None
-    load_suffix: Optional[str] = None # "to_encode"
-    load_ext: Optional[str] = None # "png" , "pt"
-    optimization_objective: Optional[str] = None
+    # # overfit eg3d data
+    # angle_y_step: float = 5.e-3
+    # further_optimize_splatter: bool = False
+    # workspace_to_save: Optional[str] = None
+    # splatter_to_encode: Optional[str] = None
+    # load_suffix: Optional[str] = None # "to_encode"
+    # load_ext: Optional[str] = None # "png" , "pt"
+    # optimization_objective: Optional[str] = None
     attr_group_mode: Optional[str] = None
 
-    clip_image_to_encode: bool = False
-    rendering_loss_on_splatter_to_encode: bool = False
-    load_iter: int = 1000
-    color_augmentation: bool = False
-    loss_weights_decoded_splatter: float = 1.
+    # clip_image_to_encode: bool = False
+    # rendering_loss_on_splatter_to_encode: bool = False
+    # load_iter: int = 1000
+    # color_augmentation: bool = False
+    # loss_weights_decoded_splatter: float = 1.
 
     splatter_size: int = 128
     lambda_latent: float = 1
@@ -268,6 +249,11 @@ class Options:
 
     dynamic_threshold: bool = False
     num_attributes: int = 4
+
+    ### customize: finetune lgm
+
+    lambda_normal: float = 0.05
+    lambda_dist: float = 0.0
     
 
 # all the default settings
@@ -293,19 +279,6 @@ config_defaults['big'] = Options(
     up_channels=(1024, 1024, 512, 256, 128), # one more decoder
     up_attention=(True, True, True, False, False),
     splat_size=128,
-    output_size=512, # render & supervise Gaussians at a higher resolution.
-    batch_size=8,
-    num_views=8,
-    gradient_accumulation_steps=1,
-    mixed_precision='bf16',
-)
-
-config_doc['large'] = 'big model with even higher resolution Gaussians'
-config_defaults['large'] = Options(
-    input_size=256,
-    up_channels=(1024, 1024, 512, 256, 128), # one more decoder
-    up_attention=(True, True, True, False, False),
-    splat_size=512,
     output_size=512, # render & supervise Gaussians at a higher resolution.
     batch_size=8,
     num_views=8,

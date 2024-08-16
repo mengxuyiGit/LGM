@@ -132,18 +132,35 @@ gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
 start_indices = [0, 3, 4, 7, 11]
 end_indices = [3, 4, 7, 11, 14]
 attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, end_indices)}
+
+# ## 3DGS
+# ordered_attr_list = ["pos", # 0-3
+#                 'opacity', # 3-4
+#                 'scale', # 4-7
+#                 # "rotation", # 7-11
+#                 "rgbs", # 11-14
+#             ] # must be an ordered list according to the channels
+
+# sp_min_max_dict = {
+#     "pos": (-0.7, 0.7), 
+#     "scale": (-10., -2.),
+#     "rotation": (-3., 3.)
+#     }
+
+### 2DGS
 ordered_attr_list = ["pos", # 0-3
                 'opacity', # 3-4
                 'scale', # 4-7
-                # "rotation", # 7-11
+                "rotation", # 7-11
                 "rgbs", # 11-14
             ] # must be an ordered list according to the channels
 
 sp_min_max_dict = {
     "pos": (-0.7, 0.7), 
     "scale": (-10., -2.),
-    "rotation": (-3., 3.)
+    "rotation": (-6., 6.)
     }
+
 
 def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
     
@@ -172,18 +189,13 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
             sp_image = torch.log(sp_image)
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-            sp_image = sp_image.clip(0,1)
         elif  attr_to_encode == "rotation":
-            # print("processing rotation: ", si, ei)
             assert (ei - si) == 4
             quat = einops.rearrange(sp_image, 'c h w -> h w c')
             axis_angle = quaternion_to_axis_angle(quat)
             sp_image = einops.rearrange(axis_angle, 'h w c -> c h w')
-            # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
-            # sp_min, sp_max = -3, 3
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-            sp_image = torch.ones_like(sp_image) * 0.5
         elif attr_to_encode == "rgbs":
             pass
         
@@ -209,21 +221,19 @@ class ObjaverseDataset(Dataset):
 
         self.data_path_rendering = {}
         self.data_path_vae_splatter = {}
- 
+        
         excluded_splits = ["40000-49999"] # used for test
         included_splits = [split for split in os.listdir(opt.data_path_rendering) if split not in excluded_splits]
-
-        scene_path_patterns = [os.path.join(opt.data_path_vae_splatter, split, "*", "splatters_mv_inference", "*") for split in included_splits]
+ 
+        if opt.data_path_vae_splatter.endswith("splatters_mv_inference"):
+            scene_path_patterns = [os.path.join(opt.data_path_vae_splatter, "*")]
+        else:
+            scene_path_patterns = [os.path.join(opt.data_path_vae_splatter, split, "*", "splatters_mv_inference", "*") for split in included_splits]
        
         all_scene_paths = []
         for pattern in scene_path_patterns:
             all_scene_paths.extend(sorted(glob.glob(pattern)))
-        
-        # st()
-        # scene_path_pattern = os.path.join(opt.data_path_vae_splatter, "*", "*", "splatters_mv_inference", "*")
-        # all_scene_paths = sorted(glob.glob(scene_path_pattern)) # 44815 in total. And sorted by the absolute path
-        # st()
-        
+
         # remove invalid uids
         if opt.invalid_list is not None:
             print(f"Filter invalid objects by {opt.invalid_list}")
@@ -264,15 +274,16 @@ class ObjaverseDataset(Dataset):
 
         
         self.items = [k for k in self.data_path_vae_splatter.keys()]
+        
+        if self.opt.overfit_one_scene:
+            self.items = self.items[0:1]*1001*self.opt.batch_size
 
          # naive split
         if self.training:
             self.items = self.items[:-self.opt.batch_size*10]
         else:
             self.items = self.items[-self.opt.batch_size*10:]
-
-        if self.opt.overfit_one_scene:
-            self.items = self.items[0:1]
+       
 
         print(f"There are total {len(self.items)} in dataloader")
         
