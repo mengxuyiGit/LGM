@@ -137,6 +137,10 @@ class LGM(nn.Module):
         # use the first view to predict gaussians
         gaussians = self.forward_gaussians(images) # [B, N, 14]
 
+        #  # save gaussians
+        # self.gs.save_ply(gaussians, 'gbuffer_medal.ply')
+        # st()
+
         # results['gaussians'] = gaussians
 
         # random bg for training
@@ -175,25 +179,56 @@ class LGM(nn.Module):
             
         
         ### 2dgs regularizations
-        lambda_normal = self.opt.lambda_normal if iteration > 20000 else 0.0
+        lambda_normal = self.opt.lambda_normal if iteration > self.opt.normal_depth_begin_iter else 0.0 # instantmesh also introduced normal loss at the 2nd stage
+        lambda_depth = self.opt.lambda_depth if iteration > self.opt.normal_depth_begin_iter else 0.0
+        lambda_normal_err = self.opt.lambda_normal if iteration > 7000 else 0.0
         lambda_dist = self.opt.lambda_dist if iteration > 3000 else 0.0
-        # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
+        # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_normal_err: {lambda_normal_err} lambda_dist: {lambda_dist}")
 
         rend_dist = results["rend_dist"]
         rend_normal  = results['rend_normal']
         surf_normal = results['surf_normal']
 
+
         normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
-        normal_loss = lambda_normal * (normal_error).mean()
+        normal_err = lambda_normal_err * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
         # loss
-        loss = loss + dist_loss + normal_loss
-        results['dist_loss'] = dist_loss
-        results['normal_loss'] = normal_loss
+        loss = loss + dist_loss + normal_err
+        results['dist_loss'] = normal_err
+        results['normal_err'] = normal_err
         
-        if iteration % 100 == 0:
-            print(f"Iteration: {iteration}, dist_loss: {dist_loss}, normal_loss: {normal_loss}")
+        # TODO
+        # 1. add normal loss wih gt
+       
+        render_normals = rend_normal
+        target_normals =  data['normals_output'] # [B, V, 3, output_size, output_size]
+        similarity = (render_normals * target_normals).sum(dim=-3).abs() # both are within [-1,1]
+        normal_mask = gt_masks.squeeze(-3)
+        loss_normal = 1 - similarity[normal_mask>0].mean()
+        loss_normal = lambda_normal * loss_normal
+        
+        loss += loss_normal
+        results['normal_loss'] = loss_normal
+        
+        
+        # 2. add depth loss with gt
+        render_depths = results['surf_depth']
+        target_depths = data['depths_output'] # [B, V, 1, output_size, output_size]
+        target_alphas = gt_masks
+        loss_depth = lambda_depth * F.l1_loss(render_depths[target_alphas>0], target_depths[target_alphas>0])
+
+        loss += loss_depth
+        results['depth_loss'] = loss_depth
+        
+        # # 3. add larger alpha loss, which to ensure the normal will add up to 1
+        # print('alpha range: ', pred_alphas.min(), pred_alphas.max())
+       
+        
+        if iteration % 50 == 0:
+            print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_depth: {lambda_depth}, lambda_normal_err: {lambda_normal_err} lambda_dist: {lambda_dist}")
+            print(f"Iteration: {iteration}, normal_loss: {loss_normal}, depth_loss: {loss_depth}, dist_loss: {dist_loss}, normal_err: {normal_err}")
     
         
         results['loss'] = loss

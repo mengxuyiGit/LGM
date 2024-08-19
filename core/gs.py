@@ -66,6 +66,7 @@ class GaussianRenderer:
                 view_proj_matrix = cam_view_proj[b, v].float()
                 campos = cam_pos[b, v].float()
 
+
                 raster_settings = GaussianRasterizationSettings(
                     image_height=self.opt.output_size,
                     image_width=self.opt.output_size,
@@ -76,6 +77,39 @@ class GaussianRenderer:
                     viewmatrix=view_matrix,
                     projmatrix=view_proj_matrix,
                     sh_degree=0,
+                    campos=campos,
+                    prefiltered=False,
+                    debug=False,
+                )
+                
+                # print(view_matrix)
+                # st() # check view_matrix
+                
+                
+                raster_settings = GaussianRasterizationSettings(
+                    image_height=self.opt.output_size,
+                    image_width=self.opt.output_size,
+                    # tanfovx=tanfovx,
+                    # tanfovy=tanfovy,
+                    bg=self.bg_color if bg_color is None else bg_color,
+                    scale_modifier=scale_modifier,
+                    # viewmatrix=viewpoint_camera.world_view_transform,
+                    # projmatrix=viewpoint_camera.full_proj_transform,
+                    sh_degree=0,
+                    # campos=viewpoint_camera.camera_center,
+                    tanfovx=0.3600221437596077,
+                    tanfovy=0.3600221437596077,
+                    # viewmatrix=torch.tensor([[ 1.0000e+00, -1.4021e-09,  7.3434e-09,  5.7956e-17],
+                    #     [ 1.7112e-09,  1.0000e+00,  8.0114e-09,  6.1793e-17],
+                    #     [ 9.3136e-09, -1.2542e-08,  1.0000e+00,  0.0000e+00],
+                    #     [ 4.0545e-09, -1.2370e-08,  1.5598e+00,  1.0000e+00]], device=device),
+                    # projmatrix=torch.tensor([[ 2.7776e+00, -3.8944e-09,  1.0830e-08,  7.3434e-09],
+                    #     [ 4.7532e-09,  2.7776e+00,  1.1816e-08,  8.0114e-09],
+                    #     [ 2.5869e-08, -3.4836e-08,  1.4749e+00,  1.0000e+00],
+                    #     [ 1.1262e-08, -3.4359e-08,  1.1799e+00,  1.5598e+00]], device='cuda:0'),
+                    # campos=torch.tensor([-1.0472e-08,  7.1922e-09,  1.5598e+00], device='cuda:0'),
+                    viewmatrix=view_matrix,
+                    projmatrix=view_proj_matrix,
                     campos=campos,
                     prefiltered=False,
                     debug=False,
@@ -97,6 +131,8 @@ class GaussianRenderer:
                         rotations=rotations,
                         cov3D_precomp=None,
                     )
+
+               
                 else:
                     # print("beofre 2DGS rasterizer...")
                     
@@ -106,17 +142,46 @@ class GaussianRenderer:
                     # print("rotations: ", rotations.mean(dim=0)
                     #     #   , rotations.std(dim=0), rotations.min(dim=0), rotations.max(dim=0)
                     #       )   
-             
-                    rendered_image, radii, allmap = rasterizer(
-                        means3D=means3D,
-                        means2D=torch.zeros_like(means3D, dtype=torch.float32, device=device),
-                        shs=None,
-                        colors_precomp=rgbs,
-                        opacities=opacity,
-                        scales=scales[:,1:],
-                        rotations=rotations,
-                        cov3D_precomp=None,
-                    )   
+
+                 
+                    debug = False
+                    if debug:
+                        rast_path = "/home/xuyimeng/Repo/LaRa/rasterizer_params.pth"
+                        print("Loading rasterizer parameters from: ", rast_path)
+                        # Load the parameters from the file
+                        params = torch.load(rast_path)
+                        
+                        # for k,v in params.items():
+                        #     try:
+                        #         print(k, v.shape, v.mean(dim=0))
+                        #     except:
+                        #         print(k, v)
+                        # st()
+                
+
+                        # Use the loaded parameters to call the rasterizer function
+                        rendered_image, radii, allmap = rasterizer(
+                            means3D=params['means3D'],
+                            means2D=params['means2D'],
+                            shs=params['shs'],
+                            opacities=params['opacities'],
+                            scales=params['scales'],
+                            rotations=params['rotations'],
+                            cov3D_precomp=params['cov3D_precomp'],
+                        )
+                    else:
+                        rendered_image, radii, allmap = rasterizer(
+                            means3D=means3D,
+                            means2D=torch.zeros_like(means3D, dtype=torch.float32, device=device),
+                            shs=None,
+                            colors_precomp=rgbs,
+                            opacities=opacity,
+                            scales=scales[:,1:],
+                            rotations=rotations,
+                            cov3D_precomp=None,
+                        )   
+                        
+                    
                     
                      # additional regularizations
                     render_alpha = allmap[1:2]

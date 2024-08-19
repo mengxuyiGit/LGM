@@ -21,7 +21,7 @@ class Options:
 
     ### dataset
     # data mode (only support s3 now)
-    data_mode: Literal['s3'] = 's3'
+    data_mode: Literal['s3', 'gbuffer'] = 's3'
     # fovy of the dataset
     fovy: float = 49.1
     # camera near plane
@@ -76,8 +76,12 @@ class Options:
 
     overfit_one_scene: bool = False
     desc: Optional[str] = None
-    lambda_normal: float = 0.05
+    lambda_normal: float = 0.2 # follow InstantMesh
+    lambda_depth: float = 0.5 # follow InstantMesh
+    lambda_normal_err: float = 0.05
     lambda_dist: float = 0.0
+    normal_depth_begin_iter: int = 2000
+    resume_iter: int = 0
     
 
 # all the default settings

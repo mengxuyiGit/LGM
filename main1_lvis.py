@@ -19,7 +19,7 @@ import numpy as np
 
 from utils.general_utils import colormap
 
-def save_dndn(render_pkg, path):
+def save_dndn(render_pkg, data, path):
     depth = render_pkg["surf_depth"]
     norm = depth.max()
     depth = depth / norm
@@ -39,9 +39,18 @@ def save_dndn(render_pkg, path):
     # tb_writer.add_images(config['name'] + "_view_{}/rend_dist".format(viewpoint.image_name), rend_dist[None], global_step=iteration)
     rend_dist = rend_dist.detach().cpu().numpy()
     
+    # save normal and depth GT
+    gt_normal = data['normals_output'].detach().cpu().numpy() * 0.5 + 0.5
+    gt_depth = colormap(data['depths_output'].detach().cpu().numpy()[0,:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
+    gt_depth = gt_depth.detach().cpu().numpy()[None]
+    
+    # what to plot
+    plot_list = [depth, surf_normal, rend_dist, rend_normal]
+    plot_list += [gt_depth, gt_normal]
+
 
     # pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-    pred_images = np.concatenate([depth, surf_normal, rend_dist, rend_normal], axis=3)
+    pred_images = np.concatenate(plot_list, axis=3)
     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[4], 3)
     kiui.write_image(path, pred_images)
 
@@ -109,6 +118,9 @@ def main():
     # data
     if opt.data_mode == 's3':
         from core.provider_lvis import ObjaverseDataset as Dataset
+    elif opt.data_mode == 'gbuffer':
+        # from core.provider_gbuffer import ObjaverseDataset as Dataset
+        from core.provider_gobjaverse import ObjaverseDataset as Dataset
     else:
         raise NotImplementedError
 
@@ -178,7 +190,7 @@ def main():
                 
                 # save 2DGS depth and normal renderings
                 if 'surf_normal' in out.keys():
-                    save_dndn(out, path=f'{opt.workspace}/eval_pred_SdnRdns_{epoch}_{i}.jpg')
+                    save_dndn(out, data, path=f'{opt.workspace}/eval_pred_SdnRdns_{epoch}_{i}.jpg')
 
                    
 
@@ -208,7 +220,9 @@ def main():
         log_loss_lpips = 0
         log_psnr = 0
         log_loss_2dgs_dist = 0
+        log_loss_2dgs_normal_err = 0
         log_loss_2dgs_normal = 0
+        log_loss_2dgs_depth = 0
         
         for i, data in enumerate(train_dataloader):
             with accelerator.accumulate(model):
@@ -224,7 +238,7 @@ def main():
                 #     accelerator.save_model(model, os.path.join(opt.workspace, "model_iteration_2000"))
                 #     accelerator.print(f"[INFO] saved model at iteration 2000")
 
-                out = model(data, step_ratio, iteration=epoch * len(train_dataloader) + i)
+                out = model(data, step_ratio, iteration=epoch * len(train_dataloader) + i + opt.resume_iter)
                 loss = out['loss']
                 psnr = out['psnr']
                 accelerator.backward(loss)
@@ -244,7 +258,9 @@ def main():
                 log_loss_mse += out['loss_mse'].detach()
                 log_loss_lpips += out['loss_lpips'].detach()
                 log_loss_2dgs_dist += out['dist_loss'].detach()
+                log_loss_2dgs_normal_err += out['normal_err'].detach()
                 log_loss_2dgs_normal += out['normal_loss'].detach()
+                log_loss_2dgs_depth += out['depth_loss'].detach()
 
             if accelerator.is_main_process:
                 # logging
@@ -256,13 +272,17 @@ def main():
                     writer.add_scalar('train/loss_mse', log_loss_mse.item()/log_iter, step)
                     writer.add_scalar('train/loss_lpips', log_loss_lpips.item()/log_iter, step)        
                     writer.add_scalar('train/loss_2dgs_dist', log_loss_2dgs_dist.item()/log_iter, step)        
+                    writer.add_scalar('train/loss_2dgs_normal_err', log_loss_2dgs_normal_err.item()/log_iter, step)
                     writer.add_scalar('train/loss_2dgs_normal', log_loss_2dgs_normal.item()/log_iter, step)
+                    writer.add_scalar('train/loss_2dgs_depth', log_loss_2dgs_depth.item()/log_iter, step)
                     log_loss = 0
                     log_loss_mse = 0
                     log_loss_lpips = 0
                     log_psnr = 0
                     log_loss_2dgs_dist = 0
+                    log_loss_2dgs_normal_err = 0
                     log_loss_2dgs_normal = 0
+                    log_loss_2dgs_depth = 0
                     writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)        
                     
                 if i % 100 == 0:
@@ -289,7 +309,7 @@ def main():
                     
                     # save 2DGS depth and normal renderings
                     if 'surf_normal' in out.keys():
-                        save_dndn(out, path=f'{opt.workspace}/train_pred_SdnRdn_{epoch}_{i}.jpg')
+                        save_dndn(out, data, path=f'{opt.workspace}/train_pred_SdnRdn_{epoch}_{i}.jpg')
 
 
         # checkpoint
@@ -297,7 +317,6 @@ def main():
         # if i % 100 == 0:
             accelerator.wait_for_everyone()
             # accelerator.save_model(model, opt.workspace)
-            os.makedirs(os.path.join(opt.workspace, "model_epoch_{epoch}"), exist_ok=True)
             accelerator.save_model(model, os.path.join(opt.workspace, f"model_epoch_{epoch}"))
             
 
@@ -332,7 +351,7 @@ def main():
                             
                         # save 2DGS depth and normal renderings
                         if 'surf_normal' in out.keys():
-                            save_dndn(out, path=f'{opt.workspace}/eval_pred_SdnRdn_{epoch}_{j}.jpg')
+                            save_dndn(out, data, path=f'{opt.workspace}/eval_pred_SdnRdn_{epoch}_{j}.jpg')
                         
 
                 torch.cuda.empty_cache()
