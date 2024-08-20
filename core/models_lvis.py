@@ -190,7 +190,11 @@ class LGM(nn.Module):
         surf_normal = results['surf_normal']
 
 
-        normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+        detach = False
+        if detach:
+            normal_error = (1 - (data['normals_output'] * surf_normal).sum(dim=0))[None]
+        else:
+            normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
         normal_err = lambda_normal_err * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
