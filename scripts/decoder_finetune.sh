@@ -7,7 +7,7 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER=/home/xuyimeng/Repo/zero
 # DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER=/home/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/debug/8000-8999/20240814-152456-load_2dgs_ckpt_save_vis-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference
 
 # [Jul 3] SD-decoder with finetuned LGM results
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=1
 accelerate launch --main_process_port 29514 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
     --workspace runs/finetune_decoder/workspace_debug \
     --lr 5e-6 --num_epochs 10001 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \

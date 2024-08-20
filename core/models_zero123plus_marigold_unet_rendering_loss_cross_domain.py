@@ -336,6 +336,25 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         return DecoderOutput(sample=decoded)
     
+    def get_sin_image(self, height, width):
+        # Set the dimensions of the image
+        # height, width = 128, 128
+
+        # Generate x and y coordinates
+        x = np.linspace(0, 2 * np.pi, width)
+        y = np.linspace(0, 2 * np.pi, height)
+        x, y = np.meshgrid(x, y)
+
+        # Generate color channels based on sine functions
+        red_channel = torch.tensor(np.sin(x), dtype=torch.float32)
+        green_channel = torch.tensor(np.sin(y), dtype=torch.float32)
+        blue_channel = torch.tensor(np.sin(x + y), dtype=torch.float32)
+
+        # Stack the channels to create the image tensor
+        image_tensor = torch.stack([red_channel, green_channel, blue_channel], dim=-1) 
+        
+        return image_tensor.permute(2, 0, 1).unsqueeze(0)
+    
     
     def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False):
         # Gaussian shape: (B*6, 14, H, W)
@@ -355,11 +374,26 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         for attr_to_encode in ordered_attr_list_local:
             sp_image = data[attr_to_encode]
             # print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
+            debug = True
+            if debug:
+                sp_image = self.get_sin_image(sp_image.shape[-2], sp_image.shape[-1]).to(sp_image.device).to(sp_image.dtype)
+                print("sin image for debug")
+            
             images_all_attr_list.append(sp_image)
+            
+            
+            
+            
         images_all_attr_batch = torch.stack(images_all_attr_list)
     
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
+
+        # debug = True
+        # if debug:
+        #     images_all_attr_batch = torch.zeros_like(images_all_attr_batch)
+        #     images_all_attr_batch[:,1,...] = 1
+        #     print("use zero image for debug")
 
         # # upsample splatter to 320
         # images_all_attr_batch = einops.rearrange(images_all_attr_batch, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
@@ -798,7 +832,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
                 # images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
                 # images_to_save = np.concatenate([images_to_save_encode, abs(images_to_save-images_to_save_encode)], axis=1)
-                images_to_save = np.concatenate([5*abs(images_to_save-images_to_save_encode)], axis=1).clip(0,1)
+                images_to_save = np.concatenate([images_to_save, images_to_save_encode, 5*abs(images_to_save-images_to_save_encode)], axis=1).clip(0,1)
                 st()
                 kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
                 if self.opt.save_cond:
