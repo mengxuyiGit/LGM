@@ -39,14 +39,19 @@ def save_dndn(render_pkg, data, path):
     # tb_writer.add_images(config['name'] + "_view_{}/rend_dist".format(viewpoint.image_name), rend_dist[None], global_step=iteration)
     rend_dist = rend_dist.detach().cpu().numpy()
     
-    # save normal and depth GT
-    gt_normal = data['normals_output'].detach().cpu().numpy() * 0.5 + 0.5
-    gt_depth = colormap(data['depths_output'].detach().cpu().numpy()[0,:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
-    gt_depth = gt_depth.detach().cpu().numpy()[None]
-    
     # what to plot
     plot_list = [depth, surf_normal, rend_dist, rend_normal]
-    plot_list += [gt_depth, gt_normal]
+    
+   
+    # save normal and depth GT
+    if 'depths_output' in data:
+        gt_depth = colormap(data['depths_output'].detach().cpu().numpy()[0,:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
+        gt_depth = gt_depth.detach().cpu().numpy()[None]
+        
+        plot_list += [gt_depth]
+    
+    gt_normal = data['normals_output'].detach().cpu().numpy() * 0.5 + 0.5
+    plot_list += [gt_normal]
 
 
     # pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
@@ -121,6 +126,8 @@ def main():
     elif opt.data_mode == 'gbuffer':
         # from core.provider_gbuffer import ObjaverseDataset as Dataset
         from core.provider_gobjaverse import ObjaverseDataset as Dataset
+    elif opt.data_mode == 'lara':
+        from core.provider_lara import gobjverse as Dataset
     else:
         raise NotImplementedError
 
