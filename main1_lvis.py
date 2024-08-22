@@ -18,6 +18,8 @@ from ipdb import set_trace as st
 import numpy as np
 
 from utils.general_utils import colormap
+from utils.vis_utils import save_splatter_vis
+
 
 def save_dndn(render_pkg, data, path):
     depth = render_pkg["surf_depth"]
@@ -199,7 +201,9 @@ def main():
                 if 'surf_normal' in out.keys():
                     save_dndn(out, data, path=f'{opt.workspace}/eval_pred_SdnRdns_{epoch}_{i}.jpg')
 
-                   
+                # save splatter images
+                path = f'{opt.workspace}/eval_pred_splatter_vis_{epoch}_{i}.jpg'
+                save_splatter_vis(out, path, opt)
 
         torch.cuda.empty_cache()
 
@@ -229,7 +233,7 @@ def main():
         log_loss_2dgs_dist = 0
         log_loss_2dgs_normal_err = 0
         log_loss_2dgs_normal = 0
-        log_loss_2dgs_depth = 0
+        log_loss_2dgs_depth = torch.tensor([0])
         
         for i, data in enumerate(train_dataloader):
             with accelerator.accumulate(model):
@@ -267,7 +271,8 @@ def main():
                 log_loss_2dgs_dist += out['dist_loss'].detach()
                 log_loss_2dgs_normal_err += out['normal_err'].detach()
                 log_loss_2dgs_normal += out['normal_loss'].detach()
-                log_loss_2dgs_depth += out['depth_loss'].detach()
+                if 'depth_loss' in out.keys():
+                    log_loss_2dgs_depth += out['depth_loss'].detach()
 
             if accelerator.is_main_process:
                 # logging
@@ -289,7 +294,7 @@ def main():
                     log_loss_2dgs_dist = 0
                     log_loss_2dgs_normal_err = 0
                     log_loss_2dgs_normal = 0
-                    log_loss_2dgs_depth = 0
+                    log_loss_2dgs_depth = torch.tensor([0])
                     writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)        
                     
                 if i % 100 == 0:
@@ -317,6 +322,10 @@ def main():
                     # save 2DGS depth and normal renderings
                     if 'surf_normal' in out.keys():
                         save_dndn(out, data, path=f'{opt.workspace}/train_pred_SdnRdn_{epoch}_{i}.jpg')
+             
+                    # save splatter images
+                    path = f'{opt.workspace}/train_pred_splatter_vis_{epoch}_{i}.jpg'
+                    save_splatter_vis(out, path, opt)             
 
 
         # checkpoint
@@ -335,7 +344,8 @@ def main():
                 total_loss_lpips = 0
                 for j, data in enumerate(test_dataloader):
 
-                    out = model(data)
+                    # out = model(data)
+                    out = model(data, iteration=epoch * len(train_dataloader) + j + opt.resume_iter)
         
                     psnr = out['psnr']
                     total_psnr_eval += psnr.detach()
@@ -360,6 +370,10 @@ def main():
                         if 'surf_normal' in out.keys():
                             save_dndn(out, data, path=f'{opt.workspace}/eval_pred_SdnRdn_{epoch}_{j}.jpg')
                         
+                        # save splatter images
+                        path = f'{opt.workspace}/eval_pred_splatter_vis_{epoch}_{i}.jpg'
+                        save_splatter_vis(out, path, opt)       
+                            
 
                 torch.cuda.empty_cache()
 

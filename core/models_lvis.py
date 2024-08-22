@@ -112,6 +112,7 @@ class LGM(nn.Module):
         # print(f"gaussian resolution: {x.shape}")
 
         x = x.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
+       
         
         pos = self.pos_act(x[..., 0:3]) # [B, N, 3]
         opacity = self.opacity_act(x[..., 3:4])
@@ -125,7 +126,7 @@ class LGM(nn.Module):
         return gaussians
 
     
-    def forward(self, data, step_ratio=1, iteration=0):
+    def forward(self, data, step_ratio=1, iteration=-1):
         # data: output of the dataloader
         # return: loss
 
@@ -141,7 +142,6 @@ class LGM(nn.Module):
         # self.gs.save_ply(gaussians, 'gbuffer_medal.ply')
         # st()
 
-        # results['gaussians'] = gaussians
 
         # random bg for training
         if self.training:
@@ -154,6 +154,8 @@ class LGM(nn.Module):
         pred_images = results['image'] # [B, V, C, output_size, output_size]
         pred_alphas = results['alpha'] # [B, V, 1, output_size, output_size]
 
+        results['gaussians'] = gaussians
+        
         results['images_pred'] = pred_images
         results['alphas_pred'] = pred_alphas
 
@@ -190,13 +192,15 @@ class LGM(nn.Module):
         surf_normal = results['surf_normal']
 
 
-        detach = True
-        if detach:
-            normal_error = (1 - (data['normals_output'] * surf_normal).sum(dim=0))[None]
-            print('normal_error detached')
-        else:
-            normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
-        normal_err = lambda_normal_err * (normal_error).mean()
+        # detach = True
+        # if detach:
+        #     normal_error = (1 - (data['normals_output'] * surf_normal).sum(dim=0))[None]
+        #     print('normal_error detached')
+        # else:
+        #     normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+        # normal_err = lambda_normal_err * (normal_error).mean()
+        normal_err = torch.tensor([0.0], device=gaussians.device)
+        
         dist_loss = lambda_dist * (rend_dist).mean()
 
         # loss
@@ -231,7 +235,7 @@ class LGM(nn.Module):
         # print('alpha range: ', pred_alphas.min(), pred_alphas.max())
        
         
-        if iteration % 50 == 0:
+        if iteration % 500 == 0:
             print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_depth: {lambda_depth}, lambda_normal_err: {lambda_normal_err} lambda_dist: {lambda_dist}")
             # print(f"Iteration: {iteration}, normal_loss: {loss_normal}, depth_loss: {loss_depth}, dist_loss: {dist_loss}, normal_err: {normal_err}")
             print(f"Iteration: {iteration}, normal_loss: {loss_normal}, dist_loss: {dist_loss}, normal_err: {normal_err}")
