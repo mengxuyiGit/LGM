@@ -19,15 +19,20 @@ import numpy as np
 
 from utils.general_utils import colormap
 from utils.vis_utils import save_splatter_vis
+import einops   
 
 
 def save_dndn(render_pkg, data, path):
-    depth = render_pkg["surf_depth"]
+    
+    B, V = render_pkg["surf_normal"].shape[:2]
+    
+    depth = einops.rearrange(render_pkg["surf_depth"], "b v c h w -> (b v) c h w")
     norm = depth.max()
     depth = depth / norm
 
-    depth = colormap(depth.detach().cpu().numpy()[0,:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
-    depth = depth.detach().cpu().numpy()[None]
+    depth = colormap(depth.detach().cpu().numpy()[:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
+    depth = einops.rearrange(depth, "(b v) c h w -> b v c h w", b=B, v=V)
+    depth = depth.detach().cpu().numpy()
     
     surf_normal = render_pkg["surf_normal"].detach().cpu().numpy() * 0.5 + 0.5
     rend_normal = render_pkg["rend_normal"].detach().cpu().numpy() * 0.5 + 0.5
@@ -36,27 +41,27 @@ def save_dndn(render_pkg, data, path):
     # tb_writer.add_images(config['name'] + "_view_{}/surf_normal".format(viewpoint.image_name), surf_normal[None], global_step=iteration)
     # tb_writer.add_images(config['name'] + "_view_{}/rend_alpha".format(viewpoint.image_name), rend_alpha[None], global_step=iteration)
 
-    rend_dist = render_pkg["rend_dist"].detach().cpu().numpy()
-    rend_dist = colormap(rend_dist[0,:,0])[None]
+    rend_dist = einops.rearrange(render_pkg["rend_dist"], "b v c h w -> (b v) c h w").detach().cpu().numpy()
+    rend_dist = colormap(rend_dist[:,0])
+    rend_dist = einops.rearrange(rend_dist, "(b v) c h w -> b v c h w", b=B, v=V)
     # tb_writer.add_images(config['name'] + "_view_{}/rend_dist".format(viewpoint.image_name), rend_dist[None], global_step=iteration)
     rend_dist = rend_dist.detach().cpu().numpy()
     
-    # what to plot
     plot_list = [depth, surf_normal, rend_dist, rend_normal]
     
    
     # save normal and depth GT
     if 'depths_output' in data:
-        gt_depth = colormap(data['depths_output'].detach().cpu().numpy()[0,:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
-        gt_depth = gt_depth.detach().cpu().numpy()[None]
+        gt_depth = einops.rearrange(data['depths_output'], "b v c h w -> (b v) c h w")
+        gt_depth = colormap(gt_depth.detach().cpu().numpy()[:,0], cmap='turbo') # torch.Size([8, 3, 320, 320])
+        gt_depth = einops.rearrange(gt_depth, "(b v) c h w -> b v c h w", b=B, v=V)
+        gt_depth = gt_depth.detach().cpu().numpy()
         
         plot_list += [gt_depth]
     
     gt_normal = data['normals_output'].detach().cpu().numpy() * 0.5 + 0.5
     plot_list += [gt_normal]
 
-
-    # pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
     pred_images = np.concatenate(plot_list, axis=3)
     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[4], 3)
     kiui.write_image(path, pred_images)
