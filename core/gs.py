@@ -138,50 +138,21 @@ class GaussianRenderer:
                     
                     # TODO: use smarter ways to convert 3D to 2D scales
                     # print("scales: ", scales.mean(dim=0))
-                    # rotations = rotations * 0 
                     # print("rotations: ", rotations.mean(dim=0)
-                    #     #   , rotations.std(dim=0), rotations.min(dim=0), rotations.max(dim=0)
+                    #       , rotations.std(dim=0), rotations.min(dim=0), rotations.max(dim=0)
                     #       )   
 
-                 
-                    debug = False
-                    if debug:
-                        rast_path = "/home/xuyimeng/Repo/LaRa/rasterizer_params.pth"
-                        print("Loading rasterizer parameters from: ", rast_path)
-                        # Load the parameters from the file
-                        params = torch.load(rast_path)
+                    rendered_image, radii, allmap = rasterizer(
+                        means3D=means3D,
+                        means2D=torch.zeros_like(means3D, dtype=torch.float32, device=device),
+                        shs=None,
+                        colors_precomp=rgbs,
+                        opacities=opacity,
+                        scales=scales[:,1:],
+                        rotations=rotations,
+                        cov3D_precomp=None,
+                    )   
                         
-                        # for k,v in params.items():
-                        #     try:
-                        #         print(k, v.shape, v.mean(dim=0))
-                        #     except:
-                        #         print(k, v)
-                        # st()
-                
-
-                        # Use the loaded parameters to call the rasterizer function
-                        rendered_image, radii, allmap = rasterizer(
-                            means3D=params['means3D'],
-                            means2D=params['means2D'],
-                            shs=params['shs'],
-                            opacities=params['opacities'],
-                            scales=params['scales'],
-                            rotations=params['rotations'],
-                            cov3D_precomp=params['cov3D_precomp'],
-                        )
-                    else:
-                        rendered_image, radii, allmap = rasterizer(
-                            means3D=means3D,
-                            means2D=torch.zeros_like(means3D, dtype=torch.float32, device=device),
-                            shs=None,
-                            colors_precomp=rgbs,
-                            opacities=opacity,
-                            scales=scales[:,1:],
-                            rotations=rotations,
-                            cov3D_precomp=None,
-                        )   
-                        
-                    
                     
                      # additional regularizations
                     render_alpha = allmap[1:2]
