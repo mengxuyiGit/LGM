@@ -334,7 +334,7 @@ def main():
 
 
         # checkpoint
-        if epoch % 2 == 0 or epoch == opt.num_epochs - 1:
+        if epoch % 1 == 0 or epoch == opt.num_epochs - 1:
         # if i % 100 == 0:
             accelerator.wait_for_everyone()
             # accelerator.save_model(model, opt.workspace)
