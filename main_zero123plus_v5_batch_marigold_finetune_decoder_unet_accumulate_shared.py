@@ -6,7 +6,8 @@ import torch
 from core.options import AllConfigs
 from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain, fuse_splatters
 from core.dataset_v5_marigold import gt_attr_keys, start_indices, end_indices
-from core.dataset_v5_marigold import ObjaverseDataset as Dataset
+# from core.dataset_v5_marigold import ObjaverseDataset as Dataset
+from core.provider_lara import gobjverse as Dataset
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from safetensors.torch import load_file
