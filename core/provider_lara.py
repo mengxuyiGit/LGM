@@ -62,6 +62,7 @@ class gobjverse(torch.utils.data.Dataset):
         self.cfg.load_normal = True
             
         # default camera intrinsics
+        assert opt.fovy == 39.6
         self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
         self.proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
         self.proj_matrix[0, 0] = 1 / self.tan_half_fov
@@ -92,7 +93,7 @@ class gobjverse(torch.utils.data.Dataset):
         
         fixed_input_views = np.arange(25, 37)[::3].tolist() + [2,22] # equals to the original GOBjaverse 27, 30, 33, 36, 2, 22 (because h5 do not include the 25,26 views)
         view_id = fixed_input_views + np.random.permutation(np.arange(0,38))[:(self.opt.num_views-self.opt.num_input_views)].tolist()
-        print("view_id", len(view_id))
+        # print("view_id", len(view_id))
 
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts = self.read_views(scene_info, view_id, scene_name)
 
