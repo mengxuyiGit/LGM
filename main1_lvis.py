@@ -333,65 +333,65 @@ def main():
                     save_splatter_vis(out, path, opt)             
 
 
-        # checkpoint
-        if epoch % 1 == 0 or epoch == opt.num_epochs - 1:
-        # if i % 100 == 0:
-            accelerator.wait_for_everyone()
-            # accelerator.save_model(model, opt.workspace)
-            accelerator.save_model(model, os.path.join(opt.workspace, f"model_epoch_{epoch}"))
+            # checkpoint
+            # if epoch % 1 == 0 or epoch == opt.num_epochs - 1:
+            if i % 1000 == 0:
+                accelerator.wait_for_everyone()
+                # accelerator.save_model(model, opt.workspace)
+                accelerator.save_model(model, os.path.join(opt.workspace, f"model_epoch_{epoch}_iter_{i}"))
+                
+
+                # eval
+                with torch.no_grad():
+                    model.eval()
+                    total_psnr_eval = 0
+                    total_loss_mse = 0
+                    total_loss_lpips = 0
+                    for j, data in enumerate(test_dataloader):
+
+                        # out = model(data)
+                        out = model(data, iteration=epoch * len(train_dataloader) + j + opt.resume_iter)
             
-
-            # eval
-            with torch.no_grad():
-                model.eval()
-                total_psnr_eval = 0
-                total_loss_mse = 0
-                total_loss_lpips = 0
-                for j, data in enumerate(test_dataloader):
-
-                    # out = model(data)
-                    out = model(data, iteration=epoch * len(train_dataloader) + j + opt.resume_iter)
-        
-                    psnr = out['psnr']
-                    total_psnr_eval += psnr.detach()
-                    total_loss_mse += out['loss_mse'].detach()
-                    total_loss_lpips += out['loss_lpips'].detach()
-                    
-                    # save some images
-                    if accelerator.is_main_process:
-                        gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                        gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
-                        kiui.write_image(f'{opt.workspace}/eval_gt_images_{epoch}_{j}.jpg', gt_images)
-
-                        pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
-                        pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
-                        kiui.write_image(f'{opt.workspace}/eval_pred_images_{epoch}_{j}.jpg', pred_images)
-
-                        # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
-                        # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
-                        # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
-                            
-                        # save 2DGS depth and normal renderings
-                        if 'surf_normal' in out.keys():
-                            save_dndn(out, data, path=f'{opt.workspace}/eval_pred_SdnRdn_{epoch}_{j}.jpg')
+                        psnr = out['psnr']
+                        total_psnr_eval += psnr.detach()
+                        total_loss_mse += out['loss_mse'].detach()
+                        total_loss_lpips += out['loss_lpips'].detach()
                         
-                        # save splatter images
-                        path = f'{opt.workspace}/eval_pred_splatter_vis_{epoch}_{i}.jpg'
-                        save_splatter_vis(out, path, opt)       
+                        # save some images
+                        if accelerator.is_main_process:
+                            gt_images = data['images_output'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            gt_images = gt_images.transpose(0, 3, 1, 4, 2).reshape(-1, gt_images.shape[1] * gt_images.shape[3], 3) # [B*output_size, V*output_size, 3]
+                            kiui.write_image(f'{opt.workspace}/eval_gt_images_{epoch}_{j}.jpg', gt_images)
+
+                            pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
+                            pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[3], 3)
+                            kiui.write_image(f'{opt.workspace}/eval_pred_images_{epoch}_{j}.jpg', pred_images)
+
+                            # pred_alphas = out['alphas_pred'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
+                            # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
+                            # kiui.write_image(f'{opt.workspace}/eval_pred_alphas_{epoch}_{i}.jpg', pred_alphas)
+                                
+                            # save 2DGS depth and normal renderings
+                            if 'surf_normal' in out.keys():
+                                save_dndn(out, data, path=f'{opt.workspace}/eval_pred_SdnRdn_{epoch}_{j}.jpg')
                             
+                            # save splatter images
+                            path = f'{opt.workspace}/eval_pred_splatter_vis_{epoch}_{i}.jpg'
+                            save_splatter_vis(out, path, opt)       
+                                
 
-                torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
 
-                total_psnr_eval = accelerator.gather_for_metrics(total_psnr_eval).mean()
-                if accelerator.is_main_process:
-                    total_psnr_eval /= len(test_dataloader)
-                    total_loss_mse /= len(test_dataloader)
-                    total_loss_lpips /= len(test_dataloader)
-                    accelerator.print(f"[eval] epoch: {epoch} psnr: {total_psnr_eval:.4f}")
+                    total_psnr_eval = accelerator.gather_for_metrics(total_psnr_eval).mean()
+                    if accelerator.is_main_process:
+                        total_psnr_eval /= len(test_dataloader)
+                        total_loss_mse /= len(test_dataloader)
+                        total_loss_lpips /= len(test_dataloader)
+                        accelerator.print(f"[eval] epoch: {epoch} psnr: {total_psnr_eval:.4f}")
 
-                    step = (epoch + 1)* len(train_dataloader) 
-                    writer.add_scalar('eval/loss', (total_loss_mse + total_loss_lpips).item(), step)
-                    writer.add_scalar('eval/psnr', total_psnr_eval.item(), step)
+                        step = (epoch + 1)* len(train_dataloader) 
+                        writer.add_scalar('eval/loss', (total_loss_mse + total_loss_lpips).item(), step)
+                        writer.add_scalar('eval/psnr', total_psnr_eval.item(), step)
 
 
 
