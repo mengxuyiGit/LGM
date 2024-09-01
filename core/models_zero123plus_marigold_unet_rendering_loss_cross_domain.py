@@ -374,10 +374,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         for attr_to_encode in ordered_attr_list_local:
             sp_image = data[attr_to_encode]
             # print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
-            debug = True
-            if debug:
-                sp_image = self.get_sin_image(sp_image.shape[-2], sp_image.shape[-1]).to(sp_image.device).to(sp_image.dtype)
-                print("sin image for debug")
+            # debug = False
+            # if debug:
+            #     sp_image = self.get_sin_image(sp_image.shape[-2], sp_image.shape[-1]).to(sp_image.device).to(sp_image.dtype)
+            #     print("sin image for debug")
             
             images_all_attr_list.append(sp_image)
             
@@ -816,7 +816,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
             # insert rotation into it
             # if i == 2:
-            if "rotation" not in ordered_attr_list and  i == 2:
+            if "rotation" not in ordered_attr_list_local and  i == 2:
                 fake_rotation = torch.zeros_like(batch_attr_image)
                 decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
                 decoded_attr_list.append(decoded_attr)
@@ -830,9 +830,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 images_to_save = (images_to_save + 1) * 0.5
                 # st()
                 images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
-                # images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
+                images_to_save = np.concatenate([images_to_save_encode, images_to_save], axis=1)
                 # images_to_save = np.concatenate([images_to_save_encode, abs(images_to_save-images_to_save_encode)], axis=1)
-                images_to_save = np.concatenate([images_to_save, images_to_save_encode, 5*abs(images_to_save-images_to_save_encode)], axis=1).clip(0,1)
+                # images_to_save = np.concatenate([images_to_save, images_to_save_encode, 5*abs(images_to_save-images_to_save_encode)], axis=1).clip(0,1)
                 st()
                 kiui.write_image(f'{save_path}/{prefix}images_batch_attr_Lencode_Rdecoded.jpg', images_to_save)
                 if self.opt.save_cond:
@@ -907,7 +907,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
                     decoded_attr_list.append(decoded_attr)
 
-                    if "rotation" not in ordered_attr_list and  i == 2:
+                    if "rotation" not in ordered_attr_list_local and  i == 2:
                         fake_rotation = torch.zeros_like(batch_attr_image)
                         decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
                         decoded_attr_list.append(decoded_attr)

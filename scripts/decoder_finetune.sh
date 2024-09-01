@@ -5,16 +5,17 @@ DATA_RENDERING_ROOT_LVIS_46K=/mnt/lingjie_cache/lvis_dataset/testing
 # DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lvis/data_processing_finetuned_lgm_fov60_8epochs/testing
 DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER=/home/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/debug/8000-8999/20240814-213046-load_2dgs_ckpt_save_vis-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference
 # DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER=/home/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/debug/8000-8999/20240814-152456-load_2dgs_ckpt_save_vis-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference
+# DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER=/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/0/20240824-025018-lara_splatter_6views0_24-epoch2_6000-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference
 
 # [Jul 3] SD-decoder with finetuned LGM results
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=4
 accelerate launch --main_process_port 29514 --config_file acc_configs/gpu1.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
     --workspace runs/finetune_decoder/workspace_debug \
     --lr 5e-6 --num_epochs 10001 --eval_iter 500 --save_iter 500 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 320 --num_input_views 6 --num_views 20 \
     --lambda_splatter 2 --lambda_rendering 1 --lambda_alpha 1 --lambda_lpips 2 \
-    --desc 'sd_decoder-2dgs-scale_0-with_clip-decoded-save_diff_image_10x' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'WHOLE_DATA-sd_decoder-2dgs-scale_0-with_clip-decoded-save_diff_image_10x' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER} \
     --set_random_seed \
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
