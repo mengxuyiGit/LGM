@@ -33,7 +33,7 @@ import math
 from accelerate.logging import get_logger
 logger = get_logger(__name__, log_level="INFO")
 
-from utils.format_helper import get_workspace_name
+from utils.format_helper import get_workspace_name, save_dndn
 from utils.io_helper import print_grad_status
 
 def store_initial_weights(model):
@@ -344,8 +344,8 @@ def main():
                 if i > 0 and opt.skip_training:
                     break
 
-                if i > 5:
-                    st()
+                # if i > 5:
+                #     st()
               
                 if opt.verbose_main:
                     print(f"data['input']:{data['input'].shape}")
@@ -498,6 +498,12 @@ def main():
                                 # pred_alphas = out['alphas_opt'].detach().cpu().numpy() # [B, V, 1, output_size, output_size]
                                 # pred_alphas = pred_alphas.transpose(0, 3, 1, 4, 2).reshape(-1, pred_alphas.shape[1] * pred_alphas.shape[3], 1)
                                 # kiui.write_image(f'{opt.workspace}/eval_epoch_{epoch}/{i}_image_splatter_opt_alpha.jpg', pred_alphas)
+                                
+                                # save 2DGS depth and normal renderings
+                                if 'surf_normal' in out.keys():
+                                    save_dndn(out, path=f'{opt.workspace}/eval_global_step_{global_step}/{accelerator.process_index}_{i}_pred_SdnRdn.jpg')
+
+                                
                                 
                     
                         torch.cuda.empty_cache()

@@ -121,7 +121,7 @@ def denormalize_and_activate(attr, mv_image):
     
     sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
     sp_image_o = sp_image_o.clip(0,1) 
-    print("no clip in denormalize_and_activate")
+    # print("no clip in denormalize_and_activate")
     
     if attr == "pos":
         sp_min, sp_max = sp_min_max_dict[attr]
@@ -889,7 +889,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         
         pred_images = gs_results['image'] # [B, V, C, output_size, output_size]
         pred_alphas = gs_results['alpha'] # [B, V, 1, output_size, output_size]
-        st()
 
         results['images_pred'] = pred_images
         results['alphas_pred'] = pred_alphas
@@ -900,49 +899,49 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         gt_images = gt_images * gt_masks + bg_color.view(1, 1, 3, 1, 1) * (1 - gt_masks)
         
 
-        if (save_path is not None) or self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
-            st()
-            with torch.no_grad():
-                # render LGM GT output 
-                image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
-                decoded_attr_list = [] # decode latents into attrbutes again
-                for i, _attr in enumerate(ordered_attr_list_local):
-                    batch_attr_image = image_all_attr_to_decode[i]
-                    # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
-                    decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
-                    decoded_attr_list.append(decoded_attr)
+        # if (save_path is not None) or self.opt.inference_finetuned_decoder or self.opt.inference_finetuned_unet:
+        #     st()
+        #     with torch.no_grad():
+        #         # render LGM GT output 
+        #         image_all_attr_to_decode = einops.rearrange(images_all_attr_batch, "(B A) C H W -> A B C H W ", B=B, A=A)
+        #         decoded_attr_list = [] # decode latents into attrbutes again
+        #         for i, _attr in enumerate(ordered_attr_list_local):
+        #             batch_attr_image = image_all_attr_to_decode[i]
+        #             # print(f"[vae.decode before]{_attr}: {batch_attr_image.min(), batch_attr_image.max()}")
+        #             decoded_attr = denormalize_and_activate(_attr, batch_attr_image) # B C H W
+        #             decoded_attr_list.append(decoded_attr)
 
-                    if "rotation" not in ordered_attr_list_local and  i == 2:
-                        fake_rotation = torch.zeros_like(batch_attr_image)
-                        decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
-                        decoded_attr_list.append(decoded_attr)
-                        print(f"inserting rotation: {decoded_attr.min(), decoded_attr.max()}")
+        #             if "rotation" not in ordered_attr_list_local and  i == 2:
+        #                 fake_rotation = torch.zeros_like(batch_attr_image)
+        #                 decoded_attr = denormalize_and_activate("rotation", fake_rotation) # B C H W
+        #                 decoded_attr_list.append(decoded_attr)
+        #                 print(f"inserting rotation: {decoded_attr.min(), decoded_attr.max()}")
             
         
-                    # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
-                splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
-                splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
-                gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+        #             # print(f"[vae.decode after]{_attr}: {decoded_attr.min(), decoded_attr.max()}")
+        #         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
+        #         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
+        #         gaussians = fuse_splatters(splatters_to_render) # B, N, 14
                 
-                gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
+        #         gs_results_LGM = self.gs.render(gaussians, data['cam_view'], data['cam_view_proj'], data['cam_pos'], bg_color=bg_color)
 
-                if self.opt.fancy_video or self.opt.render_video:
-                    results['gaussians_LGM'] = gaussians
+        #         if self.opt.fancy_video or self.opt.render_video:
+        #             results['gaussians_LGM'] = gaussians
 
-                results['images_pred_LGM'] = gs_results_LGM['image'] 
-                results['alphas_pred_LGM'] = gs_results_LGM['alpha']
+        #         results['images_pred_LGM'] = gs_results_LGM['image'] 
+        #         results['alphas_pred_LGM'] = gs_results_LGM['alpha']
                 
-                psnr_LGM = -10 * torch.log10(torch.mean((gs_results_LGM['image'].detach() - gt_images) ** 2))
-                results['psnr_LGM'] = psnr_LGM.detach()
+        #         psnr_LGM = -10 * torch.log10(torch.mean((gs_results_LGM['image'].detach() - gt_images) ** 2))
+        #         results['psnr_LGM'] = psnr_LGM.detach()
                 
-                # calculate lpips
-                loss_lpips_LGM = self.lpips_loss(
-                    F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
-                    F.interpolate(gs_results_LGM['image'].view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
-                ).mean()
-                results['loss_lpips_LGM'] = loss_lpips_LGM
+        #         # calculate lpips
+        #         loss_lpips_LGM = self.lpips_loss(
+        #             F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
+        #             F.interpolate(gs_results_LGM['image'].view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
+        #         ).mean()
+        #         results['loss_lpips_LGM'] = loss_lpips_LGM
             
-        ## ------- end render ----------
+        # ## ------- end render ----------
 
         if self.opt.lambda_rendering > 0:
         # if True:
@@ -997,6 +996,30 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
             
+        ### 2dgs regularizations
+        lambda_normal = self.opt.lambda_normal # if iteration > 20000 else 0.0
+        lambda_dist = self.opt.lambda_dist # if iteration > 3000 else 0.0
+        # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
+
+        results["rend_dist"] = gs_results["rend_dist"]
+        results["rend_normal"] = gs_results["rend_normal"]
+        results["surf_normal"] = gs_results["surf_normal"]
+        results["surf_depth"] = gs_results["surf_depth"]
+
+        rend_dist = results["rend_dist"]
+        rend_normal  = results['rend_normal']
+        surf_normal = results['surf_normal']
+
+        normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+        normal_loss = lambda_normal * (normal_error).mean()
+        dist_loss = lambda_dist * (rend_dist).mean()
+
+        # loss
+        loss = loss + dist_loss + normal_loss
+        results['dist_loss'] = dist_loss
+        results['normal_loss'] = normal_loss
+        print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
+        
                 
         # Calculate metrics
         # TODO: add other metrics such as SSIM
