@@ -21,7 +21,7 @@ class Options:
 
     ### dataset
     # data mode (only support s3 now)
-    data_mode: Literal['s3'] = 's3'
+    data_mode: Literal['s3', 'lara'] = 's3'
     # fovy of the dataset
     fovy: float = 49.1
     # camera near plane

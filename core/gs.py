@@ -92,6 +92,7 @@ class GaussianRenderer:
                 raster_2dgs = True
 
                 if not raster_2dgs:
+                    print("3DGS rasterizer...")
                     # Rasterize visible Gaussians to image, obtain their radii (on screen).
                     rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
                         means3D=means3D,
@@ -104,15 +105,16 @@ class GaussianRenderer:
                         cov3D_precomp=None,
                     )
                 else:
-                    print("beofre 2DGS rasterizer...")
+                    # print("beofre 2DGS rasterizer...")
                     
-                    # TODO: use smarter ways to convert 3D to 2D scales
-                    print("scales: ", scales.mean(dim=0))
-                    # rotations = rotations * 0 
-                    # print("rotations: ", rotations.mean(dim=0)
-                    #     #   , rotations.std(dim=0), rotations.min(dim=0), rotations.max(dim=0)
-                    #       )   
-                    # st()
+                    # # TODO: use smarter ways to convert 3D to 2D scales
+                    # print("scales: ", scales.mean(dim=0))
+                    # # rotations = rotations * 0 
+                    # # print("rotations: ", rotations.mean(dim=0)
+                    # #     #   , rotations.std(dim=0), rotations.min(dim=0), rotations.max(dim=0)
+                    # #       )   
+                    # # print("means3D: ", means3D.shape, "rgbs: ", rgbs.shape, "opacity: ", opacity.shape, "scales: ", scales.shape, "rotations: ", rotations.shape)
+                    # # st()
              
                     rendered_image, radii, allmap = rasterizer(
                         means3D=means3D,

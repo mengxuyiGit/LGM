@@ -7,6 +7,8 @@ from core.options import AllConfigs
 from core.models_zero123plus_marigold_unet_rendering_loss_cross_domain import Zero123PlusGaussianMarigoldUnetCrossDomain, fuse_splatters
 from core.dataset_v5_marigold import gt_attr_keys, start_indices, end_indices
 from core.dataset_v5_marigold import ObjaverseDataset as Dataset
+from core.dataset_lara import gobjverse as Dataset
+# from core.provider_lara_splatter_optimized import gobjverse as Dataset
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from safetensors.torch import load_file
@@ -169,30 +171,60 @@ def main():
                         accelerator.print(f'[WARN] Parameter {k} not found in model.')
                     else:
                         accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
-    # if 
-    
+   
     torch.cuda.empty_cache()
     
     train_dataset = Dataset(opt, training=True)
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=opt.batch_size,
-        shuffle=False,
-        num_workers=opt.num_workers,
-        pin_memory=True,
-        drop_last=False,
-    )
-
     test_dataset = Dataset(opt, training=False)
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=opt.batch_size,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=True,
-        drop_last=False,
-    )
-    
+
+    if opt.data_mode == 'lara':
+        def random_init(id):
+            torch.utils.data.get_worker_info().dataset.worker_init_open_db()
+
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=opt.batch_size,
+            shuffle=False,
+            # num_workers=opt.num_workers,
+            num_workers=0,
+            pin_memory=True,
+            drop_last=False,
+            worker_init_fn=random_init,
+            # persistent_workers=True,
+        )
+        
+        test_dataloader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=opt.batch_size,
+            shuffle=False,
+            # num_workers=opt.num_workers,
+            num_workers=0,
+            pin_memory=True,
+            drop_last=False,
+            worker_init_fn=random_init,
+            # persistent_workers=True,
+        )
+        
+    else:
+            
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=opt.batch_size,
+            shuffle=False,
+            num_workers=opt.num_workers,
+            pin_memory=True,
+            drop_last=False,
+        )
+
+        test_dataloader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=opt.batch_size,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True,
+            drop_last=False,
+        )
+        
 
     # optimizer
     print_grad_status(model, file_path=f"{opt.workspace}/model_grad_status_before.txt")
@@ -307,10 +339,13 @@ def main():
                 for key in gt_attr_keys:
                     total_gs_loss_mse_dict[key] = 0
             
-                    
-            for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
+            # for i, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
+            for i, data in enumerate(train_dataloader): #, total=len(train_dataloader), disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 if i > 0 and opt.skip_training:
                     break
+
+                if i > 5:
+                    st()
               
                 if opt.verbose_main:
                     print(f"data['input']:{data['input'].shape}")
@@ -319,7 +354,7 @@ def main():
                     optimizer.zero_grad()
                     step_ratio = (epoch + i / len(train_dataloader)) / opt.num_train_epochs
 
-                    # # Store initial weights before the update
+                    # # Store initial weights before the update 
                     # initial_weights = store_initial_weights(model)
 
                     out = model(data, step_ratio)
@@ -344,7 +379,7 @@ def main():
                     
                     #     print(f"check other model parameters")
                     #     for name, param in model.named_parameters():
-                    #         if param.requires_grad and param.grad is not None and "unet" not in name:
+                    #         if param.requires_grad and param.grad is not None and "unet" no   t in name:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     #     st()
                     #     # TODO: CHECK decoder not have grad, especially deocder.others
