@@ -254,6 +254,8 @@ class Options:
 
     lambda_normal: float = 0.05
     lambda_dist: float = 0.0
+
+    sbatch_launch: bool = False
     
 
 # all the default settings
