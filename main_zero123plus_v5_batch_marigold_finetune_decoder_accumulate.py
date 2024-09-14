@@ -121,7 +121,9 @@ def main():
     if accelerator.is_main_process:
         src_snapshot_folder = os.path.join(opt.workspace, 'src')
         ignore_func = lambda d, files: [f for f in files if f.endswith('__pycache__')]
-        for folder in ['core', 'scripts', 'zero123plus']:
+        folders = ['core', 'zero123plus']
+        folders.append('sb_scripts') if opt.sbatch_launch else folders.append('scripts')
+        for folder in folders:
             dst_dir = os.path.join(src_snapshot_folder, folder)
             shutil.copytree(folder, dst_dir, ignore=ignore_func, dirs_exist_ok=True)
         for file in ['main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py']:
@@ -330,6 +332,7 @@ def main():
             total_loss_rendering = 0 #torch.tensor([0])
             total_loss_alpha = 0
             total_loss_lpips = 0 #torch.tensor([0])
+            total_loss_gt_normal = 0
             
             train_loss = 0.0
             
@@ -357,14 +360,16 @@ def main():
                     # # Store initial weights before the update 
                     # initial_weights = store_initial_weights(model)
 
-                    out = model(data, step_ratio)
+                    out = model(data, step_ratio, iteration=global_step)
                     # del data
                     loss = out['loss']
                     loss_splatter = out['loss_splatter'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
-                    
+                    loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_latent'])
+                    # print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent, "loss_splatter_lpips", loss_splatter_lpips)
+                    lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
                     # print("loss: ", loss, " loss_splatter: ", loss_splatter)
-                    lossback = loss + loss_latent + loss_splatter
+                    # lossback = loss + loss_latent + loss_splatter
                     accelerator.backward(lossback)
                     # print(f"epoch_{epoch}_iter_{i}: loss = {loss}")
 
@@ -379,7 +384,7 @@ def main():
                     
                     #     print(f"check other model parameters")
                     #     for name, param in model.named_parameters():
-                    #         if param.requires_grad and param.grad is not None and "unet" no   t in name:
+                    #         if param.requires_grad and param.grad is not None and "unet" not in name:
                     #             print(f"Parameter {name}, Gradient norm: {param.grad.norm().item()}")
                     #     st()
                     #     # TODO: CHECK decoder not have grad, especially deocder.others
@@ -410,6 +415,8 @@ def main():
                         
                     if 'loss_lpips' in out.keys():
                         total_loss_lpips += out['loss_lpips'].detach()
+                    if 'loss_gt_normal' in out.keys():
+                        total_loss_gt_normal += out['loss_gt_normal'].detach()
 
                 # Log metrics after every step, not at the end of the epoch
                 if accelerator.is_main_process:
@@ -417,6 +424,8 @@ def main():
                     writer.add_scalar('train/psnr', psnr.item(), global_step)
                     writer.add_scalar('train/loss_latent', loss_latent.item(), global_step)
                     writer.add_scalar('train/loss_splatter', loss_splatter.item(), global_step)
+                    writer.add_scalar('train/loss_lpips', out['loss_lpips'].item(), global_step) if 'loss_gt_normal' in out.keys() else None
+                    writer.add_scalar('train/loss_gt_normal', out['loss_gt_normal'].detach().item(), global_step) if 'loss_gt_normal' in out.keys() else None
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
@@ -446,6 +455,7 @@ def main():
                         total_loss_rendering = 0 #torch.tensor([0])
                         total_loss_alpha = 0
                         total_loss_lpips = 0
+                        total_loss_gt_normal = 0
                         
                         print(f"Save to run dir: {opt.workspace}")
                         num_samples_eval = len(test_dataloader)
@@ -453,8 +463,8 @@ def main():
                             if i > num_samples_eval:
                                 break
                         
-                            out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_")
-                    
+                            out = model(data, save_path=f'{opt.workspace}/eval_global_step_{global_step}', prefix=f"{accelerator.process_index}_{i}_", iteration=global_step)
+                
                             psnr = out['psnr']
                             total_psnr += psnr.detach()
                             eval_loss = out['loss']
@@ -469,7 +479,8 @@ def main():
                                 total_loss_alpha += out["loss_alpha"].detach()
                             if 'loss_lpips' in out.keys():
                                 total_loss_lpips += out['loss_lpips'].detach()
-                    
+                            if 'loss_gt_normal' in out.keys():
+                                total_loss_gt_normal += out['loss_gt_normal'].detach()
                             
                             # save some images
                             if True:
@@ -517,6 +528,7 @@ def main():
                             total_loss_rendering /= num_samples_eval
                             total_loss_alpha /= num_samples_eval
                             total_loss_lpips /= num_samples_eval
+                            total_loss_gt_normal /= num_samples_eval
                             
                             accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
                             writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), global_step)
@@ -526,6 +538,7 @@ def main():
                             writer.add_scalar('eval/total_loss_rendering', total_loss_rendering, global_step)
                             writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, global_step)
                             writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, global_step)
+                            writer.add_scalar('eval/total_loss_gt_normal', total_loss_gt_normal, global_step)
 
                             if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
                                 scheduler.step(total_loss)
