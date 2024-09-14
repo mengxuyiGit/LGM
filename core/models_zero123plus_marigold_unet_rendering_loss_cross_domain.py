@@ -357,7 +357,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         return image_tensor.permute(2, 0, 1).unsqueeze(0)
     
     
-    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False):
+    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False, iteration=0):
         # Gaussian shape: (B*6, 14, H, W)
 
         results = {}
@@ -996,29 +996,54 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             if self.opt.verbose_main:
                 print(f"loss lpips:{loss_lpips}")
             
-        ### 2dgs regularizations
-        lambda_normal = self.opt.lambda_normal # if iteration > 20000 else 0.0
-        lambda_dist = self.opt.lambda_dist # if iteration > 3000 else 0.0
-        # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
 
+        ### 2dgs regularizations
         results["rend_dist"] = gs_results["rend_dist"]
         results["rend_normal"] = gs_results["rend_normal"]
         results["surf_normal"] = gs_results["surf_normal"]
         results["surf_depth"] = gs_results["surf_depth"]
+        results["rend_normal_gt"] = data['normals_output']
+        
+        # loss with GT normal
+        lambda_normal = self.opt.lambda_normal #  if iteration > 4000 else 0.0
+        if lambda_normal > 0:
+            rend_normal = results["rend_normal"]
+            gt_normal = data['normals_output']
+            gt_normal_error = (1 - (rend_normal * gt_normal)) # [B, Nv, 3, H, W]
+            
+            # Apply mask to calculate foreground normal loss
+            foreground_normal_error = gt_normal_error * gt_masks
+            num_foreground_pixels = gt_masks.sum()  # Count the number of foreground pixels
+            # Compute the average loss over foreground pixels only
+            if num_foreground_pixels > 0:
+                gt_normal_loss = lambda_normal * (foreground_normal_error.sum() / num_foreground_pixels)
+            else:
+                gt_normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
+            
+            
+            # gt_normal_loss = lambda_normal * (gt_normal_error).mean()
+            results['loss_gt_normal'] = gt_normal_loss
+            loss += gt_normal_loss
+            if iteration % 100 == 0:
+                print(f"iteration: {iteration} loss_gt_normal: {gt_normal_loss}")
+        
+            ### 2dgs regularizations
+            # lambda_dist = self.opt.lambda_dist # if iteration > 3000 else 0.0
+            # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
 
-        rend_dist = results["rend_dist"]
-        rend_normal  = results['rend_normal']
-        surf_normal = results['surf_normal']
+            # rend_dist = results["rend_dist"]
+            # rend_normal  = results['rend_normal']
+            # surf_normal = results['surf_normal']
 
-        normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
-        normal_loss = lambda_normal * (normal_error).mean()
-        dist_loss = lambda_dist * (rend_dist).mean()
+            # normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+            # normal_loss = lambda_normal * (normal_error).mean()
+            # dist_loss = lambda_dist * (rend_dist).mean()
 
-        # loss
-        loss = loss + dist_loss + normal_loss
-        results['dist_loss'] = dist_loss
-        results['normal_loss'] = normal_loss
-        print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
+            # # loss
+            # loss = loss + dist_loss + normal_loss
+            # results['dist_loss'] = dist_loss
+            # results['normal_loss'] = normal_loss
+            # # print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
         
                 
         # Calculate metrics
