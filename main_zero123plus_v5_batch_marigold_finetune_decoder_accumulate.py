@@ -333,6 +333,7 @@ def main():
             total_loss_alpha = 0
             total_loss_lpips = 0 #torch.tensor([0])
             total_loss_gt_normal = 0
+            total_loss_normal = 0
             
             train_loss = 0.0
             
@@ -365,7 +366,7 @@ def main():
                     loss = out['loss']
                     loss_splatter = out['loss_splatter'] if opt.finetune_decoder else torch.zeros_like(out['loss_latent'])
                     loss_latent = out['loss_latent'] if opt.train_unet else torch.zeros_like(loss)
-                    loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss_latent'])
+                    loss_splatter_lpips = out['loss_splatter_lpips'] if 'loss_splatter_lpips' in out.keys() else torch.zeros_like(out['loss'])
                     # print("loss: ", loss, " loss_splatter: ", loss_splatter, "loss_latent: ", loss_latent, "loss_splatter_lpips", loss_splatter_lpips)
                     lossback = loss + loss_latent + loss_splatter + loss_splatter_lpips
                     # print("loss: ", loss, " loss_splatter: ", loss_splatter)
@@ -417,6 +418,9 @@ def main():
                         total_loss_lpips += out['loss_lpips'].detach()
                     if 'loss_gt_normal' in out.keys():
                         total_loss_gt_normal += out['loss_gt_normal'].detach()
+                    if 'normal_loss' in out.keys():
+                        total_loss_normal += out['normal_loss'].detach()
+
 
                 # Log metrics after every step, not at the end of the epoch
                 if accelerator.is_main_process:
@@ -426,6 +430,7 @@ def main():
                     writer.add_scalar('train/loss_splatter', loss_splatter.item(), global_step)
                     writer.add_scalar('train/loss_lpips', out['loss_lpips'].item(), global_step) if 'loss_gt_normal' in out.keys() else None
                     writer.add_scalar('train/loss_gt_normal', out['loss_gt_normal'].detach().item(), global_step) if 'loss_gt_normal' in out.keys() else None
+                    writer.add_scalar('train/loss_normal', out['normal_loss'].detach().item(), global_step) if 'normal_loss' in out.keys() else None
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
@@ -456,6 +461,7 @@ def main():
                         total_loss_alpha = 0
                         total_loss_lpips = 0
                         total_loss_gt_normal = 0
+                        total_loss_normal = 0
                         
                         print(f"Save to run dir: {opt.workspace}")
                         num_samples_eval = len(test_dataloader)
@@ -481,6 +487,8 @@ def main():
                                 total_loss_lpips += out['loss_lpips'].detach()
                             if 'loss_gt_normal' in out.keys():
                                 total_loss_gt_normal += out['loss_gt_normal'].detach()
+                            if 'normal_loss' in out.keys():
+                                total_loss_normal += out['normal_loss'].detach()
                             
                             # save some images
                             if True:
@@ -529,6 +537,7 @@ def main():
                             total_loss_alpha /= num_samples_eval
                             total_loss_lpips /= num_samples_eval
                             total_loss_gt_normal /= num_samples_eval
+                            total_loss_normal /= num_samples_eval
                             
                             accelerator.print(f"[eval] epoch: {epoch} loss: {total_loss.item():.6f} loss_latent: {total_loss_latent.item():.6f} psnr: {total_psnr.item():.4f} splatter_loss: {total_loss_splatter:.4f} rendering_loss: {total_loss_rendering:.4f} alpha_loss: {total_loss_alpha:.4f} lpips_loss: {total_loss_lpips:.4f} ")
                             writer.add_scalar('eval/total_loss_latent', total_loss_latent.item(), global_step)
@@ -539,6 +548,7 @@ def main():
                             writer.add_scalar('eval/total_loss_alpha', total_loss_alpha, global_step)
                             writer.add_scalar('eval/total_loss_lpips', total_loss_lpips, global_step)
                             writer.add_scalar('eval/total_loss_gt_normal', total_loss_gt_normal, global_step)
+                            writer.add_scalar('eval/total_loss_normal', total_loss_normal, global_step)
 
                             if opt.lr_scheduler == 'Plat' and not opt.lr_schedule_by_train:
                                 scheduler.step(total_loss)
