@@ -1017,6 +1017,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # Compute the average loss over foreground pixels only
             if num_foreground_pixels > 0:
                 gt_normal_loss = lambda_normal * (foreground_normal_error.sum() / num_foreground_pixels)
+                # print("foreground_normal_error (gt): ", gt_normal_loss)
             else:
                 gt_normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
             
@@ -1032,18 +1033,28 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
 
             # rend_dist = results["rend_dist"]
-            # rend_normal  = results['rend_normal']
-            # surf_normal = results['surf_normal']
+            rend_normal  = results['rend_normal']
+            surf_normal = results['surf_normal']
 
-            # normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
-            # normal_loss = lambda_normal * (normal_error).mean()
+            normal_error = (1 - (rend_normal * surf_normal))
+            # Apply mask to calculate foreground normal loss
+            foreground_normal_error = normal_error * gt_masks
+            # Compute the average loss over foreground pixels only
+            if num_foreground_pixels > 0:
+                normal_loss = lambda_normal * (foreground_normal_error.sum() / num_foreground_pixels)
+                # print("foreground_normal_error: ", normal_loss)
+            else:
+                normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
+            
+            normal_loss = lambda_normal * (normal_error).mean()
             # dist_loss = lambda_dist * (rend_dist).mean()
 
-            # # loss
-            # loss = loss + dist_loss + normal_loss
+            # loss
+            # loss = loss + dist_loss
             # results['dist_loss'] = dist_loss
-            # results['normal_loss'] = normal_loss
-            # # print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
+            loss = loss + normal_loss
+            results['normal_loss'] = normal_loss
+            # print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
         
                 
         # Calculate metrics
