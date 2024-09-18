@@ -256,6 +256,9 @@ class Options:
     lambda_dist: float = 0.0
 
     sbatch_launch: bool = False
+    use_wonder3d_vae: bool = False
+    pretrained_model_name_or_path: Optional[str] = None
+
     
 
 # all the default settings

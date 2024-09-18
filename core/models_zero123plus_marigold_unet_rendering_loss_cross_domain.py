@@ -33,20 +33,32 @@ def fuse_splatters(splatters):
     # x = splatters.permute(0, 1, 3, 4, 2)[:,0].reshape(B, -1, 14)
     return x
 
+# def unscale_latents(latents):
+#     latents = latents / 0.75 + 0.22
+#     return latents
+
+# def unscale_image(image):
+#     image = image / 0.5 * 0.8
+#     return image
+
+# def scale_image(image):
+#     image = image * 0.5 / 0.8
+#     return image
+
+# def scale_latents(latents):
+#     latents = (latents - 0.22) * 0.75
+#     return latents
+
 def unscale_latents(latents):
-    latents = latents / 0.75 + 0.22
     return latents
 
 def unscale_image(image):
-    image = image / 0.5 * 0.8
     return image
 
 def scale_image(image):
-    image = image * 0.5 / 0.8
     return image
 
 def scale_latents(latents):
-    latents = (latents - 0.22) * 0.75
     return latents
 
 def to_rgb_image(maybe_rgba: Image.Image):
@@ -208,6 +220,13 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         print("num_attributes is: ",num_attributes)
         self.pipe.prepare(random_init_unet=opt.random_init_unet, class_emb_cat=opt.class_emb_cat,
                           num_attributes=num_attributes) 
+        
+        if opt.use_wonder3d_vae:
+            from diffusers import AutoencoderKL
+            self.pipe.vae = AutoencoderKL.from_pretrained(opt.pretrained_model_name_or_path, subfolder="vae", revision=None, torch_dtype=torch.float32)
+            print("use_wonder3d_vae, assigned to pipe: ", opt.use_wonder3d_vae)
+      
+        
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
 
@@ -407,7 +426,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             images_to_save = einops.rearrange(images_to_save, "a c (m h) (n w) -> (a h) (m n w) c", m=3, n=2)
 
         # do vae.encode
-        sp_image_batch = scale_image(images_all_attr_batch)
+        sp_image_batch = scale_image(images_all_attr_batch) # [-1,1]
         sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
         torch.cuda.empty_cache()
@@ -863,6 +882,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
         gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+        # st()
+        # torch.save(gaussians.detach().cpu(), f"align_wonder3d_gaussians.pt")
 
         # debug = True
         # if debug:
@@ -1005,7 +1026,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         results["rend_normal_gt"] = data['normals_output']
         
         # loss with GT normal
-        lambda_normal = self.opt.lambda_normal #  if iteration > 4000 else 0.0
+        lambda_normal = self.opt.lambda_normal if iteration > 6000 else 0.0 
         if lambda_normal > 0:
             rend_normal = results["rend_normal"]
             gt_normal = data['normals_output']
