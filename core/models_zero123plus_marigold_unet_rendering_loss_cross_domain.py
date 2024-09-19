@@ -225,7 +225,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             from diffusers import AutoencoderKL
             self.pipe.vae = AutoencoderKL.from_pretrained(opt.pretrained_model_name_or_path, subfolder="vae", revision=None, torch_dtype=torch.float32)
             print("use_wonder3d_vae, assigned to pipe: ", opt.use_wonder3d_vae)
-      
         
         self.vae = self.pipe.vae.requires_grad_(False).eval()
         self.unet = self.pipe.unet.requires_grad_(False).eval()
@@ -393,12 +392,6 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
         for attr_to_encode in ordered_attr_list_local:
             sp_image = data[attr_to_encode]
-            # print(f"[data]{attr_to_encode}: {sp_image.min(), sp_image.max()}")
-            # debug = False
-            # if debug:
-            #     sp_image = self.get_sin_image(sp_image.shape[-2], sp_image.shape[-1]).to(sp_image.device).to(sp_image.dtype)
-            #     print("sin image for debug")
-            
             images_all_attr_list.append(sp_image)
             
             
@@ -409,12 +402,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         A, B, _, _, _ = images_all_attr_batch.shape # [5, 1, 3, 384, 256]
         images_all_attr_batch = einops.rearrange(images_all_attr_batch, "A B C H W -> (B A) C H W")
 
-        # debug = True
-        # if debug:
-        #     images_all_attr_batch = torch.zeros_like(images_all_attr_batch)
-        #     images_all_attr_batch[:,1,...] = 1
-        #     print("use zero image for debug")
-
+   
         # # upsample splatter to 320
         # images_all_attr_batch = einops.rearrange(images_all_attr_batch, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
         # images_all_attr_batch = F.interpolate(images_all_attr_batch, (320, 320), mode="nearest")
@@ -427,7 +415,16 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
 
         # do vae.encode
         sp_image_batch = scale_image(images_all_attr_batch) # [-1,1]
-        sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
+
+        # align with the input of wonder3d
+        if self.opt.independent_encode_mv:
+            sp_image_batch = einops.rearrange(sp_image_batch, "B C (m H) (n W) -> (B m n) C H W", m=3, n=2)
+            # print("reshape the latent to encode")
+            sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
+            sp_image_batch = einops.rearrange(sp_image_batch, "(B m n) C H W -> B C (m H) (n W)", m=3, n=2)
+        else:
+            sp_image_batch = self.pipe.vae.encode(sp_image_batch).latent_dist.sample() * self.pipe.vae.config.scaling_factor
+        
         latents_all_attr_encoded = scale_latents(sp_image_batch) # torch.Size([5, 4, 48, 32])
         torch.cuda.empty_cache()
     
@@ -766,23 +763,19 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         if self.opt.use_video_decoderST:
             image_all_attr_to_decode = self.ST_decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, num_frames=5, return_dict=False)[0]
         else:
+            
+            if self.opt.independent_encode_mv:
+                latents_all_attr_to_decode = einops.rearrange(latents_all_attr_to_decode, "B C (m H) (n W) -> (B m n) C H W", m=3, n=2)
+                image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+                image_all_attr_to_decode = einops.rearrange(image_all_attr_to_decode, "(B m n) C H W -> B C (m H) (n W)", m=3, n=2)
+            else:
+                image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
+                
 
-            image_all_attr_to_decode = self.pipe.vae.decode(latents_all_attr_to_decode / self.pipe.vae.config.scaling_factor, return_dict=False)[0]
-            
-            # loop decoder
-            # latents_all_attr_to_decode_single = einops.rearrange(latents_all_attr_to_decode, "b c (m h) (n w) -> (b m n) c h w", m=3, n=2)
-            # out = []
-            # st()
-            # for j, _ in enumerate(latents_all_attr_to_decode_single):
-            #     out.append(self.pipe.vae.decode(latents_all_attr_to_decode[j:j+1] / self.pipe.vae.config.scaling_factor, return_dict=False)[0])
-            #     print(j)
-            #     st()
-            # st()
-            # image_all_attr_to_decode = torch.cat([self.pipe.vae.decode(_latents_all_attr_to_decode[None] / self.pipe.vae.config.scaling_factor, return_dict=False)[0] for _latents_all_attr_to_decode in latents_all_attr_to_decode])
-            
-            
             
         image_all_attr_to_decode = unscale_image(image_all_attr_to_decode) # (B A) C H W 
+            
+        
         # THIS IS IMPORTANT!! Otherwise the very small negative value will overflow when * 255 and converted to uint8
         image_all_attr_to_decode = image_all_attr_to_decode.clip(-1,1)
         
@@ -869,26 +862,12 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
 
-        
-        # # st() # load the true splatter mv   
-        # debug = True
-        # if debug:
-        #     path = "/home/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/debug/8000-8999/20240814-213046-load_2dgs_ckpt_save_vis-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference/0_004bef020bb34445b2b31e97552cd421/splatters_mv.pt"
-        #     # path="/home/xuyimeng/Repo/zero-1-to-G/runs/lvis/workspace_debug/debug/8000-8999/20240814-152456-load_2dgs_ckpt_save_vis-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference/0_004bef020bb34445b2b31e97552cd421/splatters_mv.pt"
-        #     splatter_mv = torch.load(path).to(dtype=splatter_mv.dtype, device=splatter_mv.device).unsqueeze(0)
-        #     print("load splatter_mv from ", path)
-            
+   
         
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
         gaussians = fuse_splatters(splatters_to_render) # B, N, 14
-        # st()
-        # torch.save(gaussians.detach().cpu(), f"align_wonder3d_gaussians.pt")
-
-        # debug = True
-        # if debug:
-        #     gaussians = data['gaussians_gt']
-        #     print("Using GT gaussians (not fused from splatters)")
+     
 
         if get_decoded_gt_latents:
             results['gaussians_LGM_decoded'] = gaussians

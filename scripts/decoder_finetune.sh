@@ -11,22 +11,24 @@ DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER=/home/xuyimeng/Repo/zero
 # export CUDA_VISIBLE_DEVICES=3
 accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml main_zero123plus_v5_batch_marigold_finetune_decoder_accumulate.py big \
     --workspace runs/finetune_decoder/workspace_train_sep \
-    --lr 5e-6 --num_epochs 10001 --eval_iter 200 --save_iter 500 --lr_scheduler Plat \
+    --lr 5e-6 --num_epochs 10001 --eval_iter 500 --save_iter 1000 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --output_size 256 --num_input_views 6 --num_views 15 \
     --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 1 --lambda_lpips 2 --lambda_normal 0.05 \
-    --desc 'correct_vae_loading-Wonder3D_VAE-256-lara_data-2dgs-GT_normal_loss_after_6000-bsz16' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
+    --desc 'independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${DATA_DIR_BATCH_LVIS_SPLATTERS_MV_ROOT_FINETUNED_CLUSTER} \
     --set_random_seed \
     --model_type Zero123PlusGaussianMarigoldUnetCrossDomain \
     --custom_pipeline "./zero123plus/pipeline_v8_cat.py" --render_input_views --attr_group_mode "v5" \
     --bg 1.0 --fovy 39.6 --data_mode 'lara' \
     --finetune_decoder --use_wonder3d_vae --pretrained_model_name_or_path 'lambdalabs/sd-image-variations-diffusers' \
-    --batch_size 2 --num_workers 1 --gradient_accumulation_steps 2 
+    --batch_size 2 --num_workers 1 --gradient_accumulation_steps 2 \
+    --independent_encode_mv 
     
     # \
-    # --overfit_one_scene 
+    # --resume_decoder '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00010-correct_vae_loading-Wonder3D_VAE-256-lara_data-2dgs-GT_normal_loss_after_6000-bsz16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_15500_ckpt/model.safetensors'
 
+# --overfit_one_scene 
     # --resume_decoder '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00008-LARA_DATA-sd_decoder-2dgs-GT_normal_loss_foreground-resume8800-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_8000_ckpt/model.safetensors' \
     # --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00003-LARA_DATA-sd_decoder-2dgs-only_rendering_loss-bsz12-numV15-loss_render1.0_splatter2.0_lpips2.0-lr5e-06-Plat5/eval_global_step_1600_ckpt/model.safetensors \
     # \

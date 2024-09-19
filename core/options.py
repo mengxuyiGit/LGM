@@ -258,6 +258,7 @@ class Options:
     sbatch_launch: bool = False
     use_wonder3d_vae: bool = False
     pretrained_model_name_or_path: Optional[str] = None
+    independent_encode_mv: bool = False
 
     
 
