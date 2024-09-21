@@ -18,6 +18,7 @@ def save_dndn(render_pkg, path):
     
     surf_normal = render_pkg["surf_normal"].detach().cpu().numpy() * 0.5 + 0.5
     rend_normal = render_pkg["rend_normal"].detach().cpu().numpy() * 0.5 + 0.5
+    gt_normal = render_pkg["rend_normal_gt"].detach().cpu().numpy() * 0.5 + 0.5
 
     # tb_writer.add_images(config['name'] + "_view_{}/rend_normal".format(viewpoint.image_name), rend_normal[None], global_step=iteration)
     # tb_writer.add_images(config['name'] + "_view_{}/surf_normal".format(viewpoint.image_name), surf_normal[None], global_step=iteration)
@@ -32,7 +33,7 @@ def save_dndn(render_pkg, path):
     # pred_images = out['images_pred'].detach().cpu().numpy() # [B, V, 3, output_size, output_size]
     # for v in [depth, surf_normal, rend_dist, rend_normal]:
     #     print(v.shape)
-    pred_images = np.concatenate([depth, surf_normal, rend_dist, rend_normal], axis=3)
+    pred_images = np.concatenate([depth, surf_normal, rend_dist, rend_normal, gt_normal], axis=3)
     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[4], 3)
     kiui.write_image(path, pred_images)
 
