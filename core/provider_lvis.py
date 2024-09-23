@@ -19,6 +19,7 @@ IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
 import glob
 from ipdb import set_trace as st
+import json
 
 class ObjaverseDataset(Dataset):
 
@@ -35,18 +36,46 @@ class ObjaverseDataset(Dataset):
         excluded_splits = ["40000-49999"] # used for test
         included_splits = [split for split in os.listdir(opt.data_path_rendering) if split not in excluded_splits]
         scene_path_patterns = [os.path.join(opt.data_path_rendering, split, "*") for split in included_splits]
+
+        # remove invalid uids
+        invalid_list = '/mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json'
+        if invalid_list is not None:
+            print(f"Filter invalid objects by {invalid_list}")
+            with open(invalid_list) as f:
+                invalid_objects = json.load(f)
+            invalid_objects = [os.path.basename(o).replace(".glb", "") for o in invalid_objects]
+        else:
+            invalid_objects = []
+        
+        valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        if valid_list is not None:
+            print(f"ALSO Filter valid objects by {valid_list}")
+            with open(valid_list) as f:
+                valid_objects = json.load(f)
+      
+      
         all_scene_paths = []
         for pattern in scene_path_patterns:
             all_scene_paths.extend(sorted(glob.glob(pattern)))
             # break # for fast dev
         
         for i, scene_path in enumerate(all_scene_paths):
-            if i > 1:
-                break
+            # if i > 1:
+            #     break
             
             scene_name = scene_path.split('/')[-1]
             if not os.path.isdir(scene_path):
                 continue
+            
+            if scene_name in invalid_objects:
+                continue
+            
+            scene_range = scene_path.split('/')[-2]
+            rendering_path = os.path.join(scene_range, scene_name.split("_")[-1])
+            if valid_list is not None and rendering_path not in valid_objects:
+                # print(f"{rendering_path} is not in valid list")
+                continue
+            
             self.data_path_rendering[scene_name] = scene_path
 
         self.items = [k for k in self.data_path_rendering.keys()]
@@ -57,9 +86,9 @@ class ObjaverseDataset(Dataset):
 
          # naive split
         if self.training:
-            self.items = self.items[:-self.opt.batch_size]
+            self.items = self.items[:-10]
         else:
-            self.items = self.items[-self.opt.batch_size:]
+            self.items = self.items[-10:]
         print(f"Total {len(self.items)} in {'train' if self.training else 'test'} dataloader")
 
         
@@ -121,7 +150,7 @@ class ObjaverseDataset(Dataset):
             vids = fixed_input_views[:self.opt.num_input_views] + np.random.permutation(numerical_value+1).tolist()
         else:
             vids = fixed_input_views[:self.opt.num_input_views] + np.arange(numerical_value+1).tolist() # fixed order
-            print(vids)
+            # print(vids)
         
         final_vids = []
         

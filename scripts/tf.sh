@@ -1,9 +1,9 @@
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_lgm/workspace_train
 # LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_refinenet/workspace_train_june
 # LOG_DIR=/home/xuyimeng/Repo/2d-gaussian-splatting/output/nerf_synthetic/lego
-LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_lgm/workspace_ovft
+LOG_DIR=/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_lgm/workspace_train_sep
 
-TB_PORT=6138
+TB_PORT=6137
 IP_ADDRESS=$(hostname -I | cut -d' ' -f1)
 
 TB_FOLDER=$1

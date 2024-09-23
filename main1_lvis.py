@@ -59,8 +59,9 @@ def save_dndn(render_pkg, data, path):
         
         plot_list += [gt_depth]
     
-    gt_normal = data['normals_output'].detach().cpu().numpy() * 0.5 + 0.5
-    plot_list += [gt_normal]
+    if 'normals_output' in data:
+        gt_normal = data['normals_output'].detach().cpu().numpy() * 0.5 + 0.5
+        plot_list += [gt_normal]
 
     pred_images = np.concatenate(plot_list, axis=3)
     pred_images = pred_images.transpose(0, 3, 1, 4, 2).reshape(-1, pred_images.shape[1] * pred_images.shape[4], 3)
@@ -273,11 +274,22 @@ def main():
                 log_psnr += psnr.detach()
                 log_loss_mse += out['loss_mse'].detach()
                 log_loss_lpips += out['loss_lpips'].detach()
-                log_loss_2dgs_dist += out['dist_loss'].detach()
-                log_loss_2dgs_normal_err += out['normal_err'].detach()
-                log_loss_2dgs_normal += out['normal_loss'].detach()
+                if 'dist_loss' in out.keys():
+                    log_loss_2dgs_dist += out['dist_loss'].detach().cpu()
+                else:
+                    log_loss_2dgs_dist += torch.tensor([0])
+                if 'normal_err' in out.keys():
+                    log_loss_2dgs_normal_err += out['normal_err'].detach().cpu()
+                else:
+                    log_loss_2dgs_normal_err += torch.tensor([0])
+                if 'normal_loss' in out.keys():
+                    log_loss_2dgs_normal += out['normal_loss'].detach()
+                else:
+                    log_loss_2dgs_normal += torch.tensor([0])
                 if 'depth_loss' in out.keys():
-                    log_loss_2dgs_depth += out['depth_loss'].detach()
+                    log_loss_2dgs_depth += out['depth_loss'].detach().cpu()
+                else:
+                    log_loss_2dgs_depth += torch.tensor([0])
 
             if accelerator.is_main_process:
                 # logging

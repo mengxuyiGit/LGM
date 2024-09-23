@@ -181,8 +181,6 @@ class LGM(nn.Module):
             
         
         ### 2dgs regularizations
-        lambda_normal = self.opt.lambda_normal if iteration > self.opt.normal_depth_begin_iter else 0.0 # instantmesh also introduced normal loss at the 2nd stage
-        lambda_depth = self.opt.lambda_depth if iteration > self.opt.normal_depth_begin_iter else 0.0
         lambda_normal_err = self.opt.lambda_normal if iteration > 7000 else 0.0
         lambda_dist = self.opt.lambda_dist if iteration > 3000 else 0.0
         # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_normal_err: {lambda_normal_err} lambda_dist: {lambda_dist}")
@@ -192,53 +190,63 @@ class LGM(nn.Module):
         surf_normal = results['surf_normal']
 
 
-        # detach = True
-        # if detach:
-        #     normal_error = (1 - (data['normals_output'] * surf_normal).sum(dim=0))[None]
-        #     print('normal_error detached')
-        # else:
-        #     normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
-        # normal_err = lambda_normal_err * (normal_error).mean()
-        normal_err = torch.tensor([0.0], device=gaussians.device)
-        
-        dist_loss = lambda_dist * (rend_dist).mean()
+        # if lambda_normal_err > 0:
+        if True:
+            # detach = True
+            # if detach:
+            #     normal_error = (1 - (data['normals_output'] * surf_normal).sum(dim=0))[None]
+            #     print('normal_error detached')
+            # else:
+            #     normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
 
-        # loss
-        loss = loss + dist_loss + normal_err
-        results['dist_loss'] = normal_err
-        results['normal_err'] = normal_err
+            normal_error = (1 - (rend_normal * surf_normal.detach())) * gt_masks
+            normal_err = lambda_normal_err * (normal_error).mean()
+            results['normal_err'] = normal_err
+
+            # loss
+            loss = loss + normal_err
         
+        # if lambda_dist > 0:
+        if True:
+            dist_loss = lambda_dist * (rend_dist).mean()
+            results['dist_loss'] = dist_loss
+            loss = loss + dist_loss
+
+      
         # TODO
         # 1. add normal loss wih gt
        
-        render_normals = rend_normal
-        target_normals =  data['normals_output'] # [B, V, 3, output_size, output_size]
-        similarity = (render_normals * target_normals).sum(dim=-3).abs() # both are within [-1,1]
-        normal_mask = gt_masks.squeeze(-3)
-        loss_normal = 1 - similarity[normal_mask>0].mean()
-        loss_normal = lambda_normal * loss_normal
+        if 'normals_output' in data:
+            lambda_normal = self.opt.lambda_normal if iteration > self.opt.normal_depth_begin_iter else 0.0 # instantmesh also introduced normal loss at the 2nd stage
+            render_normals = rend_normal
+            target_normals =  data['normals_output'] # [B, V, 3, output_size, output_size]
+            similarity = (render_normals * target_normals).sum(dim=-3).abs() # both are within [-1,1]
+            normal_mask = gt_masks.squeeze(-3)
+            loss_normal = 1 - similarity[normal_mask>0].mean()
+            loss_normal = lambda_normal * loss_normal
+            
+            loss += loss_normal
+            results['normal_loss'] = loss_normal
         
-        loss += loss_normal
-        results['normal_loss'] = loss_normal
         
-        
-        # # 2. add depth loss with gt
-        # render_depths = results['surf_depth']
-        # target_depths = data['depths_output'] # [B, V, 1, output_size, output_size]
-        # target_alphas = gt_masks
-        # loss_depth = lambda_depth * F.l1_loss(render_depths[target_alphas>0], target_depths[target_alphas>0])
+            # # 2. add depth loss with gt
+        # lambda_depth = self.opt.lambda_depth if iteration > self.opt.normal_depth_begin_iter else 0.0
+            # render_depths = results['surf_depth']
+            # target_depths = data['depths_output'] # [B, V, 1, output_size, output_size]
+            # target_alphas = gt_masks
+            # loss_depth = lambda_depth * F.l1_loss(render_depths[target_alphas>0], target_depths[target_alphas>0])
 
-        # loss += loss_depth
-        # results['depth_loss'] = loss_depth
+            # loss += loss_depth
+            # results['depth_loss'] = loss_depth
+            
+            # # 3. add larger alpha loss, which to ensure the normal will add up to 1
+            # print('alpha range: ', pred_alphas.min(), pred_alphas.max())
         
-        # # 3. add larger alpha loss, which to ensure the normal will add up to 1
-        # print('alpha range: ', pred_alphas.min(), pred_alphas.max())
-       
-        
-        if iteration % 500 == 0:
-            print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_depth: {lambda_depth}, lambda_normal_err: {lambda_normal_err} lambda_dist: {lambda_dist}")
-            # print(f"Iteration: {iteration}, normal_loss: {loss_normal}, depth_loss: {loss_depth}, dist_loss: {dist_loss}, normal_err: {normal_err}")
-            print(f"Iteration: {iteration}, normal_loss: {loss_normal}, dist_loss: {dist_loss}, normal_err: {normal_err}")
+            
+            if iteration % 500 == 0:
+                print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_depth: {lambda_depth}, lambda_normal_err: {lambda_normal_err} lambda_dist: {lambda_dist}")
+                # print(f"Iteration: {iteration}, normal_loss: {loss_normal}, depth_loss: {loss_depth}, dist_loss: {dist_loss}, normal_err: {normal_err}")
+                print(f"Iteration: {iteration}, normal_loss: {loss_normal}, dist_loss: {dist_loss}, normal_err: {normal_err}")
     
         
         results['loss'] = loss
