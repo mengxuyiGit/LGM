@@ -47,7 +47,7 @@ class ObjaverseDataset(Dataset):
         else:
             invalid_objects = []
         
-        valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        valid_list = '/home/xuyimeng/Data/lvis/valid_paths.json'
         if valid_list is not None:
             print(f"ALSO Filter valid objects by {valid_list}")
             with open(valid_list) as f:
@@ -166,6 +166,9 @@ class ObjaverseDataset(Dataset):
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
+            # if cam['fov'] != 1.0471975511965976:
+            #     print(f"fov:{cam['fov']}")
+            # print(f"cam npy contents:{cam}")
             # print(f"cam npy contents:{cam['azimuth']}")
             
             c2w = orbit_camera(-cam['elevation'], cam['azimuth'], radius=cam['radius'])
