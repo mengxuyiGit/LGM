@@ -181,8 +181,8 @@ class LGM(nn.Module):
             
         
         ### 2dgs regularizations
-        lambda_normal_err = self.opt.lambda_normal if iteration > 7000 else 0.0
-        lambda_dist = self.opt.lambda_dist if iteration > 3000 else 0.0
+        lambda_normal_err = self.opt.lambda_normal if iteration > 8000 else 0.0
+        lambda_dist = self.opt.lambda_dist if iteration > 7000 else 0.0
         # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_normal_err: {lambda_normal_err} lambda_dist: {lambda_dist}")
 
         rend_dist = results["rend_dist"]
@@ -200,7 +200,8 @@ class LGM(nn.Module):
             #     normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
 
             normal_error = (1 - (rend_normal * surf_normal.detach())) * gt_masks
-            normal_err = lambda_normal_err * (normal_error).mean()
+            normal_error = normal_error.sum() / gt_masks.sum()
+            normal_err = lambda_normal_err * (normal_error)
             results['normal_err'] = normal_err
 
             # loss
