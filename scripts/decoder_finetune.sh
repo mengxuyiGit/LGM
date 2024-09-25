@@ -15,7 +15,7 @@ accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml 
     --lr 5e-6 --num_epochs 10001 --eval_iter 500 --save_iter 1000 --lr_scheduler Plat \
     --lr_scheduler_patience 5 --lr_scheduler_factor 0.7 --lr_schedule_by_train \
     --prob_cam_jitter 0 --input_size 320 --num_input_views 6 --num_views 12 \
-    --lambda_splatter 1 --lambda_rendering 1 --lambda_alpha 1 --lambda_lpips 2 --lambda_normal 0.05 --lambda_dist 0.02 \
+    --lambda_splatter 1 --lambda_rendering 1.5 --lambda_alpha 1 --lambda_lpips 2 --lambda_normal 0.02 --lambda_dist 0.01 \
     --desc 'LVIS-independent_encode_mv-resume_00012' --data_path_rendering ${DATA_RENDERING_ROOT_LVIS_46K} \
     --data_path_vae_splatter ${LVIS_2DGS_SPLATTERS_MV_ROOT} \
     --set_random_seed \
@@ -26,7 +26,8 @@ accelerate launch --main_process_port 29514 --config_file acc_configs/gpu4.yaml 
     --finetune_decoder --use_wonder3d_vae --pretrained_model_name_or_path 'lambdalabs/sd-image-variations-diffusers' \
     --batch_size 2 --num_workers 1 --gradient_accumulation_steps 2 \
     --independent_encode_mv \
-    --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00012-independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_29000_ckpt/model.safetensors
+    --resume_decoder /home/chenwang/Repo/LGM/runs/finetune_decoder/workspace_train_sep/00000-LVIS-independent_encode_mv-resume_00012-numV12-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_10000_ckpt/model.safetensors
+    # --resume_decoder /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00012-independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_29000_ckpt/model.safetensors
 
     # --resume_decoder '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00010-correct_vae_loading-Wonder3D_VAE-256-lara_data-2dgs-GT_normal_loss_after_6000-bsz16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_15500_ckpt/model.safetensors'
 #  --output_size 256
