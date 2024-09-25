@@ -1,4 +1,5 @@
 import os
+from PIL import Image
 import cv2
 import random
 import numpy as np
@@ -147,67 +148,30 @@ attr_map = {key: (si, ei) for key, si, ei in zip (gt_attr_keys, start_indices, e
 #     "rotation": (-3., 3.)
 #     }
 
-### 2DGS
-ordered_attr_list = ["pos", # 0-3
-                'opacity', # 3-4
-                'scale', # 4-7
-                "rotation", # 7-11
-                "rgbs", # 11-14
-            ] # must be an ordered list according to the channels
+# ### 2DGS
+# ordered_attr_list = ["pos", # 0-3
+#                 'opacity', # 3-4
+#                 'scale', # 4-7
+#                 "rotation", # 7-11
+#                 "rgbs", # 11-14
+#             ] # must be an ordered list according to the channels
 
-sp_min_max_dict = {
-    "pos": (-0.7, 0.7), 
-    "scale": (-10., -2.),
-    "rotation": (-6., 6.)
-    }
+# ## for 3DGS
+# # sp_min_max_dict = {
+# #     "pos": (-0.7, 0.7), 
+# #     "scale": (-10., -2.),
+# #     "rotation": (-6., 6.)
+# #     }
 
+# # for 2DGS
+# sp_min_max_dict = {
+#     "pos": (-0.7, 0.7), 
+#     "opacity": (-14., 9.),
+#     "scale": (-10., -2.),
+#     "rotation": (-5., 5.) #  (-6., 6.)
+#     }
 
-def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu"):
-    
-    # splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt")).detach().cpu() # [14, 384, 256]
-    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt"), map_location='cpu').detach().cpu()
-        
-    # splatter_mv = torch.load("splatters_mv_02.pt")[0]
-    # print("Loading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
-
-    splatter_3Channel_image = {}
-            
-    for attr_to_encode in ordered_attr_list:
-        # print("latents_all_attr_list <-",attr_to_encode)
-        si, ei = attr_map[attr_to_encode]
-        
-        sp_image = splatter_mv[si:ei]
-        # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max()}")
-
-        #  map to 0,1
-        if attr_to_encode in ["pos"]:
-            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
-            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-        elif attr_to_encode == "opacity":
-            sp_image = sp_image.repeat(3,1,1)
-        elif attr_to_encode == "scale":
-            sp_image = torch.log(sp_image)
-            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
-            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-        elif  attr_to_encode == "rotation":
-            assert (ei - si) == 4
-            quat = einops.rearrange(sp_image, 'c h w -> h w c')
-            axis_angle = quaternion_to_axis_angle(quat)
-            sp_image = einops.rearrange(axis_angle, 'h w c -> c h w')
-            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
-            sp_image = (sp_image - sp_min)/(sp_max - sp_min)
-        elif attr_to_encode == "rgbs":
-            pass
-        
-        # map to [-1,1]
-        sp_image = sp_image * 2 - 1
-        sp_image = sp_image.clip(-1,1)
-        
-        # print(f"{attr_to_encode}: {sp_image.min(), sp_image.max(), sp_image.shape}")
-        assert sp_image.shape[0] == 3
-        splatter_3Channel_image[attr_to_encode] = sp_image.detach().cpu()
-    
-    return splatter_3Channel_image
+from utils.splatter_utils import load_splatter_mv_ply_as_dict
 
 class ObjaverseDataset(Dataset):
 
@@ -243,6 +207,15 @@ class ObjaverseDataset(Dataset):
         else:
             invalid_objects = []
         
+        valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        if valid_list is not None:
+            print(f"ALSO Filter valid objects by {valid_list}")
+            with open(valid_list) as f:
+                valid_objects = json.load(f)
+                print(f"valid_objects: {len(valid_objects)}")
+        
+        
+        print(f"Before filtering {len(all_scene_paths)} scenes in total")
             
         for scene_path in all_scene_paths:
 
@@ -255,10 +228,13 @@ class ObjaverseDataset(Dataset):
             scene_name = scene_path.split('/')[-1]
             scene_range = scene_path.split('/')[-4]
             # print("scene name:", scene_name)
+            
             if scene_name.split("_")[-1] in invalid_objects:
-                rendering_folder = os.path.join(opt.data_path_rendering, scene_range, scene_name.split("_")[-1])
-                # print(f"{rendering_folder} is invalid")
                 continue 
+
+            rendering_path = os.path.join(scene_range, scene_name.split("_")[-1])
+            if valid_list is not None and rendering_path not in valid_objects:
+                continue
             
             if scene_name in self.data_path_vae_splatter.keys():
                 continue
@@ -339,14 +315,13 @@ class ObjaverseDataset(Dataset):
         cond_path = os.path.join(uid, f'000.png')
         # cond = to_rgb_image(Image.open("/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/data_test/anya_rgba.png"))
         # cond_path = "/mnt/kostas-graid/sw/envs/xuyimeng/Repo/LGM/data_test/anya_rgba.png"
-        from PIL import Image
         cond = np.array(Image.open(cond_path).resize((self.opt.input_size, self.opt.input_size)))
         # print(f"cond size:{Image.open(cond_path)}")
         mask = cond[..., 3:4] / 255
         cond = cond[..., :3] * mask + (1 - mask) * int(self.opt.bg * 255)
         results['cond'] = cond.astype(np.uint8)
 
-        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid)
+        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, device="cpu", range_01=False, use_2dgs=True, selected_attr_list=None, return_gassians=True)
         if self.opt.train_unet_single_attr is not None:
             for attr in self.opt.train_unet_single_attr:
                 results[attr] = splatter_original_Channel_mvimage_dict[attr]
@@ -415,7 +390,7 @@ class ObjaverseDataset(Dataset):
 
        
         images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
-        masks_input = F.interpolate(masks[:self.opt.num_input_views].clone().unsqueeze(1), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
+        # masks_input = F.interpolate(masks[:self.opt.num_input_views].clone().unsqueeze(1), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         if self.prepare_white_bg:
             images_input_white = F.interpolate(images_white[:self.opt.num_input_views].clone(), size=(self.opt.input_size, self.opt.input_size), mode='bilinear', align_corners=False) # [V, C, H, W]
         cam_poses_input = cam_poses[:self.opt.num_input_views].clone()
@@ -436,55 +411,56 @@ class ObjaverseDataset(Dataset):
         # resize render ground-truth images, range still in [0, 1]
         render_input_views = self.opt.render_input_views
         
-        results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        results['images_output'] = F.interpolate(images, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False, antialias=True) # [V, C, output_size, output_size]
+        # print(f"images_output :{results['images_output'].shape}") # [20, 3, input_size, input_size] input_size=128
         
-        if self.prepare_white_bg:
-            results['images_output_white'] = F.interpolate(images_white, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
-        if self.opt.verbose:
-            print(f"images_input:{images_input.shape}") # [20, 3, input_size, input_size] input_size=128
-            print("images_output", results['images_output'].shape) # [20, 3, 512, 512]
+        # if self.prepare_white_bg:
+        #     results['images_output_white'] = F.interpolate(images_white, size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False, antialias=True) # [V, C, output_size, output_size]
+        # if self.opt.verbose:
+        #     print(f"images_input:{images_input.shape}") # [20, 3, input_size, input_size] input_size=128
+        #     print("images_output", results['images_output'].shape) # [20, 3, 512, 512]
         
-        results['masks_output'] = F.interpolate(masks.unsqueeze(1), size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-        if not render_input_views:
-            results['images_output'] = results['images_output'][self.opt.num_input_views:]
-            results['masks_output'] = results['masks_output'][self.opt.num_input_views:]
+        results['masks_output'] = F.interpolate(masks.unsqueeze(1), size=(self.opt.output_size, self.opt.output_size), mode='bilinear', align_corners=False, antialias=True) # [V, 1, output_size, output_size]
+        # if not render_input_views:
+        #     results['images_output'] = results['images_output'][self.opt.num_input_views:]
+        #     results['masks_output'] = results['masks_output'][self.opt.num_input_views:]
 
-        # build rays for input views
-        if self.opt.model_type == 'LGM':
-            rays_embeddings = []
-            for i in range(self.opt.num_input_views):
-                rays_o, rays_d = get_rays(cam_poses_input[i], self.opt.input_size, self.opt.input_size, self.opt.fovy) # [h, w, 3]
-                rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
-                rays_embeddings.append(rays_plucker)
+        # # build rays for input views
+        # if self.opt.model_type == 'LGM':
+        #     rays_embeddings = []
+        #     for i in range(self.opt.num_input_views):
+        #         rays_o, rays_d = get_rays(cam_poses_input[i], self.opt.input_size, self.opt.input_size, self.opt.fovy) # [h, w, 3]
+        #         rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
+        #         rays_embeddings.append(rays_plucker)
 
-            rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
-            final_input = torch.cat([images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
-            results['input'] = final_input
-        else:
-            results['input'] = images_input
-            results['masks_input'] = masks_input
-            # results['input_white'] = images_input_white
+        #     rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
+        #     final_input = torch.cat([images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
+        #     results['input'] = final_input
+        # else:
+        #     results['input'] = images_input
+        #     results['masks_input'] = masks_input
+        #     # results['input_white'] = images_input_white
             
             
-            lgm_images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(256, 256), mode='bilinear', align_corners=False) # [V, C, H, W]
-            lgm_images_input = TF.normalize(lgm_images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+        #     lgm_images_input = F.interpolate(images[:self.opt.num_input_views].clone(), size=(256, 256), mode='bilinear', align_corners=False) # [V, C, H, W]
+        #     lgm_images_input = TF.normalize(lgm_images_input, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
-            ## for adding additonal input for lgm
-            rays_embeddings = []
-            for i in range(self.opt.num_input_views):
-                rays_o, rays_d = get_rays(cam_poses_input[i], 256, 256, self.opt.fovy) # [h, w, 3]
-                rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
-                rays_embeddings.append(rays_plucker)
+        #     ## for adding additonal input for lgm
+        #     rays_embeddings = []
+        #     for i in range(self.opt.num_input_views):
+        #         rays_o, rays_d = get_rays(cam_poses_input[i], 256, 256, self.opt.fovy) # [h, w, 3]
+        #         rays_plucker = torch.cat([torch.cross(rays_o, rays_d, dim=-1), rays_d], dim=-1) # [h, w, 6]
+        #         rays_embeddings.append(rays_plucker)
 
-            rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
-            final_input = torch.cat([lgm_images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
-            results['input_lgm'] = final_input
+        #     rays_embeddings = torch.stack(rays_embeddings, dim=0).permute(0, 3, 1, 2).contiguous() # [V, 6, h, w]
+        #     final_input = torch.cat([lgm_images_input, rays_embeddings], dim=1) # [V=4, 9, H, W]
+        #     results['input_lgm'] = final_input
 
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
 
-        # should use the same world coord as gs renderer to convert depth into world_xyz
-        results['c2w_colmap'] = cam_poses[:self.opt.num_input_views].clone() 
+        # # should use the same world coord as gs renderer to convert depth into world_xyz
+        # results['c2w_colmap'] = cam_poses[:self.opt.num_input_views].clone() 
 
         # cameras needed by gaussian rasterizer
         cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]

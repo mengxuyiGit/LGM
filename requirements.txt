@@ -1,7 +1,4 @@
-torch
-numpy
 tyro
-diffusers
 dearpygui
 einops
 accelerate

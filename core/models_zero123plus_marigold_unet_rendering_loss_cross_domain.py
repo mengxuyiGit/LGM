@@ -128,34 +128,40 @@ def attr_3channel_image_to_original_splatter_attr(attr_to_encode, mv_image):
             
         return sp_image_o
     
-def denormalize_and_activate(attr, mv_image):
-    # mv_image: B C H W
+# def denormalize_and_activate(attr, mv_image):
+#     # mv_image: B C H W
     
-    sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
-    sp_image_o = sp_image_o.clip(0,1) 
-    # print("no clip in denormalize_and_activate")
+#     sp_image_o = 0.5 * (mv_image + 1) # [map to range [0,1]]
+#     sp_image_o = sp_image_o.clip(0,1) 
+#     # print("no clip in denormalize_and_activate")
     
-    if attr == "pos":
-        sp_min, sp_max = sp_min_max_dict[attr]
-        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        # sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
-    elif attr == "scale":
-        sp_min, sp_max = sp_min_max_dict["scale"]
-        # sp_image_o = sp_image_o.clip(0,1) 
-        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        sp_image_o = torch.exp(sp_image_o)
-    elif attr == "opacity":
-        sp_image_o = sp_image_o.clip(0,1) 
-        sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
-    elif attr == "rotation": 
-        # sp_image_o = sp_image_o.clip(0,1) 
-        sp_min, sp_max = sp_min_max_dict["rotation"]
-        sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
-        ag = einops.rearrange(sp_image_o, 'b c h w -> b h w c')
-        quaternion = axis_angle_to_quaternion(ag)
-        sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')   
+#     if attr == "pos":
+#         sp_min, sp_max = sp_min_max_dict[attr]
+#         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+#         # sp_image_o = torch.clamp(sp_image_o, min=sp_min, max=sp_max)
+#     elif attr == "scale":
+#         sp_min, sp_max = sp_min_max_dict["scale"]
+#         # sp_image_o = sp_image_o.clip(0,1) 
+#         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+#         sp_image_o = torch.exp(sp_image_o)
+#     elif attr == "opacity":
+#         sp_image_o = sp_image_o.clip(0,1) 
+#         # denormalize
+#         sp_min, sp_max = sp_min_max_dict["opacity"]
+#         sp_image_o = sp_image_o *((sp_max - sp_min)) + sp_min
+#         sp_image_o = torch.sigmoid(sp_image_o)
         
-    return sp_image_o
+#         sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
+#     elif attr == "rotation": 
+#         # sp_image_o = sp_image_o.clip(0,1) 
+#         sp_min, sp_max = sp_min_max_dict["rotation"]
+#         sp_image_o = sp_image_o * (sp_max - sp_min) + sp_min
+#         ag = einops.rearrange(sp_image_o, 'b c h w -> b h w c')
+#         quaternion = axis_angle_to_quaternion(ag)
+#         sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')   
+        
+#     return sp_image_o
+from utils.splatter_utils import denormalize_and_activate
     
     
 class Interpolate(nn.Module):
@@ -862,11 +868,15 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             
         splatter_mv = torch.cat(decoded_attr_list, dim=1) # [B, 14, 384, 256]
 
-   
-        
+
         # ## reshape 
         splatters_to_render = einops.rearrange(splatter_mv, 'b c (h2 h) (w2 w) -> b (h2 w2) c h w', h2=3, w2=2) # [1, 6, 14, 128, 128]
         gaussians = fuse_splatters(splatters_to_render) # B, N, 14
+        # st()
+        # print("replacing POS with gt")
+        # gaussians[...,:3] = data['gaussians_gt'][...,:3]
+        # print("using RECON gaussians")
+        # gaussians = data['gaussians_recon']
      
 
         if get_decoded_gt_latents:
@@ -1002,41 +1012,41 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         results["rend_normal"] = gs_results["rend_normal"]
         results["surf_normal"] = gs_results["surf_normal"]
         results["surf_depth"] = gs_results["surf_depth"]
-        results["rend_normal_gt"] = data['normals_output']
+        # results["rend_normal_gt"] = data['normals_output']
         
         # loss with GT normal
-        lambda_normal = self.opt.lambda_normal if iteration > 6000 else 0.0 
+        lambda_normal = self.opt.lambda_normal if iteration > 3000 else 0.0 
         if lambda_normal > 0:
-            rend_normal = results["rend_normal"]
-            gt_normal = data['normals_output']
-            gt_normal_error = (1 - (rend_normal * gt_normal)) # [B, Nv, 3, H, W]
-            
-            # Apply mask to calculate foreground normal loss
-            foreground_normal_error = gt_normal_error * gt_masks
             num_foreground_pixels = gt_masks.sum()  # Count the number of foreground pixels
-            # Compute the average loss over foreground pixels only
-            if num_foreground_pixels > 0:
-                gt_normal_loss = lambda_normal * (foreground_normal_error.sum() / num_foreground_pixels)
-                # print("foreground_normal_error (gt): ", gt_normal_loss)
-            else:
-                gt_normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
+            # rend_normal = results["rend_normal"]
+            # gt_normal = data['normals_output']
+            # gt_normal_error = (1 - (rend_normal * gt_normal)) # [B, Nv, 3, H, W]
+            
+            # # Apply mask to calculate foreground normal loss
+            # foreground_normal_error = gt_normal_error * gt_masks
+            # # Compute the average loss over foreground pixels only
+            # if num_foreground_pixels > 0:
+            #     gt_normal_loss = lambda_normal * (foreground_normal_error.sum() / num_foreground_pixels)
+            #     # print("foreground_normal_error (gt): ", gt_normal_loss)
+            # else:
+            #     gt_normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
             
             
-            # gt_normal_loss = lambda_normal * (gt_normal_error).mean()
-            results['loss_gt_normal'] = gt_normal_loss
-            loss += gt_normal_loss
-            if iteration % 100 == 0:
-                print(f"iteration: {iteration} loss_gt_normal: {gt_normal_loss}")
+            # # gt_normal_loss = lambda_normal * (gt_normal_error).mean()
+            # results['loss_gt_normal'] = gt_normal_loss
+            # loss += gt_normal_loss
+            # if iteration % 100 == 0:
+            #     print(f"iteration: {iteration} loss_gt_normal: {gt_normal_loss}")
         
-            ### 2dgs regularizations
-            # lambda_dist = self.opt.lambda_dist # if iteration > 3000 else 0.0
-            # print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}")
+            ## 2dgs regularizations
+            lambda_dist = self.opt.lambda_dist if iteration > 3000 else 0.0
 
-            # rend_dist = results["rend_dist"]
+        
+            rend_dist = results["rend_dist"]
             rend_normal  = results['rend_normal']
             surf_normal = results['surf_normal']
 
-            normal_error = (1 - (rend_normal * surf_normal))
+            normal_error = (1 - (rend_normal * surf_normal.detach()))
             # Apply mask to calculate foreground normal loss
             foreground_normal_error = normal_error * gt_masks
             # Compute the average loss over foreground pixels only
@@ -1047,14 +1057,16 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
             
             normal_loss = lambda_normal * (normal_error).mean()
-            # dist_loss = lambda_dist * (rend_dist).mean()
+            dist_loss = lambda_dist * (rend_dist).mean()
 
             # loss
-            # loss = loss + dist_loss
-            # results['dist_loss'] = dist_loss
+            loss = loss + dist_loss
+            results['dist_loss'] = dist_loss
             loss = loss + normal_loss
             results['normal_loss'] = normal_loss
-            # print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}")
+
+            print(f"Iteration: {iteration}, lambda_normal: {lambda_normal}, lambda_dist: {lambda_dist}") if iteration % 200 == 0 else None
+            print(f"dist_loss: {dist_loss}, normal_loss: {normal_loss}") if iteration % 200 == 0 else None
         
                 
         # Calculate metrics
