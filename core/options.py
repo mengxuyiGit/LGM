@@ -260,8 +260,14 @@ class Options:
     pretrained_model_name_or_path: Optional[str] = None
     independent_encode_mv: bool = False
 
+    # D
+    disc_factor: float = 1.0
+    disc_conditional: bool = False
+    discriminator_warm_up_steps: int = 500
+    lambda_discriminator: float = 0.0
+    resume_discriminator: str = None    
     
-
+    
 # all the default settings
 config_defaults: Dict[str, Options] = {}
 config_doc: Dict[str, str] = {}

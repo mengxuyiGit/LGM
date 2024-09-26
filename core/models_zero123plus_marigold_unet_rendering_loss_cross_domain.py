@@ -381,7 +381,7 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
         return image_tensor.permute(2, 0, 1).unsqueeze(0)
     
     
-    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False, iteration=0):
+    def forward(self, data, step_ratio=1, save_path=None, prefix=None, get_decoded_gt_latents=False, iteration=0, optimizer_idx=-1):
         # Gaussian shape: (B*6, 14, H, W)
 
         results = {}
@@ -1078,6 +1078,10 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
             loss = torch.as_tensor(loss, device=psnr.device, dtype=psnr.dtype)
         results['loss'] = loss
         # print("loss: ", loss)
+
+        # # GAN loss
+        if optimizer_idx == 0:
+            results['gt_images'] = gt_images
         
         return results
     

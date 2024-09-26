@@ -176,7 +176,45 @@ def main():
                         accelerator.print(f'[WARN] Parameter {k} not found in model.')
                     else:
                         accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
-    # if 
+    
+    # ## load another decoder ckpt, compare whether the weights are the same
+    # resume_decoder2 = '/home/chenwang/Repo/LGM/runs/finetune_decoder/workspace_decoder_Discriminator/20240947-discriminator_ddp_acc32_GAN_thres0.25_cnt5-loss_render5.0_splatter1.0_lpips5.0-lr5e-06-Plat5/eval_global_step_800_ckpt/model.safetensors'
+    # if resume_decoder2 is not None:
+    #     print(f"Resume from decoder ckpt: {resume_decoder2}")
+    #     if resume_decoder2.endswith('safetensors'):
+    #         ckpt2 = load_file(resume_decoder2, device='cpu')
+    #     else:
+    #         ckpt2 = torch.load(resume_decoder2, map_location='cpu')
+        
+    # #    # comapre the weights of ckpt and ckpt2
+    # #     for k, v in ckpt.items():
+    # #         if k in ckpt2:
+    # #             if not torch.equal(ckpt[k], ckpt2[k]):
+    # #                 print(f"Weight mismatch: {k}")
+    # #         else:
+    # #             print(f"Key not found in ckpt2: {k}")
+    # #     for k, v in ckpt2.items():
+    # #         if k not in ckpt:
+    # #             print(f"Key of ckt2 not found in ckpt: {k}")
+    #     # st()
+    
+    #     # comapre the weights of ckpt and ckpt2
+    #     for k, v in ckpt2.items():
+    #         if k in model.state_dict():
+    #             if not torch.equal(ckpt2[k], model.state_dict()[k].detach().cpu()):
+    #                 print(f"Weight mismatch 2: {k}")
+    #         else:
+    #             print(f"Key not found in model: {k}")
+    #     st()
+    #     # comapre the weights of ckpt and ckpt2
+    #     for k, v in ckpt.items():
+    #         if k in model.state_dict():
+    #             if not torch.equal(ckpt[k], model.state_dict()[k].detach().cpu()):
+    #                 print(f"Weight mismatch 1: {k}")
+    #         else:
+    #             print(f"Key not found in model: {k}")
+    #     st()
+
     
     # torch.cuda.empty_cache()
     
@@ -247,8 +285,27 @@ def main():
     # create a discrimintor
     from core.discriminator import DiscriminatorModel
     discriminator_model = DiscriminatorModel(opt)
+    if opt.resume_discriminator is not None:
+        print(f"Resume from discriminator ckpt: {opt.resume_discriminator}")
+        if opt.resume_discriminator.endswith('safetensors'):
+            ckpt = load_file(opt.resume_discriminator, device='cpu')
+        else:
+            ckpt = torch.load(opt.resume_discriminator, map_location='cpu')
+        
+        state_dict = discriminator_model.state_dict()
+        for k, v in ckpt.items():
+            if k in state_dict and state_dict[k].shape == v.shape:
+                print(f"Copying {k}")
+                state_dict[k].copy_(v)
+            else:
+                if k not in state_dict:
+                    accelerator.print(f'[WARN] Parameter {k} not found in model.')
+                else:
+                    accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+
+    # optimizer for discriminator
     parameters_list_disc = [para for name, para in discriminator_model.named_parameters()]
-    optimizer_disc = torch.optim.AdamW(parameters_list_disc, lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
+    optimizer_disc = torch.optim.AdamW(parameters_list_disc, lr=2e-4, weight_decay=0.05, betas=(0.9, 0.95))
     
     optimizers = [optimizer, optimizer_disc]
     optimizer_loss_keys = [
@@ -340,7 +397,7 @@ def main():
             
             train_dataloader_iterable = cycle(train_dataloader)
             loss_d = 100
-            disc_cnt = -5
+            disc_cnt = -10
 
             for i in tqdm(range(actual_loader_len), total=actual_loader_len, disable=(opt.verbose_main), desc = f"Training epoch {epoch}"):
                 print("current steps: ", i)
@@ -353,9 +410,9 @@ def main():
                 loss_g = 0
 
                 # if global_step > opt.discriminator_warm_up_steps:
-                if loss_d < 0.25 :
+                if loss_d < 0.70:
                     disc_cnt += 1
-                if disc_cnt > 0:# discriminator is trained quite good
+                if disc_cnt > 0:# discriminator is trained quite gooe
                     optimizer_idx = 0
                     optimizer.zero_grad()
                   
@@ -368,6 +425,7 @@ def main():
                         # initial_weights = store_initial_weights(discriminator_model)
 
                         out = model(data, optimizer_idx=0)
+                        # out = model(data) # ignore optimizer_idx, always 0
                         
                         # g loss
                         disc_cond = data['cond'] if opt.disc_conditional else None
@@ -412,19 +470,21 @@ def main():
                         accelerator.clip_grad_norm_(model.parameters(), opt.gradient_clip)
 
                     optimizer.step()
-                    print(f"lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
+                    print(f"[G] lossback: {loss_keys} - {[out[_lk].detach().item() for _lk in loss_keys]}")
                     # print("G loss")
-                    # print("-----------> G opt step")
+                    print("-----------> G opt step")
                     # compare_weights(initial_weights=initial_weights, model=model)
                     # compare_weights(initial_weights=initial_weights, model=discriminator_model)
             
                 # else:
-                for j in range(opt.gradient_accumulation_steps):
+                # for j in range(opt.gradient_accumulation_steps):
+                for j in range(16):
                     # print(f"no grad G {j}")
                 
                     data = next(train_dataloader_iterable)
                     with torch.no_grad():
                         out = model(data, optimizer_idx=0)
+                        # out = model(data) # ignore optimizer_idx, always 0
                 
                         if cache_images:
                             gen_images_cache.append(out['images_pred'].detach())
@@ -443,14 +503,18 @@ def main():
                     gen_all = torch.cat(gen_images_cache)
 
                     small_batch_size = 16
-                    assert len(gen_images_cache) % small_batch_size == 0
-                    small_batches = len(gen_images_cache) // small_batch_size
+                    # assert len(gen_all) % small_batch_size == 0
+                    # print(f"D total batch size: {len(gen_all) * accelerator.num_processes}")
+                    small_batches = len(gen_all) // small_batch_size
                     
                     for bs in range(small_batches):
                         real_batch = real_all[bs*small_batch_size:(bs+1)*small_batch_size]
                         gen_batch = gen_all[bs*small_batch_size:(bs+1)*small_batch_size]
                         disc_cond_batch = disc_cond[bs*small_batch_size:(bs+1)*small_batch_size]
+                        # disc_cond_batch = None
                         lossback = discriminator_model.module.calculate_d_loss(real_batch, gen_batch, cond=disc_cond_batch)
+                        # print(f"fixed lossback = 1")
+                        # lossback = lossback * 0 + 0.693
                     
                         # print(f"lossback of d: {lossback}")
                         lossback /= small_batches
@@ -464,6 +528,7 @@ def main():
                         data = next(train_dataloader_iterable)
                         with torch.no_grad():
                             out = model(data, optimizer_idx=0)
+                            # out = model(data) # ignore optimizer_idx, always 0
 
                         disc_cond = data['cond'] if opt.disc_conditional else None
                         out['loss_d'] = discriminator_model.module.calculate_d_loss(out['gt_images'], out['images_pred'], cond=disc_cond)
@@ -487,7 +552,7 @@ def main():
                     accelerator.clip_grad_norm_(discriminator_model.parameters(), opt.gradient_clip)
                 
                 optimizer_disc.step()
-                print(f"lossback of d: {lossback}")
+                print(f"[D] loss_d: {loss_d}")
                 # print("-----------> D opt step")
                 # compare_weights(initial_weights=initial_weights, model=discriminator_model)
                 # compare_weights(initial_weights=initial_weights, model=model)
@@ -505,36 +570,30 @@ def main():
                     writer.add_scalar('train/D/loss_d', loss_d.item(), global_step)
                 
                       
-                if opt.finetune_decoder:
-                    pass
-                    # logs = {"step_loss_rendering": out['loss'].detach().item(), "step_loss_splatter": out['loss_splatter'].detach().item(), "step_loss_G": out['loss_g'].detach().item(), "lr": optimizers[0].param_groups[0]['lr']} 
-                    # logs.update({"step_loss_D": out['loss_d'].detach().item(), "lr": optimizers[1].param_groups[0]['lr']})
-                else:
-                    # logs = {"step_loss_latent": loss_latent.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
-                    pass
+                # if opt.finetune_decoder:
+                #     pass
+                #     # logs = {"step_loss_rendering": out['loss'].detach().item(), "step_loss_splatter": out['loss_splatter'].detach().item(), "step_loss_G": out['loss_g'].detach().item(), "lr": optimizers[0].param_groups[0]['lr']} 
+                #     # logs.update({"step_loss_D": out['loss_d'].detach().item(), "lr": optimizers[1].param_groups[0]['lr']})
+                # else:
+                #     # logs = {"step_loss_latent": loss_latent.detach().item(), "lr": optimizer.param_groups[0]['lr']} 
+                #     pass
                 
                 
                 # checkpoint
                 # if epoch > 0 and epoch % opt.save_iter == 0:
                 if global_step > 0 and global_step % opt.save_iter == 0 and not os.path.exists(os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt")): # save by global step, not epoch
-                    accelerator.wait_for_everyone()
-                    accelerator.save_model(model, opt.workspace)
-                    # save a copy 
-                    accelerator.wait_for_everyone()
-                    print("Saving a COPY of new ckpt ...")
-                    accelerator.save_model(model, os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt"))
-                    print("Saved a COPY of new ckpt !!!")
+                    if disc_cnt > 0:
+                        accelerator.wait_for_everyone()
+                        accelerator.save_model(model, opt.workspace)
+                        # save a copy 
+                        accelerator.wait_for_everyone()
+                        print("Saving a COPY of new ckpt ...")
+                        accelerator.save_model(model, os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt"))
+                        print("Saved a COPY of new ckpt !!!")
 
                     # save Discriminator
                     accelerator.save_model(discriminator_model, f"{opt.workspace}/discriminator")
-                    
-                    # save a copy 
-                    accelerator.wait_for_everyone()
-                    print("Saving a COPY of new ckpt ...")
-                    accelerator.save_model(model, os.path.join(opt.workspace, f"eval_global_step_{global_step}_ckpt"))
-                    print("Saved a COPY of new ckpt !!!")
-
-                    # torch.cuda.empty_cache()
+             
 
                 # if epoch % opt.eval_iter == 0: 
                 # if global_step % opt.eval_iter == 0:  # eval by global step, not epoch

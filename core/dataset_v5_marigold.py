@@ -207,17 +207,21 @@ class ObjaverseDataset(Dataset):
         else:
             invalid_objects = []
         
-        valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        # valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        valid_list = '/mnt/kostas-graid/datasets/chenwang/valid_paths.json'
         if valid_list is not None:
             print(f"ALSO Filter valid objects by {valid_list}")
             with open(valid_list) as f:
                 valid_objects = json.load(f)
-                print(f"valid_objects: {len(valid_objects)}")
+                # print(f"valid_objects: {len(valid_objects)}")
         
         
         print(f"Before filtering {len(all_scene_paths)} scenes in total")
             
-        for scene_path in all_scene_paths:
+        for i, scene_path in enumerate(all_scene_paths):
+            # if i > 200:
+            #     break
+            
 
             if self.opt.overfit_one_scene and len(self.data_path_vae_splatter) > 3:
                 break
@@ -261,7 +265,7 @@ class ObjaverseDataset(Dataset):
             self.items = self.items[-self.opt.batch_size*10:]
        
 
-        print(f"There are total {len(self.items)} in dataloader")
+        print(f"[final {'train' if self.training else 'test'}] total {len(self.items)} in dataloader")
         
 
         # default camera intrinsics

@@ -155,8 +155,9 @@ class NLayerDiscriminator(nn.Module):
         """Standard forward."""
         return self.main(input)
     
-
+import torch.nn.functional as F
 def hinge_d_loss(logits_real, logits_fake):
+    # print("hinge_d_loss")
     loss_real = torch.mean(F.relu(1. - logits_real))
     loss_fake = torch.mean(F.relu(1. + logits_fake))
     d_loss = 0.5 * (loss_real + loss_fake)
@@ -188,7 +189,7 @@ class DiscriminatorModel(nn.Module):
                                                  use_actnorm=use_actnorm,
                                                  ndf=disc_ndf
                                                  ).apply(weights_init)
-        disc_loss = "vanilla"
+        disc_loss = "hinge"
         if disc_loss == "hinge":
                 self.disc_loss = hinge_d_loss
         elif disc_loss == "vanilla":
@@ -206,12 +207,17 @@ class DiscriminatorModel(nn.Module):
         cond = torch.repeat_interleave(cond, pred_images.shape[1], dim=0).permute(0,3,1,2).to(torch.float32) / 255.0
         gt_images = einops.rearrange(gt_images, 'b n c h w -> (b n) c h w')
         pred_images = einops.rearrange(pred_images, 'b n c h w -> (b n) c h w')
-
+      
         # images_to_save = einops.rearrange(torch.cat([cond, gt_images, pred_images], dim=-2), "(b v) c h w -> (b h) (v w) c", v=20)
         # kiui.write_image(f'd_loss_cond_1.jpg', images_to_save)
         # st()
         
         if cond is not None:
+            if cond.shape[-2:] != gt_images.shape[-2:]:
+                gt_images = nn.functional.interpolate(gt_images, size=cond.shape[-2:], mode='bilinear', align_corners=False, antialias=True)
+                pred_images = nn.functional.interpolate(pred_images, size=cond.shape[-2:], mode='bilinear', align_corners=False, antialias=True)
+                
+            # print(cond.shape, gt_images.shape, pred_images.shape)
             logits_real = self.discriminator(torch.cat((gt_images.contiguous().detach(), cond), dim=1))
             logits_fake = self.discriminator(torch.cat((pred_images.contiguous().detach(), cond), dim=1))
         else:
@@ -225,7 +231,10 @@ class DiscriminatorModel(nn.Module):
     def calculate_g_loss(self, pred_images, cond=None):
         cond = torch.repeat_interleave(cond, pred_images.shape[1], dim=0).permute(0,3,1,2).to(torch.float32) / 255.0
         pred_images = einops.rearrange(pred_images, 'b n c h w -> (b n) c h w')
-        
+
+        if cond.shape[-2:] != pred_images.shape[-2:]:
+            pred_images = nn.functional.interpolate(pred_images, size=cond.shape[-2:], mode='bilinear', align_corners=False, antialias=True)
+                
         if cond is not None:
             # print("use cond")
             logits_fake = self.discriminator(torch.cat((pred_images.contiguous(), cond), dim=1))
