@@ -996,8 +996,9 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                     F.interpolate(gt_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False), 
                     F.interpolate(pred_images.view(-1, 3, self.opt.output_size, self.opt.output_size) * 2 - 1, (256, 256), mode='bilinear', align_corners=False),
                 )
-                loss_lpips = _rendering_w_t * torch.mean(einops.rearrange(loss_lpips.flatten(), "(B N) -> B N", B=B), dim=1)
-                loss_lpips = loss_lpips.mean()
+                loss_lpips = torch.mean(einops.rearrange(loss_lpips.flatten(), "(B N) -> B N", B=B), dim=1)
+                # results['metric_lpips'] = loss_lpips
+                loss_lpips = (_rendering_w_t * loss_lpips).mean()
             except:
                 loss_lpips = loss # torch.ones_like(loss)
                 
@@ -1071,7 +1072,8 @@ class Zero123PlusGaussianMarigoldUnetCrossDomain(nn.Module):
                 
         # Calculate metrics
         # TODO: add other metrics such as SSIM
-        psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
+        # psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2))
+        psnr = -10 * torch.log10(torch.mean((pred_images.detach() - gt_images) ** 2, dim=np.arange(1, pred_images.dim()).tolist()))
         results['psnr'] = psnr.detach()
         
         if isinstance(loss, int):
