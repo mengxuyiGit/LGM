@@ -231,7 +231,7 @@ class LGM(nn.Module):
         
         
             # # 2. add depth loss with gt
-        # lambda_depth = self.opt.lambda_depth if iteration > self.opt.normal_depth_begin_iter else 0.0
+            lambda_depth = self.opt.lambda_depth if iteration > self.opt.normal_depth_begin_iter else 0.0
             # render_depths = results['surf_depth']
             # target_depths = data['depths_output'] # [B, V, 1, output_size, output_size]
             # target_alphas = gt_masks

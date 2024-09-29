@@ -91,12 +91,13 @@ class gobjverse(torch.utils.data.Dataset):
             src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
             view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
-        # fixed_input_views = np.arange(25, 37)[::3].tolist() + [26, 36] # + [2,22] # equals to the original GOBjaverse 27, 30, 33, 36, 2, 22 (because h5 do not include the 25,26 views)
-        fixed_input_views = np.arange(0, 24)[::6].tolist() + [2, 22]
+        fixed_input_views = np.arange(25, 37)[::3].tolist() + [26, 36] # + [2,22] # equals to the original GOBjaverse 27, 30, 33, 36, 2, 22 (because h5 do not include the 25,26 views)
+        # fixed_input_views = np.arange(0, 24)[::6].tolist() + [2, 22]
         view_id = fixed_input_views + np.random.permutation(np.arange(0,38))[:(self.opt.num_views-self.opt.num_input_views)].tolist()
-        # print("view_id", fixed_input_views)
+        print("view_id", fixed_input_views)
 
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts = self.read_views(scene_info, view_id, scene_name)
+        # print("tar_ele", tar)
 
         results = {}
     
@@ -110,9 +111,14 @@ class gobjverse(torch.utils.data.Dataset):
         # normalized camera feats as in paper (transform the first pose to a fixed position)
         radius = torch.norm(cam_poses[0, :3, 3])
         cam_poses[:, :3, 3] *= self.opt.cam_radius / radius
-        transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
-        cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
         
+        normalize_camposes = False
+        if normalize_camposes:
+            transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
+            cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+            print("normalize camposes")
+        else:
+            transform = torch.eye(4, dtype=torch.float32)
         
         # print("normals range: ", normals.permute(0,2,3,1).reshape(-1,3).max(dim=0)[0], normals.permute(0,2,3,1).reshape(-1,3).min(dim=0)[0]) # in range (-1,1)
         # TODO: normalize normal to [0, 1], AS InstantMesh does
@@ -212,8 +218,10 @@ class gobjverse(torch.utils.data.Dataset):
             c2w[1] *= -1
             c2w[[1, 2]] = c2w[[2, 1]]
             c2w[:3, 1:3] *= -1 # invert up and forward direction
-            
-        w2c = np.linalg.inv(c2w)
+        try:   
+            w2c = np.linalg.inv(c2w)
+        except:
+            print("c2w", c2w)
         fov = np.array(scene[f'fov_{view_idx}'], dtype=np.float32)
         ixt = fov_to_ixt(fov, self.img_size)
         return ixt, c2w, w2c
