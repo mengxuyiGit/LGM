@@ -26,7 +26,7 @@ def fov_to_ixt(fov, reso):
 
 class gobjverse(torch.utils.data.Dataset):
     # def __init__(self, cfg):
-    def __init__(self, opt: Options, name=None, training=True):
+    def __init__(self, opt: Options, name=None, training=True, process_id=None):
         super(gobjverse, self).__init__()
         self.cfg = opt
         self.opt = opt
@@ -50,9 +50,18 @@ class gobjverse(torch.utils.data.Dataset):
             i_test = np.arange(len(scenes_name))[::10][:10] # only test 10 scenes
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
-            if opt.overfit_one_scene:
-                i_test = [0]
-                i_train = i_test*1000
+                        
+            # if opt.overfit_one_scene:
+            #     i_test = [0]
+            #     i_train = i_test*1000
+            
+            # ### split for faster filtering
+            # n_scenes_split = 68000
+            # assert n_scenes_split * 4 > len(i_train)
+            # i_train = i_train[process_id*n_scenes_split:(process_id+1)*n_scenes_split]
+            # print("-------> Dataset_ida:", process_id, "from", process_id*n_scenes_split, "to", (process_id+1)*n_scenes_split)
+            # self.process_id = process_id    
+                
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
             print("Number of scenes", len(self.scenes_name))
             
@@ -70,9 +79,23 @@ class gobjverse(torch.utils.data.Dataset):
         self.proj_matrix[2, 2] = (self.opt.zfar + self.opt.znear) / (self.opt.zfar - self.opt.znear)
         self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
         self.proj_matrix[2, 3] = 1
-       
+        
+        self.fixed_input_views = np.arange(25, 37)[::3].tolist() + [26, 36] # + [2,22] # equals to the original GOBjaverse 27, 30, 33, 36, 2, 22 (because h5 do not include the 25,26 views)
+        # fixed_input_views = np.arange(0, 24)[::6].tolist() + [2, 22]
+        print("fixed_input_views", self.fixed_input_views)
+    
     
     def __getitem__(self, index):
+        
+        try :
+            return self.__getitem_sub__(index)
+        except Exception as e:
+            print("Error in __getitem__", e)
+            back_index = np.random.randint(0, 10)
+            return self.__getitem_sub__(back_index)
+            
+    
+    def __getitem_sub__(self, index):
     
         scene_name = self.scenes_name[index]
         # print("scene_name", scene_name)
@@ -91,10 +114,8 @@ class gobjverse(torch.utils.data.Dataset):
             src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
             view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
-        fixed_input_views = np.arange(25, 37)[::3].tolist() + [26, 36] # + [2,22] # equals to the original GOBjaverse 27, 30, 33, 36, 2, 22 (because h5 do not include the 25,26 views)
-        # fixed_input_views = np.arange(0, 24)[::6].tolist() + [2, 22]
-        view_id = fixed_input_views + np.random.permutation(np.arange(0,38))[:(self.opt.num_views-self.opt.num_input_views)].tolist()
-        print("view_id", fixed_input_views)
+        view_id = self.fixed_input_views + np.random.permutation(np.arange(0,38))[:(self.opt.num_views-self.opt.num_input_views)].tolist()
+        # print("view_id", view_id)
 
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts = self.read_views(scene_info, view_id, scene_name)
         # print("tar_ele", tar)
@@ -202,6 +223,10 @@ class gobjverse(torch.utils.data.Dataset):
             img, normal, mask = self.read_image(scene, idx, bg_color, scene_name)
             imgs.append(img)
             ixt, ext, w2c = self.read_cam(scene, idx)
+            if w2c is None:
+                print("scene_name", scene_name, img.shape, normal.shape, mask.shape)
+                # with open(f"error_scene_{self.process_id}.txt", "a") as f:
+                    # f.write(scene_name+'\n')
             ixts.append(ixt)
             exts.append(ext)
             w2cs.append(w2c)
@@ -222,6 +247,7 @@ class gobjverse(torch.utils.data.Dataset):
             w2c = np.linalg.inv(c2w)
         except:
             print("c2w", c2w)
+            w2c = None
         fov = np.array(scene[f'fov_{view_idx}'], dtype=np.float32)
         ixt = fov_to_ixt(fov, self.img_size)
         return ixt, c2w, w2c

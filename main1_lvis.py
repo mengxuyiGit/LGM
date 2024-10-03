@@ -139,17 +139,18 @@ def main():
     else:
         raise NotImplementedError
 
-    train_dataset = Dataset(opt, training=True)
+    train_dataset = Dataset(opt, training=True, process_id=accelerator.process_index)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=opt.batch_size,
         shuffle=True,
+        # shuffle=False,
         num_workers=opt.num_workers,
         pin_memory=True,
         drop_last=True,
     )
 
-    test_dataset = Dataset(opt, training=False)
+    test_dataset = Dataset(opt, training=False, process_id=accelerator.process_index)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=opt.batch_size,
@@ -158,6 +159,10 @@ def main():
         pin_memory=True,
         drop_last=False,
     )
+
+    # with open(f"error_scene_{accelerator.process_index}.txt", "a") as f:
+    #     f.write("\n\n ---- Start over all data in train dataloader!-----"+'\n')
+    # print("Looped over all data in train dataloader!")
 
     # optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=0.05, betas=(0.9, 0.95))
@@ -242,6 +247,8 @@ def main():
         log_loss_2dgs_depth = torch.tensor([0])
         
         for i, data in enumerate(train_dataloader):
+
+            # continue
             with accelerator.accumulate(model):
 
                 optimizer.zero_grad()
@@ -347,7 +354,7 @@ def main():
 
             # checkpoint
             # if epoch % 1 == 0 or epoch == opt.num_epochs - 1:
-            if i % 1000 == 0:
+            if i % 2000 == 0:
                 accelerator.wait_for_everyone()
                 # accelerator.save_model(model, opt.workspace)
                 accelerator.save_model(model, os.path.join(opt.workspace, f"model_epoch_{epoch}_iter_{i}"))
@@ -406,7 +413,10 @@ def main():
                         writer.add_scalar('eval/psnr', total_psnr_eval.item(), step)
 
 
-
+        # with open(f"error_scene_{accelerator.process_index}.txt", "a") as f:
+        #     f.write("\n\n ---- Looped over all data in train dataloader!-----"+'\n')
+        # print("Looped over all data in train dataloader!")
+        # exit()
         
         total_loss = accelerator.gather_for_metrics(total_loss).mean()
         total_psnr = accelerator.gather_for_metrics(total_psnr).mean()
